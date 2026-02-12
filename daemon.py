@@ -16,7 +16,7 @@ class WaylandSwitcher:
         self.trigrams = self.load_trigrams()
         
         # Создаем виртуальное устройство
-        self.ui = UInput.from_device(self.keyboard, name="GnomeSwitcher-Virtual")
+        self.ui = UInput.from_device(self.keyboard, name="WaySwitch-Virtual")
         
     def load_trigrams(self):
         try:
@@ -31,7 +31,7 @@ class WaylandSwitcher:
     def get_keyboard(self):
         devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
         for device in devices:
-            if "keyboard" in device.name.lower() and "GnomeSwitcher" not in device.name:
+            if "keyboard" in device.name.lower() and "WaySwitch" not in device.name:
                 return device
         return None
 
