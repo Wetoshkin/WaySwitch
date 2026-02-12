@@ -6,12 +6,12 @@ from gi.repository import Gtk, Adw, Gio
 class SwitcherWindow(Gtk.ApplicationWindow):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.set_title("GnomeSwitcher Настройки")
+        self.set_title("WaySwitch Настройки")
         self.set_default_size(400, 300)
 
         # Основной контейнер
         view = Adw.StatusPage()
-        view.set_title("GnomeSwitcher")
+        view.set_title("WaySwitch")
         view.set_description("Аналог Punto Switcher для Wayland")
         view.set_icon_name("preferences-desktop-keyboard")
 
@@ -70,7 +70,7 @@ class SwitcherWindow(Gtk.ApplicationWindow):
 
 class SwitcherApp(Adw.Application):
     def __init__(self, **kwargs):
-        super().__init__(application_id='ru.siberia.GnomeSwitcher',
+        super().__init__(application_id='ru.siberia.WaySwitch',
                          flags=Gio.ApplicationFlags.FLAGS_NONE)
 
     def do_activate(self):
