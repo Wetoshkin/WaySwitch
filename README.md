@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.svg" width="128" height="128" alt="WaySwitch Logo">
+  <img src="logo.svg?v=1" width="128" height="128" alt="WaySwitch Logo">
 </p>
 
 # ⌨️ WaySwitch
