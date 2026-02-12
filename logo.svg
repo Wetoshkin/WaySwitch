@@ -1,24 +1,28 @@
 <svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect x="16" y="16" width="224" height="224" rx="64" fill="#241F31"/>
-    
-    <path d="M40 16H216C229.255 16 240 26.7452 240 40V128C240 128 240 32 128 32C16 32 16 128 16 128V40C16 26.7452 26.7452 16 40 16Z" fill="white" fill-opacity="0.05"/>
-
-    <g filter="url(#filter0_d_shadow)">
-        <path d="M68 84C68 75.1634 75.1634 68 84 68H96C104.837 68 112 75.1634 112 84V136C112 153.673 126.327 168 144 168H164" stroke="#3584E4" stroke-width="24" stroke-linecap="round"/>
-        
-        <path d="M188 172C188 180.837 180.837 188 172 188H160C151.163 188 144 180.837 144 172V120C144 102.327 129.673 88 112 88H92" stroke="#C061CB" stroke-width="24" stroke-linecap="round"/>
-    </g>
-
     <defs>
-        <filter id="filter0_d_shadow" x="52" y="56" width="152" height="152" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+        <filter id="filter0_d_shadow" x="40" y="48" width="176" height="168" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
             <feFlood flood-opacity="0" result="BackgroundImageFix"/>
             <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
-            <feOffset dy="4"/>
-            <feGaussianBlur stdDeviation="4"/>
+            <feOffset dy="8"/>
+            <feGaussianBlur stdDeviation="8"/>
             <feComposite in2="hardAlpha" operator="out"/>
             <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0"/>
             <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow"/>
             <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow" result="shape"/>
         </filter>
     </defs>
+
+    <g filter="url(#filter0_d_shadow)">
+        <rect x="56" y="64" width="120" height="120" rx="32" transform="rotate(-15 116 124)" fill="#3584E4"/>
+        
+        <rect x="104" y="64" width="120" height="120" rx="32" transform="rotate(-15 164 124)" fill="#F6D32D"/>
+        
+        <path d="M150.168 64.884C141.83 62.6696 133.097 63.4611 125.342 67.1775L111.58 74.5608C101.673 79.8679 96.4646 91.3769 99.2555 102.332L103.846 120.338C106.637 131.293 116.621 138.771 127.773 138.492L144.355 138.078C155.507 137.799 165.194 129.621 167.836 118.629L172.181 100.55C174.823 89.5579 171.374 78.0006 163.863 70.691L150.168 64.884Z" fill="#1C71D8" fill-opacity="0.6"/>
+
+        <path d="M122 128H148V114L170 135L148 156V142H122V128Z" fill="#1C71D8"/>
+
+        <text x="82" y="142" fill="white" font-family="sans-serif" font-weight="bold" font-size="48" text-anchor="middle">W</text>
+
+        <text x="190" y="142" fill="white" font-family="sans-serif" font-weight="bold" font-size="48" text-anchor="middle">Ц</text>
+    </g>
 </svg>
