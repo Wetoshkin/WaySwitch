@@ -13,6 +13,15 @@ from wayswitch.gui.tray import StatusNotifier
 APP_ID = "ru.siberia.WaySwitch"
 
 
+def parse_gui_args(argv: list[str]) -> bool:
+    """Разобрать argv GUI: единственный поддерживаемый флаг — ``--tray``.
+
+    Возвращает True, если запрошен запуск без окна (только значок в трее).
+    Чистая функция — не трогает ни gi, ни sys.argv, годится для юнит-теста.
+    """
+    return "--tray" in argv
+
+
 def main(argv: list[str] | None = None) -> int:
     import gi
 
@@ -21,7 +30,7 @@ def main(argv: list[str] | None = None) -> int:
     from gi.repository import Adw, Gio, Gtk
 
     argv = sys.argv[1:] if argv is None else argv
-    tray_only = "--tray" in argv
+    tray_only = parse_gui_args(argv)
 
     class Window(Adw.ApplicationWindow):
         def __init__(self, app, proxy: DaemonProxy):
@@ -124,6 +133,9 @@ def main(argv: list[str] | None = None) -> int:
             self.sp_undo = Adw.SpinRow.new_with_range(0, 60, 1)
             self.sp_undo.set_title("Окно отката, с")
             self.sp_undo.set_subtitle("Жест в это время возвращает слово и учит исключение")
+            # undo_window_sec — float (например, 5.0/0.5); без set_digits
+            # SpinRow молча округляет ввод до целого.
+            self.sp_undo.set_digits(1)
             self.sp_undo.set_value(self.cfg.general.undo_window_sec)
             g2.add(self.sp_undo)
             page.add(g2)
@@ -273,4 +285,8 @@ def main(argv: list[str] | None = None) -> int:
             cfgmod.save(cfg)
             self.proxy.call("Reload")
 
-    return App().run([sys.argv[0]] + [a for a in argv if a != "--tray"])
+    # Приложение не умеет открывать файлы (FLAGS_NONE): любой позиционный
+    # аргумент кроме имени программы приводит к ошибке GApplication
+    # («This application can not open files») и коду выхода 1. --tray уже
+    # разобран выше — в run() он и всё остальное из argv не передаётся.
+    return App().run([sys.argv[0]])

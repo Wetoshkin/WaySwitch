@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from pathlib import Path
+
+log = logging.getLogger("wayswitch.gui")
 
 SERVICE = "wayswitch.service"
 DESKTOP_NAME = "ru.siberia.WaySwitch.desktop"
@@ -26,14 +29,23 @@ def tray_desktop_text() -> str:
 
 
 def is_service_enabled() -> bool:
-    r = subprocess.run(["systemctl", "--user", "is-enabled", SERVICE],
-                       capture_output=True, text=True)
+    # systemctl может отсутствовать (не systemd-система) или упасть иначе —
+    # это не повод ронять GUI, просто считаем автозапуск выключенным.
+    try:
+        r = subprocess.run(["systemctl", "--user", "is-enabled", SERVICE],
+                           capture_output=True, text=True)
+    except (FileNotFoundError, OSError) as e:
+        log.warning("systemctl недоступен: %s", e)
+        return False
     return r.stdout.strip() == "enabled"
 
 
 def set_service_enabled(on: bool) -> None:
-    subprocess.run(["systemctl", "--user", "enable" if on else "disable", "--now", SERVICE],
-                   check=False)
+    try:
+        subprocess.run(["systemctl", "--user", "enable" if on else "disable", "--now", SERVICE],
+                       check=False)
+    except (FileNotFoundError, OSError) as e:
+        log.warning("systemctl недоступен: %s", e)
 
 
 def is_tray_enabled() -> bool:
