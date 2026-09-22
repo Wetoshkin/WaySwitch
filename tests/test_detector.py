@@ -2,7 +2,7 @@ import pytest
 
 from tests.fakes import RU, US, K, keys_for_text, make_keymap
 from wayswitch import keycodes as kc
-from wayswitch.detector import SENSITIVITY, Detector, LanguageModel
+from wayswitch.detector import SENSITIVITY, Detector, LanguageModel, Sensitivity
 
 RU_ALPHABET = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
 EN_ALPHABET = "abcdefghijklmnopqrstuvwxyz"
@@ -100,11 +100,20 @@ def test_exception_list_blocks_fix(det):
 
 
 def test_context_doubles_margin_for_ngram_path(det):
-    # То же слово, но после двух английских словарных слов порог удваивается.
+    # То же слово («книгой»), но margin подобран так, что при удвоении для
+    # контекста (a.lang, a.lang) решение меняется с fix на keep.
     keys = typed("rybujq", US)
-    assert det.decide(keys, US, RU).action == "fix"
-    d = det.decide(keys, US, RU, context=("en", "en"))
-    assert d.reason.startswith("ngram") or d.action == "keep"
+    a = det.hypothesis(keys, US)
+    b = det.hypothesis(keys, RU)
+    assert a.valid and not a.in_dict
+    assert b.valid and not b.in_dict
+    delta = det.models[b.lang].score(b.core) - det.models[a.lang].score(a.core)
+    margin = delta * 0.75  # delta >= margin, но delta < 2 * margin
+    sens = Sensitivity(min_length=3, margin=margin, floor=-10.0)
+    d2 = Detector(det.keymap, det.models, exceptions=set(), sensitivity=sens)
+    assert d2.decide(keys, US, RU, context=(None, None)).action == "fix"
+    assert d2.decide(keys, US, RU, context=("ru", "ru")).action == "fix"
+    assert d2.decide(keys, US, RU, context=("en", "en")).action == "keep"
 
 
 def test_word_language(det):
