@@ -129,6 +129,10 @@ class Controller:
         if value == 1 and self._pause_key is not None and code == self._pause_key:
             (self.resume if self.paused else self.pause)()
             return
+        if self.paused or self.locked:
+            # Пауза/блокировка выключают и ручные жесты — только сам хоткей
+            # паузы (обработан выше) должен продолжать работать.
+            return
         if value == 1 and self.config.gesture.manual == "pause_key" and code == kc.KEY_PAUSE:
             self.manual_word()
             return
@@ -180,19 +184,25 @@ class Controller:
             return None
         return current, 1 - current
 
+    def _context_tuple(self) -> tuple[str | None, str | None]:
+        """`self.context` — deque(maxlen=2), но в начале сессии/фразы в нём
+        может быть 0 или 1 элемент; Detector.decide() ожидает ровно 2-tuple
+        (читает context[-1]/context[-2]) — дополняем слева None."""
+        return (None,) * (2 - len(self.context)) + tuple(self.context)
+
     def _on_word(self, keys: list[KeyPress], device_id: int, code: int) -> None:
         groups = self._groups()
         if groups is None:
             return
         current, other = groups
-        decision = self.detector.decide(keys, current, other, tuple(self.context))
+        decision = self.detector.decide(keys, current, other, self._context_tuple())
         log.debug("слово %r → %s (%s)", decision.a.text, decision.action, decision.reason)
         if decision.action == "fix":
             if self._apply_fix(keys, 1, other, decision.target_text + " ", manual=False,
                                reason=decision.reason, group_before=current,
                                trigger=(device_id, code)):
                 self.context.append(decision.b.lang)
-                return
+            return
         self.context.append(decision.a.lang if decision.a.in_dict else None)
 
     def _on_letter(self, keys: list[KeyPress], device_id: int, code: int) -> None:

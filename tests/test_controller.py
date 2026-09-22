@@ -58,7 +58,14 @@ def double_shift(env, times=2):
 
 
 def typed_text(env):
-    """Что реально напечатал виртуальный демон (после Backspace-ов), в целевой раскладке."""
+    """Что реально напечатал виртуальный демон (после Backspace-ов), в целевой раскладке.
+
+    Декодирует ВСЕ нажатия в ФИНАЛЬНОЙ (на момент вызова) раскладке бэкенда —
+    если по ходу теста было больше одного исправления с переключением
+    раскладки туда-обратно, ранние нажатия декодируются неверно. Сравнение
+    результата с полной строкой имеет смысл только для сценариев с одним
+    исправлением; для остальных используйте endswith()/частичные проверки.
+    """
     taps = env["typist"].taps()
     out = []
     for code, shift in taps:
@@ -236,3 +243,30 @@ def test_manual_word_plain_switch_busy_guard_swallows_reentrant_key(env):
     assert ctrl.manual_word() is True
     assert ctrl.buffer.is_empty()
     assert backend.set_calls == [RU]
+
+
+def test_first_short_word_does_not_crash(env):
+    """В начале сессии context пуст (deque() без элементов), а Detector.decide()
+    для коротких слов читает context[-1] — без дополнения до 2-tuple это IndexError."""
+    type_text(env, "z ")
+    assert typed_text(env) == "\b" * 2 + "я "
+
+
+def test_gestures_blocked_while_paused_or_locked(env):
+    type_text(env, "ghbdtn")
+    env["ctrl"].pause()
+    double_shift(env)
+    assert env["typist"].events == [] and env["backend"].set_calls == []
+    env["ctrl"].resume()
+    env["ctrl"].set_locked(True)
+    type_text(env, "ghbdtn")  # буфер пуст после lock — печатаем заново
+    double_shift(env)
+    assert env["typist"].events == [] and env["backend"].set_calls == []
+
+
+def test_failed_fix_leaves_context_empty(env):
+    env["backend"] = FakeBackend(current=US, fail_switch=True)
+    env["ctrl"].backend = env["backend"]
+    type_text(env, "ghbdtn ")
+    assert list(env["ctrl"].context) == []
+    assert env["ctrl"].buffer.is_empty()
