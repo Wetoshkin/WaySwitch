@@ -61,7 +61,9 @@ export default class WaySwitchExtension extends Extension {
 
     GetLayout() {
         const src = this._ism.currentSource;
-        return src ? [src.index, src.id] : [0, ''];
+        // 0xFFFFFFFF — сигнальное значение «раскладка неизвестна»: индекс 0
+        // был бы неотличим от настоящего первого источника ввода.
+        return src ? [src.index, src.id] : [0xFFFFFFFF, ''];
     }
 
     SetLayout(index) {
@@ -84,18 +86,9 @@ export default class WaySwitchExtension extends Extension {
     }
 
     _tap(keyval) {
-        const t = this._eventTime();
+        // время для виртуального устройства — микросекунды монотонных часов
+        const t = GLib.get_monotonic_time();
         this._vdev.notify_keyval(t, keyval, Clutter.KeyState.PRESSED);
         this._vdev.notify_keyval(t, keyval, Clutter.KeyState.RELEASED);
-    }
-
-    // Mutter периодически чистит устаревшее API своего форка Clutter, и
-    // Clutter.get_current_event_time в части сборок GNOME 46-49 может
-    // отсутствовать. Подстраховываемся откатом на global.get_current_time(),
-    // которым пользуется сам gnome-shell для синтетических событий.
-    _eventTime() {
-        if (typeof Clutter.get_current_event_time === 'function')
-            return Clutter.get_current_event_time();
-        return global.get_current_time();
     }
 }
