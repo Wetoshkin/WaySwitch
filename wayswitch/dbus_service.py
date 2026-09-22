@@ -44,9 +44,11 @@ def _to_variant_dict(status: dict):
 
 
 class DaemonService:
-    def __init__(self, controller, on_reload: Callable[[], None]):
+    def __init__(self, controller, on_reload: Callable[[], None],
+                 on_fatal: Callable[[int], None]):
         self.controller = controller
         self.on_reload = on_reload
+        self.on_fatal = on_fatal
         self._conn = None
 
     def start(self) -> None:
@@ -55,12 +57,18 @@ class DaemonService:
         self._conn = Gio.bus_get_sync(Gio.BusType.SESSION, None)
         node = Gio.DBusNodeInfo.new_for_xml(INTROSPECTION_XML)
         self._conn.register_object(OBJECT_PATH, node.interfaces[0], self._on_call, None, None)
+        # name_acquired_closure=None, name_lost_closure=self._on_name_lost —
+        # последний срабатывает и когда имя вообще не удалось занять (уже
+        # запущен другой экземпляр демона), не только при потере владения.
         Gio.bus_own_name_on_connection(self._conn, BUS_NAME, Gio.BusNameOwnerFlags.NONE,
                                        None, self._on_name_lost)
 
     def _on_name_lost(self, _conn, _name) -> None:
+        # raise SystemExit здесь ненадёжен: колбэк вызывается из GI/GLib,
+        # исключение не долетит до run() предсказуемо — вместо этого просим
+        # демон завершиться штатно через колбэк на mainloop.
         log.error("имя %s занято — демон уже запущен", BUS_NAME)
-        raise SystemExit(3)
+        self.on_fatal(3)
 
     def _on_call(self, _conn, _sender, _path, _iface, method, params, invocation) -> None:
         from gi.repository import GLib
