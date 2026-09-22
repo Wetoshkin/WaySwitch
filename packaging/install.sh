@@ -62,7 +62,7 @@ USER_GID="$(id -gn "$SUDO_USER")"
 USER_UID="$(id -u "$SUDO_USER")"
 sudo -u "$SUDO_USER" mkdir -p "$UNIT_DIR"
 install -o "$SUDO_USER" -g "$USER_GID" -m 644 "$SRC/packaging/wayswitch.service" "$UNIT_DIR/wayswitch.service"
-sudo -u "$SUDO_USER" XDG_RUNTIME_DIR="/run/user/$USER_UID" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$USER_UID/bus" systemctl --user daemon-reload 2>/dev/null || true
+sudo -u "$SUDO_USER" env XDG_RUNTIME_DIR="/run/user/$USER_UID" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$USER_UID/bus" systemctl --user daemon-reload 2>/dev/null || true
 
 echo "== Расширение GNOME Shell"
 EXT_DIR="$USER_HOME/.local/share/gnome-shell/extensions/wayswitch@siberia.ru"
