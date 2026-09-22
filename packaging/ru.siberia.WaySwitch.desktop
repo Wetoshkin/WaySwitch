@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=WaySwitch
+Comment=Настройки автоисправления раскладки
+Exec=wayswitch-gui
+Icon=input-keyboard
+Terminal=false
+Categories=Settings;Utility;
+Keywords=раскладка;layout;punto;
