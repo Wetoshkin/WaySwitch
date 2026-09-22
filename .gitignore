@@ -13,3 +13,8 @@ pip-delete-this-directory.txt
 .anthropic
 .gemini
 .superpowers/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/

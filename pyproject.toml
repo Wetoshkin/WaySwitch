@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wayswitch"
+version = "2.0.0a1"
+description = "Автоисправление раскладки клавиатуры для GNOME/Wayland"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = ["evdev>=1.6", "PyGObject>=3.46"]
+
+[project.scripts]
+wayswitch = "wayswitch.cli:main"
+wayswitch-gui = "wayswitch.gui.app:main"
+
+[tool.setuptools.packages.find]
+include = ["wayswitch*"]
+
+[tool.setuptools.package-data]
+wayswitch = ["data/*.gz", "data/LICENSE"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["extension", "packaging"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
