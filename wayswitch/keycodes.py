@@ -72,8 +72,9 @@ META_KEYS = frozenset({KEY_LEFTMETA, KEY_RIGHTMETA})
 COMMAND_MODIFIERS = CTRL_KEYS | ALT_KEYS | META_KEYS
 MODIFIER_KEYS = SHIFT_KEYS | COMMAND_MODIFIERS
 DIGIT_KEYS = frozenset(range(KEY_1, KEY_0 + 1))
-# Клавиши, которые входят в слово помимо букв: цифры, дефис, равно.
-WORD_EXTRA_KEYS = DIGIT_KEYS | {KEY_MINUS, KEY_EQUAL}
+# Клавиши, которые входят в слово помимо букв: цифры, дефис, равно, слеш
+# (слеш нужен для раннего распознавания URL-схемы — "://" не набирается без него).
+WORD_EXTRA_KEYS = DIGIT_KEYS | {KEY_MINUS, KEY_EQUAL, KEY_SLASH}
 # Клавиши, после которых буфер бессмысленен: каретка переехала или ввод завершён.
 RESET_KEYS = frozenset(
     {
