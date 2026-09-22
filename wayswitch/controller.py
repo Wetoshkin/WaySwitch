@@ -39,7 +39,16 @@ class Controller:
                  on_corrected: Callable[[str, str, bool], None] | None = None,
                  on_status: Callable[[dict], None] | None = None,
                  persist_exception: Callable[[str], None] | None = None,
-                 sleep: Callable[[float], None] = time.sleep):
+                 sleep: Callable[[float], None] = time.sleep,
+                 schedule: Callable[[Callable[[], None]], None] = lambda fn: fn()):
+        """`schedule(fn)` — отложить исполнение вне диспатча источника событий;
+        в демоне — GLib.idle_add. Источник evdev в GLib не реентрантен: пока
+        выполняется его колбэк, события той же клавиатуры не доставляются,
+        поэтому ожидание отпускания и прерывание физическим нажатием работают
+        только если сам фикс исполняется уже после возврата из колбэка.
+        Решение принимается в on_key, исполнение — в отложенном вызове, который
+        сначала проверяет, что буфер не изменился. По умолчанию (тесты) —
+        синхронно."""
         self.config = config
         self.keymap = keymap
         self.detector = detector
@@ -52,6 +61,7 @@ class Controller:
         self.on_status = on_status
         self.persist_exception = persist_exception
         self.sleep = sleep
+        self.schedule = schedule
 
         self.buffer = InputBuffer(keymap, config.general.phrase_timeout_sec)
         self.gesture = ShiftGesture()
@@ -60,6 +70,8 @@ class Controller:
         self.locked = False
         self.busy = False
         self._abort_requested = False
+        self._pending = 0  # отложенных (запланированных, но ещё не исполненных) фиксов
+        self._pending_gesture: str | None = None  # жест, пришедший во время фикса
         self._last_fix: LastFix | None = None
         self.stats = {"corrections": 0, "manual": 0, "undo": 0}
         self._pause_key = kc.KEY_NAMES.get(config.gesture.pause_hotkey.lower()) \
@@ -96,6 +108,8 @@ class Controller:
 
     def pause(self) -> None:
         self.paused = True
+        if self.busy:
+            self._abort_requested = True  # пауза посреди фикса — не дописывать слово
         self.buffer.reset()
         self._emit_status()
 
@@ -105,6 +119,8 @@ class Controller:
 
     def set_locked(self, on: bool) -> None:
         self.locked = on
+        if on and self.busy:
+            self._abort_requested = True  # ничего не печатать на экране блокировки
         self.buffer.reset()
         self.context.clear()
         self._emit_status()
@@ -115,16 +131,25 @@ class Controller:
     # --- входящие события -------------------------------------------------------
 
     def on_key(self, code: int, value: int, device_id: int) -> None:
-        if self.busy:
-            # Физический ввод во время перепечатки — прервать; зажатые клавиши учесть.
-            if value == 1:
-                self._abort_requested = True
-            elif value == 0:
-                self.buffer.note_release(code, device_id)
-            return
         now = self.clock()
+        # Жест прокручиваем всегда, в том числе во время фикса: иначе третий
+        # Shift-тап, пришедший при busy, не будет учтён, и на его отпускании
+        # счётчик снова даст «word» — лишний переворот раскладки.
         gesture = self.gesture.on_key(code, value, now) \
             if self.config.gesture.manual == "double_shift" else None
+        if self.busy:
+            # Физический ввод во время перепечатки — прервать; зажатые клавиши
+            # учесть. Shift-тап не прерывает: он короткий и сам по себе ничего
+            # не печатает, а тройной Shift во время фикса второго — штатный жест.
+            if value == 1:
+                self.buffer.note_press(code, device_id)
+                if code not in kc.SHIFT_KEYS:
+                    self._abort_requested = True
+            elif value == 0:
+                self.buffer.note_release(code, device_id)
+            if gesture:
+                self._pending_gesture = gesture
+            return
         event = self.buffer.feed(code, value, device_id, now)
         if value == 1 and self._pause_key is not None and code == self._pause_key:
             (self.resume if self.paused else self.pause)()
@@ -134,13 +159,16 @@ class Controller:
             # паузы (обработан выше) должен продолжать работать.
             return
         if value == 1 and self.config.gesture.manual == "pause_key" and code == kc.KEY_PAUSE:
-            self.manual_word()
-            return
-        if gesture == "word":
-            self.manual_word()
-            return
-        if gesture == "phrase":
-            self.manual_phrase()
+            gesture = "word"
+        if gesture:
+            if self._pending:
+                # Фикс уже запланирован, но ещё не исполнен (третий тап пришёл
+                # раньше idle): жест обработаем после него, на обновлённом буфере.
+                self._pending_gesture = gesture
+            elif gesture == "word":
+                self.manual_word()
+            else:
+                self.manual_phrase()
             return
         if event is None:
             return
@@ -157,6 +185,9 @@ class Controller:
             self._on_letter(event.keys, device_id, code)
 
     def on_click(self) -> None:
+        if self.busy:
+            self._abort_requested = True  # клик — физический ввод, как и нажатие клавиши
+            return
         self.buffer.click()
         self.context.clear()
 
@@ -198,10 +229,15 @@ class Controller:
         decision = self.detector.decide(keys, current, other, self._context_tuple())
         log.debug("слово %r → %s (%s)", decision.a.text, decision.action, decision.reason)
         if decision.action == "fix":
-            if self._apply_fix(keys, 1, other, decision.target_text + " ", manual=False,
+            lang = decision.b.lang
+
+            def done(ok: bool) -> None:
+                if ok:
+                    self.context.append(lang)
+
+            self._schedule_fix(keys, 1, other, decision.target_text + " ", manual=False,
                                reason=decision.reason, group_before=current,
-                               trigger=(device_id, code)):
-                self.context.append(decision.b.lang)
+                               trigger=(device_id, code), done=done)
             return
         self.context.append(decision.a.lang if decision.a.in_dict else None)
 
@@ -212,12 +248,23 @@ class Controller:
         current, other = groups
         target = self.detector.early_url_target(keys, current, other)
         if target:
-            self._apply_fix(keys, 0, other, target, manual=False, reason="url-early",
-                            group_before=current, trigger=(device_id, code))
+            self._schedule_fix(keys, 0, other, target, manual=False, reason="url-early",
+                               group_before=current, trigger=(device_id, code))
 
     # --- ручной режим -----------------------------------------------------------
 
+    def _manual_allowed(self) -> bool:
+        # Проверяем здесь, а не только в on_key: по D-Bus (FixLastWord/FixPhrase)
+        # вызовы приходят мимо клавиатурного гейта — в том числе реентрантно
+        # из pump() посреди исполняющегося фикса и на экране блокировки.
+        return not (self.busy or self.paused or self.locked)
+
     def manual_word(self) -> bool:
+        """Исправить последнее слово (или откатить, или просто переключить раскладку).
+
+        True — исправление запланировано/выполнено, False — нечего делать."""
+        if not self._manual_allowed():
+            return False
         groups = self._groups()
         if groups is None:
             return False
@@ -238,9 +285,10 @@ class Controller:
                 and word == last.target_keys)
         if undo:
             original = self.keymap.decode(last.original_keys, last.group_before)
-            ok = self._apply_fix(word, tail, last.group_before, original + " " * tail,
-                                 manual=True, reason="undo", group_before=current)
-            if ok:
+
+            def done(ok: bool) -> None:
+                if not ok:
+                    return
                 self._last_fix = None
                 self.stats["undo"] += 1
                 letters = "".join(c for c in original if c.isalpha() or c in "-'").lower()
@@ -248,42 +296,99 @@ class Controller:
                     self.detector.exceptions.add(letters)
                     if self.persist_exception:
                         self.persist_exception(letters)
-            return ok
+
+            self._schedule_fix(word, tail, last.group_before, original + " " * tail,
+                               manual=True, reason="undo", group_before=current, done=done)
+            return True
         text = self.keymap.decode(word, other)
-        return self._apply_fix(word, tail, other, text + " " * tail, manual=True,
-                               reason="manual", group_before=current)
+        self._schedule_fix(word, tail, other, text + " " * tail, manual=True,
+                           reason="manual", group_before=current)
+        return True
 
     def manual_phrase(self) -> bool:
+        if not self._manual_allowed():
+            return False
         current = self.backend.current()
         keys = self.buffer.phrase()
         if current is None or not keys:
             return False
         # Раскладка уже переключена вторым Shift; декодируем всё в текущей группе.
         text = self.keymap.decode(keys, current)
-        return self._apply_fix(keys, 0, current, text, manual=True, reason="phrase",
-                               group_before=current, whole_phrase=True, switch=False)
+        self._schedule_fix(keys, 0, current, text, manual=True, reason="phrase",
+                           group_before=current, whole_phrase=True, switch=False)
+        return True
 
     # --- исполнение -------------------------------------------------------------
+
+    def _schedule_fix(self, keys: list[KeyPress], tail: int, target_group: int, text: str,
+                      *, manual: bool, reason: str, group_before: int,
+                      whole_phrase: bool = False, switch: bool = True,
+                      trigger: tuple[int, int] | None = None,
+                      done: Callable[[bool], None] | None = None) -> None:
+        """Отложить _apply_fix через self.schedule.
+
+        Решение принято по снимку буфера; к моменту исполнения пользователь
+        мог продолжить печатать (роллинг, вторая клавиатура). Поэтому перед
+        печатью сверяем, что буфер по-прежнему заканчивается теми же клавишами,
+        и что другой фикс не исполняется прямо сейчас — иначе отказываемся.
+        """
+        snapshot = list(keys)
+        self._pending += 1
+
+        def run() -> None:
+            self._pending -= 1
+            ok = False
+            try:
+                if self.busy:
+                    log.info("исправление %s отменено: другое исправление в работе", reason)
+                    return
+                if whole_phrase:
+                    unchanged = self.buffer.phrase() == snapshot
+                else:
+                    unchanged = self.buffer.last_word_with_tail() == (snapshot, tail)
+                if not unchanged:
+                    log.info("исправление %s отменено: буфер изменился", reason)
+                    return
+                ok = self._apply_fix(snapshot, tail, target_group, text, manual=manual,
+                                     reason=reason, group_before=group_before,
+                                     whole_phrase=whole_phrase, switch=switch, trigger=trigger)
+            finally:
+                if done is not None:
+                    done(ok)
+                self._run_pending_gesture()
+
+        self.schedule(run)
+
+    def _run_pending_gesture(self) -> None:
+        """Жест, пришедший во время фикса (или пока фикс ждал idle), — на свежем буфере."""
+        gesture, self._pending_gesture = self._pending_gesture, None
+        if gesture is None or self._pending or self.busy or self.paused or self.locked:
+            return
+        (self.manual_word if gesture == "word" else self.manual_phrase)()
 
     def _abort(self) -> bool:
         self.pump()
         return self._abort_requested
 
     def _blocking_keys_held(self, trigger: tuple[int, int] | None) -> bool:
-        """Есть ли физически зажатые небезразличные клавиши, мешающие печати.
+        """Есть ли физически зажатые клавиши, мешающие печати.
 
         Клавиша-триггер (`trigger`) сюда не считается: buffer.feed() кладёт её
-        в _held ещё до генерации события «слово»/«буква», а мы сейчас как раз
-        синхронно внутри обработки её же нажатия — отпускание этой самой
-        клавиши физически не могло прийти раньше, чем мы вернёмся из этого
-        вызова, так что оно не «зависшее», а просто ещё не доставлено.
-        Любая ДРУГАЯ зажатая клавиша (с другого устройства или нажатая раньше)
-        по-прежнему блокирует печать.
+        в _held ещё до генерации события «слово»/«буква», а её отпускание могло
+        ещё не дойти до нас (фикс исполняется в ближайшем idle после нажатия),
+        так что оно не «зависшее», а просто ещё не доставлено. Любая ДРУГАЯ
+        зажатая клавиша (с другого устройства или нажатая раньше) блокирует
+        печать. Shift тоже блокирует: синтетическое отпускание из
+        ReleaseModifiers не сбрасывает физически зажатый Shift в libinput
+        (release с чужого устройства отбрасывается), и перепечатка ушла бы в
+        верхнем регистре; Shift отпускают за миллисекунды, а жест и так
+        срабатывает на отпускании. Ctrl/Alt/Super не считаются: с ними буфер
+        сбрасывается ещё в feed().
         """
         held = self.buffer.held_physical()
         if trigger is not None:
             held = held - {trigger}
-        return bool({code for _, code in held} - kc.MODIFIER_KEYS)
+        return bool({code for _, code in held} - kc.COMMAND_MODIFIERS)
 
     def _wait_release(self, trigger: tuple[int, int] | None = None) -> bool:
         # Дедлайн — по настоящим часам (time.monotonic), а не по self.clock:
@@ -328,6 +433,11 @@ class Controller:
             log.info("исправление %s: %s", reason, result)
             self.buffer.reset()
             self.context.clear()
+            # Прервано физическим вводом — начатая серия Shift и отложенный
+            # жест больше не имеют смысла (буфер пуст, жест дал бы лишний
+            # переворот раскладки).
+            self.gesture.reset()
+            self._pending_gesture = None
             self._emit_status()
             return False
         log.info("%s: %r → %r за %.0f мс", reason, original, text.rstrip(),

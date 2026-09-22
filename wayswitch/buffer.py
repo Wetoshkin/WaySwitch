@@ -58,6 +58,13 @@ class InputBuffer:
     def held_non_modifier(self) -> bool:
         return bool(self._held_codes() - kc.MODIFIER_KEYS)
 
+    def note_press(self, code: int, device_id: int) -> None:
+        """Нажатие, пришедшее пока демон печатает: в буфер не кладём, но зажатые
+        обновляем — иначе Shift, зажатый во время фикса и удерживаемый после
+        него, был бы для нас «не нажат», и следующие буквы легли бы в буфер без
+        регистра."""
+        self._held.add((device_id, code))
+
     def note_release(self, code: int, device_id: int) -> None:
         """Отпускание, пришедшее пока демон печатает: буфер не трогаем, зажатые обновляем."""
         self._held.discard((device_id, code))

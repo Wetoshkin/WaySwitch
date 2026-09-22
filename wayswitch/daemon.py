@@ -71,6 +71,10 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         on_corrected=lambda o, f, m: service and service.emit_corrected(o, f, m),
         on_status=lambda s: service and service.emit_status(s),
         persist_exception=cfgmod.add_exception,
+        # Исполнение фикса — вне диспатча evdev-источника: он не реентрантен, и
+        # пока его колбэк не вернулся, события той же клавиатуры (отпускание
+        # клавиш, прерывающее нажатие) не доставляются. См. Controller.__init__.
+        schedule=lambda fn: GLib.idle_add(lambda: (fn(), False)[1]),
     )
     backend.on_change(controller.on_layout_changed)
 
