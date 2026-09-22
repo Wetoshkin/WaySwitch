@@ -25,6 +25,7 @@ class KeyPress:
 class BufferEvent:
     kind: str  # "word" — слово завершено пробелом; "letter" — слово растёт; "reset"
     keys: list[KeyPress] = field(default_factory=list)
+    reset_before: bool = False  # буфер был очищен по таймауту перед обработкой этой клавиши
 
 
 class InputBuffer:
@@ -98,9 +99,11 @@ class InputBuffer:
             del self._keys[: len(self._keys) - self.max_keys]
 
     def feed(self, code: int, value: int, device_id: int, now: float) -> BufferEvent | None:
+        timed_out = False
         if self._last_time is not None and self._keys \
                 and now - self._last_time > self.phrase_timeout:
             self._keys.clear()
+            timed_out = True
         self._last_time = now
 
         if value == 0:
@@ -108,32 +111,44 @@ class InputBuffer:
             return None
         if value == 2:
             # Автоповтор: сколько символов выдаст компоситор — неизвестно.
-            if self._is_word_key(code) or code == kc.KEY_SPACE:
-                return self._reset_event()
-            return None
+            if self._is_word_key(code) or code in (kc.KEY_SPACE, kc.KEY_BACKSPACE):
+                event = self._reset_event()
+            else:
+                event = None
+            if timed_out and event is None:
+                return BufferEvent("reset")
+            return event
 
         self._held.add((device_id, code))
         if code in kc.META_KEYS:
-            return self._reset_event()  # Super открывает обзор — каретка ушла
-        if code in kc.MODIFIER_KEYS or code == kc.KEY_CAPSLOCK:
-            return None
-        if self.command_held():
-            return self._reset_event()  # Ctrl+X, Alt+Tab и т. п.
-        if code in kc.RESET_KEYS:
-            return self._reset_event()
-        if code == kc.KEY_BACKSPACE:
+            event = self._reset_event()  # Super открывает обзор — каретка ушла
+        elif code in kc.MODIFIER_KEYS or code == kc.KEY_CAPSLOCK:
+            event = None
+        elif self.command_held():
+            event = self._reset_event()  # Ctrl+X, Alt+Tab и т. п.
+        elif code in kc.RESET_KEYS:
+            event = self._reset_event()
+        elif code == kc.KEY_BACKSPACE:
             if self._keys:
                 self._keys.pop()
-                return None
-            return self._reset_event()  # стёрли то, чего не видели
-        if code == kc.KEY_SPACE:
+                event = None
+            else:
+                event = self._reset_event()  # стёрли то, чего не видели
+        elif code == kc.KEY_SPACE:
             word = self.current_word()
             self._append(KeyPress(kc.KEY_SPACE))
-            return BufferEvent("word", word) if word else None
-        if self._is_word_key(code):
+            event = BufferEvent("word", word) if word else None
+        elif self._is_word_key(code):
             self._append(KeyPress(code, self.shift_held(), self.caps))
-            return BufferEvent("letter", self.current_word())
-        return self._reset_event()  # цифровой блок, мультимедиа и прочее
+            event = BufferEvent("letter", self.current_word())
+        else:
+            event = self._reset_event()  # цифровой блок, мультимедиа и прочее
+
+        if timed_out and event is None:
+            return BufferEvent("reset")
+        if timed_out and event is not None and event.kind != "reset":
+            event.reset_before = True
+        return event
 
     # --- чтение ---------------------------------------------------------------
 

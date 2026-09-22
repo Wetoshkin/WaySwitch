@@ -90,6 +90,18 @@ def test_autorepeat_resets():
     assert b.feed(kc.KEY_G, 2, 1, 0.0).kind == "reset"
 
 
+def test_backspace_autorepeat_resets():
+    b = make()
+    tap(b, kc.KEY_C)
+    tap(b, kc.KEY_A)
+    tap(b, kc.KEY_T)
+    tap(b, kc.KEY_BACKSPACE)  # buffer is [c, a]
+    assert len(b.current_word()) == 2
+    ev = b.feed(kc.KEY_BACKSPACE, 2, 1, 0.0)
+    assert ev.kind == "reset"
+    assert b.is_empty()
+
+
 def test_held_tracking_across_devices():
     b = make()
     b.feed(kc.KEY_LEFTSHIFT, 1, 1, 0.0)
@@ -130,3 +142,17 @@ def test_ru_punctuation_keys_are_word_keys():
     tap(b, kc.KEY_SEMICOLON)
     tap(b, kc.KEY_APOSTROPHE)
     assert len(b.current_word()) == 3
+
+
+def test_timeout_signals_reset():
+    b = make()
+    tap(b, kc.KEY_G, t=0.0)
+    ev = b.feed(kc.KEY_H, 1, 1, 9.0)
+    assert ev.kind == "letter"
+    assert ev.reset_before is True
+    assert len(ev.keys) == 1
+    # Separately test that timeout before non-word key returns reset
+    b2 = make()
+    tap(b2, kc.KEY_G, t=0.0)
+    ev2 = b2.feed(kc.KEY_LEFTSHIFT, 1, 1, 9.0)
+    assert ev2.kind == "reset"
