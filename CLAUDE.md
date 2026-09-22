@@ -65,12 +65,14 @@ python -m pytest -q
 python -m ruff check .
 ```
 
-На Windows: 107 тестов проходят, 2 пропускаются (`skipif`) — тесты
-`keymap.py` против настоящего `libxkbcommon` в `tests/test_keymap_xkb.py`,
-которым нужна `libxkbcommon.so.0`. В CI (GitHub Actions, `ubuntu-latest`)
-библиотека есть, эти тесты выполняются. `tests/e2e_vm.py` не часть
-`pytest` — отдельный скрипт, запускается руками на живой VM с открытым
-текстовым полем в фокусе.
+На Windows пропускаются (`skipif`) только два теста `keymap.py` против
+настоящего `libxkbcommon` в `tests/test_keymap_xkb.py`, которым нужна
+`libxkbcommon.so.0` — всё остальное должно быть зелёным. В CI (GitHub
+Actions, `ubuntu-latest`) библиотека есть, эти тесты тоже выполняются.
+Не полагайтесь на конкретное число тестов в документации — оно растёт с
+каждой задачей; ориентир — сама команда `python -m pytest -q`.
+`tests/e2e_vm.py` не часть `pytest` — отдельный скрипт, запускается
+руками на живой VM с открытым текстовым полем в фокусе.
 
 ## Данные
 
