@@ -16,6 +16,12 @@ class ShiftGesture:
         self._last_press: float | None = None
         self._broken = False  # между нажатием и отпусканием была другая клавиша
 
+    def reset(self) -> None:
+        """Забыть начатую серию — например, после прерванного исправления."""
+        self._count = 0
+        self._last_press = None
+        self._broken = False
+
     def on_key(self, code: int, value: int, now: float) -> str | None:
         if code in kc.SHIFT_KEYS:
             if value == 1:

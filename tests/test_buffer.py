@@ -116,6 +116,18 @@ def test_held_tracking_across_devices():
     assert not b.held_non_modifier()
 
 
+def test_note_press_tracks_held_without_touching_keys():
+    # Нажатие во время фикса: в буфер не попадает, но считается зажатым,
+    # чтобы после фикса регистр следующих букв был верным.
+    b = make()
+    b.note_press(kc.KEY_LEFTSHIFT, 1)
+    assert b.shift_held() and b.is_empty()
+    b.feed(kc.KEY_G, 1, 1, 0.0)
+    assert b.current_word()[0].shift is True
+    b.feed(kc.KEY_LEFTSHIFT, 0, 1, 0.0)
+    assert not b.shift_held()
+
+
 def test_replace_last_word_and_phrase():
     b = make()
     for code in (kc.KEY_G, kc.KEY_H, kc.KEY_SPACE, kc.KEY_B, kc.KEY_SPACE):

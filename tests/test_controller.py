@@ -1,6 +1,7 @@
 import pytest
 
 from tests.fakes import RU, US, FakeBackend, RecordingTypist, make_keymap
+from wayswitch import controller as controller_mod
 from wayswitch import keycodes as kc
 from wayswitch.config import Config
 from wayswitch.controller import Controller
@@ -270,3 +271,201 @@ def test_failed_fix_leaves_context_empty(env):
     type_text(env, "ghbdtn ")
     assert list(env["ctrl"].context) == []
     assert env["ctrl"].buffer.is_empty()
+
+
+# --- исполнение вне диспатча evdev (schedule) -------------------------------
+
+def deferred(env):
+    """Подменяет schedule на очередь: решения принимаются сразу, печать — по drain()."""
+    queue: list = []
+    env["ctrl"].schedule = queue.append
+    return queue
+
+
+def drain(queue):
+    while queue:
+        queue.pop(0)()
+
+
+def test_fix_is_scheduled_not_executed_in_dispatch(env):
+    queue = deferred(env)
+    type_text(env, "ghbdtn ")
+    # Решение принято, но ничего не напечатано и раскладка не тронута.
+    assert env["typist"].events == [] and env["backend"].set_calls == []
+    assert env["corrected"] == [] and len(queue) == 1
+    drain(queue)
+    assert typed_text(env) == "\b" * 7 + "привет "
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+    assert list(env["ctrl"].context) == ["ru"]
+
+
+def test_scheduled_fix_skipped_when_buffer_changed(env):
+    queue = deferred(env)
+    type_text(env, "ghbdtn ")
+    type_text(env, "x")  # пользователь продолжил печатать до idle
+    drain(queue)
+    assert env["typist"].events == [] and env["backend"].set_calls == []
+    assert env["corrected"] == []
+    assert list(env["ctrl"].context) == []
+
+
+def test_scheduled_early_url_and_manual_fixes_are_deferred_too(env):
+    queue = deferred(env)
+    env["backend"].current_index = RU
+    type_text(env, "реезыЖ..")
+    assert env["typist"].events == [] and len(queue) == 1
+    drain(queue)
+    assert typed_text(env) == "\b" * 8 + "https://"
+    env["typist"].events.clear()
+    env["backend"].current_index = US
+    env["ctrl"].buffer.reset()
+    type_text(env, "ghbdtn")
+    assert env["ctrl"].manual_word() is True
+    assert env["typist"].events == []
+    drain(queue)
+    assert typed_text(env) == "\b" * 6 + "привет"
+
+
+def test_third_shift_tap_before_scheduled_word_fix_runs_becomes_phrase(env):
+    """Третий тап пришёл, пока фикс второго ещё ждал idle: жест не теряется и
+    не даёт лишнего переворота раскладки — фраза перепечатывается после слова."""
+    env["ctrl"].config.general.auto_correct = False
+    queue = deferred(env)
+    type_text(env, "ghbdtn vbh")
+    double_shift(env, times=3)
+    assert len(queue) == 1  # фраза ждёт исполнения слова
+    drain(queue)
+    assert typed_text(env).endswith("привет мир")
+    assert env["km"].decode(env["ctrl"].buffer.phrase(), RU) == "привет мир"
+    assert env["backend"].set_calls == [RU]
+    assert env["typist"].stuck() == set()
+
+
+# --- гонки во время исполнения (I2/I3/I4) -------------------------------------
+
+def reenter_during_fix(env, action, at_event=6):
+    """Typist, который при записи at_event-го события вызывает action() —
+    имитация события, доставленного pump()'ом посреди перепечатки."""
+    class Reentrant(RecordingTypist):
+        fired = False
+
+        def key(self, code, value):
+            super().key(code, value)
+            if not self.fired and len(self.events) >= at_event:
+                self.fired = True
+                action()
+    env["typist"] = Reentrant()
+    env["ctrl"].typist = env["typist"]
+
+
+def test_shift_press_during_fix_does_not_abort(env):
+    ctrl = env["ctrl"]
+
+    def tap_shift():
+        ctrl.on_key(kc.KEY_LEFTSHIFT, 1, 1)
+        ctrl.on_key(kc.KEY_LEFTSHIFT, 0, 1)
+
+    reenter_during_fix(env, tap_shift)
+    type_text(env, "ghbdtn ")
+    assert typed_text(env) == "\b" * 7 + "привет "
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+    assert env["typist"].stuck() == set()
+
+
+def test_shift_held_across_fix_end_is_still_tracked(env):
+    ctrl = env["ctrl"]
+    reenter_during_fix(env, lambda: ctrl.on_key(kc.KEY_LEFTSHIFT, 1, 1))
+    type_text(env, "ghbdtn ")
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+    assert ctrl.buffer.shift_held()  # нажат во время фикса, не отпущен — зажат
+
+
+def test_third_shift_tap_during_word_fix_execution_yields_phrase(env):
+    ctrl = env["ctrl"]
+    ctrl.config.general.auto_correct = False
+
+    def tap_shift():
+        ctrl.on_key(kc.KEY_RIGHTSHIFT, 1, 1)
+        ctrl.on_key(kc.KEY_RIGHTSHIFT, 0, 1)
+
+    reenter_during_fix(env, tap_shift)
+    type_text(env, "ghbdtn vbh")
+    double_shift(env)  # второй тап запускает фикс слова; третий приходит во время него
+    assert typed_text(env).endswith("привет мир")
+    assert env["km"].decode(ctrl.buffer.phrase(), RU) == "привет мир"
+    assert env["backend"].set_calls == [RU]
+    assert env["typist"].stuck() == set()
+
+
+def test_abort_by_click_resets_gesture(env):
+    ctrl = env["ctrl"]
+    ctrl.config.general.auto_correct = False
+    reenter_during_fix(env, ctrl.on_click)
+    type_text(env, "ghbdtn")
+    double_shift(env)  # фикс слова прерван кликом (сам клик серию Shift не трогает)
+    assert ctrl.buffer.is_empty() and env["backend"].set_calls == []
+    # Серия начата заново: свежий двойной Shift — обычный переворот раскладки,
+    # а не «третий/четвёртый тап» старой серии (которые дали бы пустую фразу).
+    double_shift(env)
+    assert env["backend"].set_calls == [RU]
+
+
+def test_manual_fix_reentrant_during_fix_is_rejected(env):
+    ctrl = env["ctrl"]
+    results = []
+
+    def pump():
+        if ctrl.busy:
+            results.append(ctrl.manual_word())
+            results.append(ctrl.manual_phrase())
+
+    ctrl.pump = pump
+    type_text(env, "ghbdtn ")
+    assert results and set(results) == {False}
+    assert typed_text(env) == "\b" * 7 + "привет "  # напечатано ровно один раз
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+
+
+def test_manual_fix_rejected_while_paused_or_locked(env):
+    ctrl = env["ctrl"]
+    type_text(env, "ghbdtn")
+    ctrl.pause()
+    assert ctrl.manual_word() is False and ctrl.manual_phrase() is False
+    ctrl.resume()
+    ctrl.set_locked(True)
+    assert ctrl.manual_word() is False and ctrl.manual_phrase() is False
+    # На экране блокировки даже раскладка не переключается (буфер пуст).
+    assert env["typist"].events == [] and env["backend"].set_calls == []
+
+
+def test_click_during_fix_aborts(env):
+    reenter_during_fix(env, env["ctrl"].on_click)
+    type_text(env, "ghbdtn ")
+    assert env["typist"].stuck() == set()
+    assert env["ctrl"].buffer.is_empty()
+    assert env["corrected"] == []
+
+
+def test_pause_during_fix_aborts(env):
+    reenter_during_fix(env, env["ctrl"].pause)
+    type_text(env, "ghbdtn ")
+    assert env["typist"].stuck() == set()
+    assert env["ctrl"].buffer.is_empty()
+    assert env["corrected"] == [] and env["ctrl"].paused
+
+
+def test_held_physical_shift_cancels_fix(env, monkeypatch):
+    monkeypatch.setattr(controller_mod, "RELEASE_WAIT", 0.02)
+    type_text(env, "ghbdtn")
+    env["ctrl"].on_key(kc.KEY_LEFTSHIFT, 1, 2)  # Shift зажат на второй клавиатуре
+    type_text(env, " ")
+    assert env["typist"].events == [] and env["backend"].set_calls == []
+
+
+def test_fix_waits_for_physical_shift_release(env):
+    ctrl = env["ctrl"]
+    type_text(env, "ghbdtn")
+    ctrl.on_key(kc.KEY_LEFTSHIFT, 1, 2)
+    ctrl.pump = lambda: ctrl.on_key(kc.KEY_LEFTSHIFT, 0, 2)  # отпускание приходит в ожидании
+    type_text(env, " ")
+    assert typed_text(env) == "\b" * 7 + "привет "
