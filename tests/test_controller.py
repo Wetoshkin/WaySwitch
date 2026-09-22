@@ -97,11 +97,28 @@ def test_manual_double_shift_with_empty_buffer_just_switches(env):
 
 
 def test_triple_shift_fixes_phrase(env):
+    env["ctrl"].config.general.auto_correct = False  # вся фраза набрана в одной неверной раскладке
     type_text(env, "ghbdtn vbh")
     double_shift(env, times=3)
-    # второй Shift исправил «мир», третий — всю фразу; в итоге напечатано «привет мир»
+    # второй Shift исправил «мир» и переключил раскладку, третий — переписал
+    # всю фразу в уже переключённой раскладке; в итоге напечатано «привет мир»
     assert typed_text(env).endswith("привет мир")
     assert env["km"].decode(env["ctrl"].buffer.phrase(), RU) == "привет мир"
+    assert env["backend"].current() == RU
+
+
+def test_triple_shift_after_auto_fix_keeps_fixed_word(env):
+    # «ghbdtn » авто-исправляется на «привет », раскладка переключается на RU.
+    type_text(env, "ghbdtn ")
+    # «vbh» набирается физическими клавишами US-букв, пока раскладка уже RU —
+    # на экране это «мир», без необходимости исправления.
+    type_text(env, "vbh", group=US)
+    # Три Shift подряд (в пределах окна жеста): второй переворачивает последнее
+    # слово («мир» → «vbh», раскладка переключается на US), третий переписывает
+    # всю фразу в уже переключённой (US) группе: «привет» → «ghbdtn», «vbh» как есть.
+    double_shift(env, times=3)
+    assert typed_text(env).endswith("ghbdtn vbh")
+    assert env["backend"].current() == US
 
 
 def test_undo_by_gesture_adds_exception(env):

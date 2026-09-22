@@ -240,18 +240,14 @@ class Controller:
                                reason="manual", group_before=current)
 
     def manual_phrase(self) -> bool:
-        groups = self._groups()
+        current = self.backend.current()
         keys = self.buffer.phrase()
-        if groups is None or not keys:
+        if current is None or not keys:
             return False
-        current, other = groups
-        # Второй Shift переключил раскладку и переписал только последнее слово
-        # в её группе; более ранние слова (в т.ч. уже исправленные автоматически
-        # на *другую* группу) остаются валидны в group_before, не в current —
-        # поэтому фраза целиком декодируется в other, а не "уже переключённой" current.
-        text = self.keymap.decode(keys, other)
-        return self._apply_fix(keys, 0, other, text, manual=True, reason="phrase",
-                               group_before=current, whole_phrase=True, switch=True)
+        # Раскладка уже переключена вторым Shift; декодируем всё в текущей группе.
+        text = self.keymap.decode(keys, current)
+        return self._apply_fix(keys, 0, current, text, manual=True, reason="phrase",
+                               group_before=current, whole_phrase=True, switch=False)
 
     # --- исполнение -------------------------------------------------------------
 
@@ -260,16 +256,27 @@ class Controller:
         return self._abort_requested
 
     def _blocking_keys_held(self, trigger: tuple[int, int] | None) -> bool:
-        """Есть ли физически зажатые небезразличные клавиши, кроме той, что сейчас
-        обрабатывается: её отпускание синхронно ещё не доставлено, но неизбежно."""
+        """Есть ли физически зажатые небезразличные клавиши, мешающие печати.
+
+        Клавиша-триггер (`trigger`) сюда не считается: buffer.feed() кладёт её
+        в _held ещё до генерации события «слово»/«буква», а мы сейчас как раз
+        синхронно внутри обработки её же нажатия — отпускание этой самой
+        клавиши физически не могло прийти раньше, чем мы вернёмся из этого
+        вызова, так что оно не «зависшее», а просто ещё не доставлено.
+        Любая ДРУГАЯ зажатая клавиша (с другого устройства или нажатая раньше)
+        по-прежнему блокирует печать.
+        """
         held = self.buffer.held_physical()
         if trigger is not None:
             held = held - {trigger}
         return bool({code for _, code in held} - kc.MODIFIER_KEYS)
 
     def _wait_release(self, trigger: tuple[int, int] | None = None) -> bool:
-        # Реальный дедлайн: это ожидание отпускания физической клавиатуры,
-        # не связанное с логическим (в т.ч. подменяемым в тестах) clock.
+        # Дедлайн — по настоящим часам (time.monotonic), а не по self.clock:
+        # self.clock в тестах подменяется управляемым вручную фейком и не тикает
+        # сам по себе внутри этого цикла ожидания, поэтому дедлайн на нём
+        # никогда не наступил бы. Здесь же мы ждём реальное железо (пока
+        # физически отпустят клавиши), так что нужно настоящее время.
         deadline = time.monotonic() + RELEASE_WAIT
         while self._blocking_keys_held(trigger):
             if time.monotonic() > deadline:
