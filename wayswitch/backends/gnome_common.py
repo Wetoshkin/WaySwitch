@@ -70,5 +70,22 @@ def read_xkb_options() -> list[str]:
 
 
 def read_switch_binding() -> list[int]:
+    """Прямой (forward) хоткей — им HotkeyBackend.set() эмулирует переключение."""
     values = _settings(SCHEMA_WM).get_strv("switch-input-source")
     return parse_gnome_binding(values[0]) if values else []
+
+
+def read_switch_bindings() -> list[list[int]]:
+    """Прямой и обратный хоткей смены раскладки — оба нужны для observe_physical.
+
+    С ровно двумя источниками ввода GNOME оба направления переключают между
+    ними, поэтому наблюдать физическое нажатие нужно по обоим биндингам.
+    """
+    settings = _settings(SCHEMA_WM)
+    combos = []
+    for key in ("switch-input-source", "switch-input-source-backward"):
+        values = settings.get_strv(key)
+        combo = parse_gnome_binding(values[0]) if values else []
+        if combo:
+            combos.append(combo)
+    return combos

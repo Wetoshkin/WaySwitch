@@ -18,13 +18,13 @@ class HotkeyBackend(LayoutBackend):
     name = "hotkey"
     supports_auto = False
 
-    def __init__(self, typist, settle_ms: int = 30, combo: list[int] | None = None,
+    def __init__(self, typist, settle_ms: int = 30, combos: list[list[int]] | None = None,
                  specs: list[LayoutSpec] | None = None):
         self._typist = typist
         self._settle = max(settle_ms, 100) / 1000.0
-        self._specs = specs or gnome_common.read_sources()
-        self._combo = combo if combo is not None else gnome_common.read_switch_binding()
-        if not self._combo:
+        self._specs = specs if specs is not None else gnome_common.read_sources()
+        self._combos = combos if combos is not None else gnome_common.read_switch_bindings()
+        if not self._combos:
             raise BackendError("системный хоткей смены раскладки не задан")
         self._current = 0  # при входе GNOME включает первый источник
         self._callbacks: list[Callable[[int, bool], None]] = []
@@ -45,21 +45,28 @@ class HotkeyBackend(LayoutBackend):
             cb(self._current, external)
 
     def observe_physical(self, code: int, value: int) -> None:
-        """Пользователь нажал системный хоткей сам — сдвинуть счётчик."""
+        """Пользователь нажал системный хоткей (вперёд или назад) — сдвинуть счётчик.
+
+        Срабатывает только на точное совпадение зажатых клавиш с одной из
+        комбинаций — лишняя зажатая клавиша не должна давать ложное срабатывание.
+        """
         if value == 1:
             self._held.add(code)
-            if code == self._combo[-1] and set(self._combo) <= self._held:
-                self._advance(external=True)
+            for combo in self._combos:
+                if code == combo[-1] and self._held == set(combo):
+                    self._advance(external=True)
+                    break
         elif value == 0:
             self._held.discard(code)
 
     def set(self, index: int) -> None:
+        combo = self._combos[0]  # прямой хоткей — им же переключает set()
         while self._current != index:
-            for code in self._combo:
+            for code in combo:
                 self._typist.key(code, 1)
             self._typist.syn()
             time.sleep(0.03)
-            for code in self._combo:  # тот же порядок: модификатор отпускаем первым
+            for code in combo:  # тот же порядок: модификатор отпускаем первым
                 self._typist.key(code, 0)
             self._typist.syn()
             self._advance(external=False)

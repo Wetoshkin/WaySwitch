@@ -215,8 +215,12 @@ class Controller:
         word, tail = self.buffer.last_word_with_tail()
         if not word:
             if not self.dry_run:
-                self.backend.set(other)
-                self.backend.wait_applied(other, 0.5)
+                self.busy = True
+                try:
+                    self.backend.set(other)
+                    self.backend.wait_applied(other, 0.5)
+                finally:
+                    self.busy = False
             self._emit_status()
             return True
         last = self._last_fix

@@ -10,8 +10,12 @@ log = logging.getLogger("wayswitch")
 
 
 def choose_backend(prefer: str, typist, settle_ms: int) -> LayoutBackend:
-    order = {"auto": ["shell", "ibus", "hotkey"], "shell": ["shell"], "ibus": ["ibus"],
-             "hotkey": ["hotkey"]}[prefer]
+    orders = {"auto": ["shell", "ibus", "hotkey"], "shell": ["shell"], "ibus": ["ibus"],
+              "hotkey": ["hotkey"]}
+    try:
+        order = orders[prefer]
+    except KeyError:
+        raise BackendError(f"неизвестный бэкенд раскладки: {prefer!r}") from None
     errors = []
     for name in order:
         try:
