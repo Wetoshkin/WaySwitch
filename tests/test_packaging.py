@@ -22,3 +22,13 @@ def test_scripts_are_lf_and_executable_shebang():
         raw = (ROOT / name).read_bytes()
         assert b"\r\n" not in raw, name
         assert raw.startswith(b"#!/bin/bash"), name
+
+
+def test_uninstall_has_sudo_user_validation():
+    text = (ROOT / "uninstall.sh").read_text(encoding="utf-8")
+    assert "SUDO_USER" in text and "default.target.wants" in text
+
+
+def test_install_has_xdg_runtime_dir():
+    text = (ROOT / "install.sh").read_text(encoding="utf-8")
+    assert "XDG_RUNTIME_DIR" in text
