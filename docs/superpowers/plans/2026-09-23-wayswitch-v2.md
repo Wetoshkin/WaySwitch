@@ -1220,7 +1220,7 @@ def main() -> int:
         with gzip.open(DATA / f"{lang}.words.gz", "wt", encoding="utf-8") as f:
             for word, count in rows:
                 f.write(f"{word}\t{count}\n")
-        # Вес = log(1 + частота): частые слова важнее, но не подавляют остальные.
+        # Тот же вес, что и в LanguageModel.from_words: log(1 + частота).
         model = ngram.train(((w, math.log1p(c)) for w, c in rows), alphabet)
         ngram.save(model, DATA / f"{lang}.ngrams.json.gz")
         print(f"{lang}: триграмм {len(model['tri'])}")
@@ -1304,7 +1304,8 @@ EN_ALPHABET = "abcdefghijklmnopqrstuvwxyz"
 
 RU_WORDS = [("я", 1000.0), ("не", 900.0), ("это", 800.0), ("привет", 500.0), ("мы", 700.0),
             ("буква", 100.0), ("книга", 120.0), ("эту", 300.0), ("пока", 200.0),
-            ("спасибо", 250.0), ("который", 150.0), ("сон", 60.0), ("дом", 90.0)]
+            ("спасибо", 250.0), ("который", 150.0), ("сон", 60.0), ("дом", 90.0),
+            ("дорогой", 80.0), ("игорь", 40.0)]
 EN_WORDS = [("the", 1000.0), ("hello", 500.0), ("world", 400.0), ("book", 300.0),
             ("letter", 200.0), ("this", 350.0), ("that", 340.0), ("a", 900.0), ("i", 950.0),
             ("with", 330.0), ("son", 50.0)]
@@ -1420,7 +1421,6 @@ def test_word_language(det):
 
 import gzip
 import hashlib
-import math
 from pathlib import Path
 
 import pytest
@@ -1450,7 +1450,7 @@ def setup():
     models, held = {}, {}
     for lang in ("ru", "en"):
         rows = _rows(lang)
-        train = [(w, math.log1p(c)) for w, c in rows if not _held_out(w)]
+        train = [(w, float(c)) for w, c in rows if not _held_out(w)]
         held[lang] = [w for w, _ in rows if _held_out(w) and len(w) >= 4][:3000]
         models[lang] = LanguageModel.from_words(lang, train, ALPHABETS[lang])
     return km, Detector(km, models, sensitivity=SENSITIVITY["normal"]), held
@@ -1501,6 +1501,7 @@ A — то, что сейчас на экране (декодировка в т�
 from __future__ import annotations
 
 import gzip
+import math
 from collections.abc import Iterable
 from dataclasses import dataclass
 from importlib import resources
@@ -1515,6 +1516,7 @@ INNER_MARKS = {"-", "'"}
 URL_SCHEMES = ("http://", "https://", "ftp://")
 TECH_PREFIXES = URL_SCHEMES + ("ssh://", "www.", "git@")
 TECH_MARKERS = ("://", "/", "\\", "@", "~", "--", ".com", ".ru", ".org", ".net", ".io", ".dev")
+TECH_WORDS = {"http", "https", "ftp", "www", "ssh", "git", "sudo", "apt", "dnf"}
 
 
 @dataclass(frozen=True)
@@ -1542,8 +1544,10 @@ class LanguageModel:
     def from_words(cls, lang: str, rows: list[tuple[str, float]], alphabet: str,
                    top_n: int = 300) -> LanguageModel:
         ordered = sorted(rows, key=lambda r: -r[1])
+        # Вес слова — log(1 + частота): частые важнее, но не подавляют остальные.
+        weighted = [(w, math.log1p(c)) for w, c in ordered]
         return cls(lang, (w for w, _ in ordered), (w for w, _ in ordered[:top_n]),
-                   ngram.train(ordered, alphabet))
+                   ngram.train(weighted, alphabet))
 
     @classmethod
     def load(cls, lang: str, data_dir: Path | None = None, top_n: int = 300) -> LanguageModel:
@@ -1675,7 +1679,7 @@ class Detector:
         if _is_camel(a.core):
             return keep("camel")
         al = a.text.lower()
-        if any(m in al for m in TECH_MARKERS) or al.startswith(TECH_PREFIXES):
+        if any(m in al for m in TECH_MARKERS) or al.startswith(TECH_PREFIXES)                 or a.core.lower() in TECH_WORDS:
             return keep("tech")
         if 2 <= len(a.core) < 5 and a.core.isupper():
             return keep("abbrev")
@@ -5392,8 +5396,7 @@ def find_output():
 
 
 def main() -> int:
-    out = find_output()
-    out.grab()  # только мы читаем копию потока; приложение всё равно получит события
+    out = find_output()  # без grab: копию потока читаем параллельно с компоситором
     fake = UInput({ecodes.EV_KEY: list(range(1, 128))}, name="WaySwitch E2E Keyboard")
     time.sleep(1.0)  # демон открывает новое устройство с задержкой
     for code in WORD:
@@ -5404,7 +5407,6 @@ def main() -> int:
     fake.write(ecodes.EV_KEY, 57, 1); fake.syn()
     fake.write(ecodes.EV_KEY, 57, 0); fake.syn()
     events = [e for e in _drain(out, 1.5) if e.type == ecodes.EV_KEY]
-    out.ungrab()
     presses = [e.code for e in events if e.value == 1 and e.code not in (42, 54)]
     held = set()
     for e in events:
