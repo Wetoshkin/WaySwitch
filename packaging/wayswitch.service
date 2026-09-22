@@ -1,0 +1,15 @@
+[Unit]
+Description=WaySwitch — автоисправление раскладки
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/wayswitch run
+Restart=on-failure
+RestartSec=3
+# Код 3 — второй экземпляр, перезапускать не надо.
+RestartPreventExitStatus=3
+
+[Install]
+WantedBy=default.target
