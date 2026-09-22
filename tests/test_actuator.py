@@ -40,8 +40,9 @@ def test_plan_fix_builds_steps_with_shift_and_caps():
 
 def test_plan_fix_without_switch_and_impossible_char():
     km = make_keymap()
-    plan = plan_fix(3, "abc", None, km, caps_on=False)
+    plan = plan_fix(3, "abc", US, km, caps_on=False, switch=False)
     assert not any(isinstance(s, SwitchLayout) for s in plan.steps)
+    assert plan.steps[-1].keys[0] == (kc.KEY_A, False)
     assert plan_fix(1, "ж", US, km, caps_on=False) is None
 
 
