@@ -1,5 +1,7 @@
 """Фейки для тестов: табличная раскладка us/ru, бэкенд, печатающая машинка."""
 
+from dataclasses import dataclass
+
 from wayswitch.keymap import TableKeymap
 
 US, RU = 0, 1
@@ -30,3 +32,21 @@ RU_TABLE = {code: (pair[0], pair[1]) for code, pair in _RU_ROWS}
 
 def make_keymap() -> TableKeymap:
     return TableKeymap([US_TABLE, RU_TABLE])
+
+
+@dataclass(frozen=True)
+class K:
+    code: int
+    shift: bool = False
+    caps: bool = False
+
+
+def keys_for_text(keymap, text: str, group: int) -> list[K]:
+    """Нажатия, которыми текст набирается в данной группе; KeyError, если символа нет."""
+    keys = []
+    for ch in text:
+        r = keymap.key_for(ch, group)
+        if r is None:
+            raise KeyError(ch)
+        keys.append(K(r[0], r[1]))
+    return keys
