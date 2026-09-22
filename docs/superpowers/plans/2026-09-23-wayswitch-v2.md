@@ -2782,6 +2782,14 @@ def test_context_languages_tracked(env):
     assert list(env["ctrl"].context) == ["en", "ru"]
 
 
+def test_timeout_clears_context(env):
+    type_text(env, "hello world ")
+    assert list(env["ctrl"].context) == ["en", "en"]
+    env["clock"].now += 20  # пауза дольше phrase_timeout
+    type_text(env, "ghbdtn ")
+    assert list(env["ctrl"].context) == ["ru"]
+
+
 def test_layout_change_by_daemon_does_not_reset(env):
     type_text(env, "ghbdtn ")
     env["ctrl"].on_layout_changed(RU, False)
@@ -2938,6 +2946,8 @@ class Controller:
         if event.kind == "reset":
             self.context.clear()
             return
+        if event.reset_before:
+            self.context.clear()  # буфер очищен по таймауту перед этой клавишей
         if not self._auto_allowed():
             return
         if event.kind == "word":
