@@ -211,3 +211,28 @@ def test_layout_change_by_daemon_does_not_reset(env):
     type_text(env, "ghbdtn ")
     env["ctrl"].on_layout_changed(RU, False)
     assert not env["ctrl"].buffer.is_empty()
+
+
+def test_manual_word_plain_switch_busy_guard_swallows_reentrant_key(env):
+    """wait_applied может реентрантно прокрутить главный цикл и доставить колбэки;
+    busy должен быть выставлен уже на пустом plain-switch пути, иначе физическое
+    нажатие клавиши, пришедшее прямо из wait_applied, попадёт в обычную обработку.
+    """
+    ctrl = env["ctrl"]
+
+    class ReentrantBackend(FakeBackend):
+        def __init__(self, ctrl):
+            super().__init__(current=US)
+            self._ctrl = ctrl
+
+        def wait_applied(self, index: int, timeout: float) -> bool:
+            self._ctrl.on_key(kc.KEY_A, 1, 1)  # реентрантное физическое нажатие
+            return super().wait_applied(index, timeout)
+
+    backend = ReentrantBackend(ctrl)
+    ctrl.backend = backend
+    env["backend"] = backend
+
+    assert ctrl.manual_word() is True
+    assert ctrl.buffer.is_empty()
+    assert backend.set_calls == [RU]

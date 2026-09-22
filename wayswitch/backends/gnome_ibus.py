@@ -31,6 +31,10 @@ class GnomeIbusBackend(LayoutBackend):
         self._callbacks: list[Callable[[int, bool], None]] = []
         self._current: int | None = None
         self._expected: int | None = None  # индекс, который выставили мы
+        # Список движков меняется только при (пере)установке ibus, кэшируем на
+        # весь срок жизни бэкенда — иначе _engine_suffix() дёргал бы D-Bus на
+        # каждое переключение раскладки.
+        self._engine_names: list[str] = [desc.get_name() for desc in self._bus.list_engines()]
         self._refresh()
 
     def _refresh(self) -> None:
@@ -58,19 +62,27 @@ class GnomeIbusBackend(LayoutBackend):
 
     def set(self, index: int) -> None:
         self._expected = index
-        if not self._bus.set_global_engine(gnome_common.engine_name_for(self._specs[index])
-                                           + self._engine_suffix(index)):
-            raise BackendError("IBus отказался переключить движок")
+        try:
+            engine = gnome_common.engine_name_for(self._specs[index]) + self._engine_suffix(index)
+            if not self._bus.set_global_engine(engine):
+                raise BackendError("IBus отказался переключить движок")
+        except Exception:
+            self._expected = None
+            raise
 
     def _engine_suffix(self, index: int) -> str:
-        """IBus требует полное имя (xkb:ru::rus); ищем его в списке движков."""
+        """IBus требует полное имя (xkb:ru::rus); ищем его в кэше списка движков."""
         prefix = gnome_common.engine_name_for(self._specs[index])
-        for desc in self._bus.list_engines():
-            if desc.get_name().startswith(prefix):
-                return desc.get_name()[len(prefix):]
+        for name in self._engine_names:
+            if name.startswith(prefix):
+                return name[len(prefix):]
         raise BackendError(f"в IBus нет движка для раскладки {self._specs[index].xkb_id}")
 
     def wait_applied(self, index: int, timeout: float) -> bool:
+        # Прокрутка главного цикла здесь может реентрантно доставить колбэки
+        # (в т.ч. физические события клавиатуры выше по стеку). Это безопасно
+        # только потому, что вызывающий контроллер держит self.busy на время
+        # всего вызова set()/wait_applied() и глотает реентрантный ввод сам.
         ctx = self._GLib.MainContext.default()
         deadline = time.monotonic() + timeout
         while self._current != index:

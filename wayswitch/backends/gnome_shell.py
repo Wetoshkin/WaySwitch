@@ -50,6 +50,9 @@ class GnomeShellBackend(LayoutBackend):
         if signal != "LayoutChanged":
             return
         (index,) = params.unpack()
+        if not (0 <= index < len(self._specs)):
+            self._current = None
+            return
         external = index != self._expected
         self._expected = None
         self._current = index
@@ -67,7 +70,11 @@ class GnomeShellBackend(LayoutBackend):
 
     def set(self, index: int) -> None:
         self._expected = index
-        self._proxy.call_sync("SetLayout", self._Gio.Variant("(u)", (index,)), 0, 1000, None)
+        try:
+            self._proxy.call_sync("SetLayout", self._Gio.Variant("(u)", (index,)), 0, 1000, None)
+        except Exception:
+            self._expected = None
+            raise
         self._current = index
 
     def wait_applied(self, index: int, timeout: float) -> bool:
