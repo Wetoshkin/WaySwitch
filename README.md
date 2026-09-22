@@ -92,8 +92,8 @@ wayswitch-gui [--tray]                                    настройки; --
 [general]
 auto_correct = true
 sensitivity = "normal"        # conservative | normal | aggressive
-phrase_timeout_sec = 8
-undo_window_sec = 5
+phrase_timeout_sec = 8.0
+undo_window_sec = 5.0
 
 [gesture]
 manual = "double_shift"       # double_shift | pause_key | none
@@ -119,8 +119,8 @@ keys.py (evdev) → buffer.py (буфер слова/фразы, Shift) → на
 backends/gnome_*.py (IBus | расширение | хоткей) ◀── daemon.py/controller.py ──▶ actuator.py (uinput)
 ```
 
-Два процесса на сессионной шине D-Bus: `wayswitchd` (systemd user-сервис)
-и `wayswitch-gui` (окно настроек и трей). Состояние раскладки читается и
+Два процесса на сессионной шине D-Bus: демон `wayswitch run` (systemd
+user-сервис `wayswitch.service`) и `wayswitch-gui` (окно настроек и трей). Состояние раскладки читается и
 меняется через IBus (`IBus.Bus`, `xkb:us::eng`/`xkb:ru::rus`); необязательное
 расширение GNOME Shell (`ru.siberia.WaySwitch.Shell`) даёт точное состояние,
 синхронное переключение и печать без ожидания. Подробности и обоснование
@@ -148,9 +148,10 @@ python -m pytest -q
 python -m ruff check .
 ```
 
-Разработка идёт на Windows, поэтому часть тестов, завязанных на реальный
-`libxkbcommon`, пропускается (`skipif`) — они выполняются в CI
-(GitHub Actions, `ubuntu-latest`). Словарные данные пересобираются
+Разработка идёт на Windows, поэтому два теста `keymap.py`, завязанных на
+реальный `libxkbcommon` (`tests/test_keymap_xkb.py`), пропускаются
+(`skipif`) — они выполняются в CI (GitHub Actions, `ubuntu-latest`). Всё
+остальное должно быть зелёным на любой ОС. Словарные данные пересобираются
 командой:
 
 ```bash
