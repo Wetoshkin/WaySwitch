@@ -14,12 +14,14 @@ INTERFACE = "ru.siberia.WaySwitch.Shell"
 
 
 def shell_extension_present() -> bool:
-    from gi.repository import Gio
+    # Variant/VariantType живут в пространстве GLib, а не Gio: обращение к ним
+    # через Gio даёт AttributeError (кросс-namespace-поиска в gi нет).
+    from gi.repository import Gio, GLib
 
     bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
     reply = bus.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
-                          "NameHasOwner", Gio.Variant("(s)", (BUS_NAME,)),
-                          Gio.VariantType("(b)"), Gio.DBusCallFlags.NONE, 1000, None)
+                          "NameHasOwner", GLib.Variant("(s)", (BUS_NAME,)),
+                          GLib.VariantType("(b)"), Gio.DBusCallFlags.NONE, 1000, None)
     return bool(reply.unpack()[0])
 
 
@@ -28,9 +30,9 @@ class GnomeShellBackend(LayoutBackend):
     supports_auto = True
 
     def __init__(self):
-        from gi.repository import Gio
+        from gi.repository import Gio, GLib
 
-        self._Gio = Gio
+        self._GLib = GLib
         self._specs = gnome_common.read_sources()
         self._proxy = Gio.DBusProxy.new_for_bus_sync(
             Gio.BusType.SESSION, Gio.DBusProxyFlags.NONE, None, BUS_NAME, OBJECT_PATH,
@@ -40,11 +42,30 @@ class GnomeShellBackend(LayoutBackend):
         self._callbacks: list[Callable[[int, bool], None]] = []
         self._expected: int | None = None
         self._proxy.connect("g-signal", self._on_signal)
+        # На экране блокировки расширение выключается (нет session-modes) и имя
+        # уходит с шины; при разблокировке экспортируется заново. Пока имени
+        # нет, LayoutChanged не приходит, поэтому при возвращении владельца
+        # переопрашиваем раскладку — пользователь мог сменить её на экране входа.
+        self._proxy.connect("notify::g-name-owner", self._on_owner_changed)
         self._current = self._query()
 
     def _query(self) -> int | None:
         index, _ident = self._proxy.call_sync("GetLayout", None, 0, 1000, None).unpack()
         return index if 0 <= index < len(self._specs) else None
+
+    def _on_owner_changed(self, proxy, _pspec) -> None:
+        if proxy.get_name_owner() is None:
+            self._current = None
+            return
+        try:
+            index = self._query()
+        except Exception:  # noqa: BLE001 — расширение только что появилось, могло не ответить
+            index = None
+        changed = index != self._current
+        self._current = index
+        if changed and index is not None:
+            for cb in self._callbacks:
+                cb(index, True)
 
     def _on_signal(self, _proxy, _sender, signal: str, params) -> None:
         if signal != "LayoutChanged":
@@ -71,7 +92,7 @@ class GnomeShellBackend(LayoutBackend):
     def set(self, index: int) -> None:
         self._expected = index
         try:
-            self._proxy.call_sync("SetLayout", self._Gio.Variant("(u)", (index,)), 0, 1000, None)
+            self._proxy.call_sync("SetLayout", self._GLib.Variant("(u)", (index,)), 0, 1000, None)
         except Exception:
             self._expected = None
             raise
@@ -84,10 +105,10 @@ class GnomeShellBackend(LayoutBackend):
         self._callbacks.append(cb)
 
     def backspace(self, count: int) -> None:
-        self._proxy.call_sync("Backspace", self._Gio.Variant("(u)", (count,)), 0, 2000, None)
+        self._proxy.call_sync("Backspace", self._GLib.Variant("(u)", (count,)), 0, 2000, None)
 
     def type_text(self, text: str) -> None:
-        self._proxy.call_sync("TypeText", self._Gio.Variant("(s)", (text,)), 0, 2000, None)
+        self._proxy.call_sync("TypeText", self._GLib.Variant("(s)", (text,)), 0, 2000, None)
 
 
 class ShellTypist:
