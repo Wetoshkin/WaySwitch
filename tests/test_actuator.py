@@ -77,7 +77,12 @@ def test_execute_aborts_and_releases_everything():
 def test_execute_fails_on_write_error_and_releases():
     km = make_keymap()
     plan = plan_fix(2, "Пр", RU, km, caps_on=False)
-    for fail_at in range(1, 20):
+    baseline = RecordingTypist()
+    execute(plan, baseline, FakeBackend(current=US))
+    n = sum(1 for e in baseline.events if e != "syn")
+    assert n > 10
+    # по очереди роняем каждую запись — везде FAILED и всё отпущено
+    for fail_at in range(1, n + 1):
         typist = RecordingTypist(fail_at=fail_at)
         result = execute(plan, typist, FakeBackend(current=US))
         assert result == FAILED
