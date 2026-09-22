@@ -2,7 +2,8 @@
 
 from dataclasses import dataclass
 
-from wayswitch.keymap import TableKeymap
+from wayswitch import keycodes as kc
+from wayswitch.keymap import LayoutSpec, TableKeymap
 
 US, RU = 0, 1
 
@@ -50,3 +51,94 @@ def keys_for_text(keymap, text: str, group: int) -> list[K]:
             raise KeyError(ch)
         keys.append(K(r[0], r[1]))
     return keys
+
+
+class RecordingTypist:
+    """Запоминает события uinput и умеет сказать, что осталось нажатым."""
+
+    def __init__(self, fail_at: int | None = None):
+        self.events: list = []
+        self.fail_at = fail_at
+        self._writes = 0
+
+    def key(self, code: int, value: int) -> None:
+        self._writes += 1
+        if self.fail_at is not None and self._writes >= self.fail_at:
+            raise OSError("uinput write failed")
+        self.events.append((code, value))
+
+    def syn(self) -> None:
+        self.events.append("syn")
+
+    def stuck(self) -> set[int]:
+        held = set()
+        for ev in self.events:
+            if ev == "syn":
+                continue
+            code, value = ev
+            (held.add if value else held.discard)(code)
+        return held
+
+    def taps(self) -> list[tuple[int, bool]]:
+        """Нажатия обычных клавиш с признаком «Shift был зажат»."""
+        out, shift = [], False
+        for ev in self.events:
+            if ev == "syn":
+                continue
+            code, value = ev
+            if code in kc.SHIFT_KEYS:
+                shift = bool(value)
+            elif value == 1:
+                out.append((code, shift))
+        return out
+
+
+class RecordingTextTypist:
+    def __init__(self):
+        self.calls: list = []
+
+    def backspace(self, n: int) -> None:
+        self.calls.append(("backspace", n))
+
+    def type_text(self, text: str) -> None:
+        self.calls.append(("type", text))
+
+
+class FakeBackend:
+    name = "fake"
+    supports_auto = True
+
+    def __init__(self, layouts=None, current=0, fail_switch=False):
+        self._layouts = layouts or [LayoutSpec("us"), LayoutSpec("ru")]
+        self.current_index = current
+        self.set_calls: list[int] = []
+        self.fail_switch = fail_switch
+        self._callbacks = []
+
+    def layouts(self):
+        return list(self._layouts)
+
+    def xkb_options(self):
+        return []
+
+    def current(self):
+        return self.current_index
+
+    def set(self, index: int) -> None:
+        self.set_calls.append(index)
+        if not self.fail_switch:
+            self.current_index = index
+
+    def wait_applied(self, index: int, timeout: float) -> bool:
+        return self.current_index == index
+
+    def on_change(self, cb):
+        self._callbacks.append(cb)
+
+    def emit_external_change(self, index: int):
+        self.current_index = index
+        for cb in self._callbacks:
+            cb(index, True)
+
+    def close(self):
+        pass
