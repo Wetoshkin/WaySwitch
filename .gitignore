@@ -12,3 +12,4 @@ pip-delete-this-directory.txt
 .lucid
 .anthropic
 .gemini
+.superpowers/
