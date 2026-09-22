@@ -73,16 +73,16 @@ def keys_for_typing(text: str, group: int, keymap: Keymap,
     return keys
 
 
-def plan_fix(delete_count: int, target_text: str, target_group: int | None, keymap: Keymap,
-             caps_on: bool) -> Plan | None:
-    group_for_keys = target_group if target_group is not None else 0
-    keys = keys_for_typing(target_text, group_for_keys, keymap, caps_on)
+def plan_fix(delete_count: int, target_text: str, target_group: int, keymap: Keymap,
+             caps_on: bool, switch: bool = True) -> Plan | None:
+    """План: отпустить модификаторы, стереть, (переключить), набрать текст в target_group."""
+    keys = keys_for_typing(target_text, target_group, keymap, caps_on)
     if keys is None:
         return None
     steps: list = [ReleaseModifiers()]
     if delete_count > 0:
         steps.append(Backspace(delete_count))
-    if target_group is not None:
+    if switch:
         steps.append(SwitchLayout(target_group))
     if target_text:
         steps.append(Type(target_text, keys))
@@ -113,36 +113,15 @@ class _Session:
         if self.key_delay > 0:
             self.sleep(self.key_delay)
 
-    def release_all(self) -> bool:
-        """Release all pressed keys. Returns True if any OSError occurred."""
-        had_error = False
-        # Release any actively pressed keys
+    def release_all(self) -> None:
+        """Отпустить всё нажатое, по возможности; ошибка отдельной клавиши не прерывает цикл."""
         for code in reversed(list(self.pressed)):
             try:
                 self.typist.key(code, 0)
                 self.typist.syn()
             except OSError:
-                had_error = True
-                # Ensure release is recorded even if the write failed
-                try:
-                    self.typist.events.append((code, 0))
-                    self.typist.events.append("syn")
-                except (AttributeError, TypeError):
-                    pass
-        # As a safeguard, always attempt to release both shift keys
-        for code in (kc.KEY_LEFTSHIFT, kc.KEY_RIGHTSHIFT):
-            try:
-                self.typist.key(code, 0)
-                self.typist.syn()
-            except OSError:
-                had_error = True
-                try:
-                    self.typist.events.append((code, 0))
-                    self.typist.events.append("syn")
-                except (AttributeError, TypeError):
-                    pass
+                pass
         self.pressed.clear()
-        return had_error
 
 
 def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: False,
@@ -150,12 +129,10 @@ def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: Fal
     if isinstance(typist, TextTypist):
         return _execute_text(plan, typist, backend, abort, switch_timeout)
     session = _Session(typist, key_delay, sleep)
-    result = DONE
     try:
         for step in plan.steps:
             if abort():
-                result = ABORTED
-                return result
+                return ABORTED
             if isinstance(step, ReleaseModifiers):
                 for code in ALL_MODIFIERS:
                     typist.key(code, 0)
@@ -163,32 +140,28 @@ def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: Fal
             elif isinstance(step, Backspace):
                 for _ in range(step.count):
                     if abort():
-                        result = ABORTED
-                        return result
+                        return ABORTED
                     session.press(kc.KEY_BACKSPACE)
                     session.release(kc.KEY_BACKSPACE)
             elif isinstance(step, SwitchLayout):
                 backend.set(step.group)
                 if not backend.wait_applied(step.group, switch_timeout):
-                    result = FAILED
-                    return result
+                    return FAILED
             elif isinstance(step, Type):
                 for code, shift in step.keys:
                     if abort():
-                        result = ABORTED
-                        return result
+                        return ABORTED
                     if shift:
                         session.press(kc.KEY_LEFTSHIFT)
                     session.press(code)
                     session.release(code)
                     if shift:
                         session.release(kc.KEY_LEFTSHIFT)
+        return DONE
     except OSError:
-        result = FAILED
+        return FAILED
     finally:
-        if session.release_all():
-            result = FAILED
-    return result
+        session.release_all()
 
 
 def _execute_text(plan: Plan, typist: TextTypist, backend, abort, switch_timeout: float) -> str:

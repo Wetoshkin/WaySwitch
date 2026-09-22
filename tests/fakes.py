@@ -54,7 +54,11 @@ def keys_for_text(keymap, text: str, group: int) -> list[K]:
 
 
 class RecordingTypist:
-    """Запоминает события uinput и умеет сказать, что осталось нажатым."""
+    """Запоминает события uinput и умеет сказать, что осталось нажатым.
+
+    fail_at — номер записи, которая один раз завершится OSError (временный сбой);
+    следующие записи проходят, поэтому исполнитель обязан суметь всё отпустить.
+    """
 
     def __init__(self, fail_at: int | None = None):
         self.events: list = []
@@ -63,7 +67,7 @@ class RecordingTypist:
 
     def key(self, code: int, value: int) -> None:
         self._writes += 1
-        if self.fail_at is not None and self._writes >= self.fail_at:
+        if self.fail_at is not None and self._writes == self.fail_at:
             raise OSError("uinput write failed")
         self.events.append((code, value))
 
