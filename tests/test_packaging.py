@@ -32,3 +32,9 @@ def test_uninstall_has_sudo_user_validation():
 def test_install_has_xdg_runtime_dir():
     text = (ROOT / "install.sh").read_text(encoding="utf-8")
     assert "XDG_RUNTIME_DIR" in text
+
+
+def test_scripts_use_env_for_xdg_runtime_dir():
+    for name in ("install.sh", "uninstall.sh"):
+        text = (ROOT / name).read_text(encoding="utf-8")
+        assert "env XDG_RUNTIME_DIR=" in text, name
