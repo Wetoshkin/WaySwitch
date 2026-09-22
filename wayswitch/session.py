@@ -23,7 +23,7 @@ class SessionGuard:
         self._logind_locked = False
 
     def start(self) -> None:
-        from gi.repository import Gio
+        from gi.repository import Gio, GLib
 
         try:
             self._ss = Gio.DBusProxy.new_for_bus_sync(
@@ -40,7 +40,7 @@ class SessionGuard:
                                              "org.freedesktop.login1", "/org/freedesktop/login1",
                                              "org.freedesktop.login1.Manager", None)
             manager.connect("g-signal", self._on_manager_signal)
-            (path,) = manager.call_sync("GetSessionByPID", Gio.Variant("(u)", (os.getpid(),)),
+            (path,) = manager.call_sync("GetSessionByPID", GLib.Variant("(u)", (os.getpid(),)),
                                         0, 1000, None).unpack()
             self._session = Gio.DBusProxy.new_sync(system, Gio.DBusProxyFlags.NONE, None,
                                                    "org.freedesktop.login1", path,
