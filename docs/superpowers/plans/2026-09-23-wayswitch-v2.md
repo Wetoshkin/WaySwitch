@@ -2160,7 +2160,7 @@ class ShiftGesture:
 - Consumes: `Keymap.key_for`.
 - Produces:
   - шаги: `ReleaseModifiers()`, `Backspace(count: int)`, `SwitchLayout(group: int)`, `Type(text: str, keys: list[tuple[int, bool]])`; `@dataclass Plan(steps: list)`
-  - `plan_fix(delete_count: int, target_text: str, target_group: int | None, keymap, caps_on: bool) -> Plan | None` (`target_group=None` — без переключения)
+  - `plan_fix(delete_count: int, target_text: str, target_group: int, keymap, caps_on: bool, switch: bool = True) -> Plan | None` (`target_group` — группа, в которой набирается текст; `switch=False` — без шага `SwitchLayout`, раскладка уже нужная)
   - `keys_for_typing(text, group, keymap, caps_on) -> list[tuple[int, bool]] | None`
   - протоколы `KeyTypist` (`key(code, value)`, `syn()`), `TextTypist` (`backspace(n)`, `type_text(text)`)
   - `DONE, ABORTED, FAILED = "done", "aborted", "failed"`; `execute(plan, typist, backend, abort=lambda: False, key_delay: float = 0.0, sleep=time.sleep, switch_timeout: float = 0.5) -> str`
@@ -2176,7 +2176,11 @@ from wayswitch.keymap import LayoutSpec
 
 
 class RecordingTypist:
-    """Запоминает события uinput и умеет сказать, что осталось нажатым."""
+    """Запоминает события uinput и умеет сказать, что осталось нажатым.
+
+    fail_at — номер записи, которая один раз завершится OSError (временный сбой);
+    следующие записи проходят, поэтому исполнитель обязан суметь всё отпустить.
+    """
 
     def __init__(self, fail_at: int | None = None):
         self.events: list = []
@@ -2185,7 +2189,7 @@ class RecordingTypist:
 
     def key(self, code: int, value: int) -> None:
         self._writes += 1
-        if self.fail_at is not None and self._writes >= self.fail_at:
+        if self.fail_at is not None and self._writes == self.fail_at:
             raise OSError("uinput write failed")
         self.events.append((code, value))
 
@@ -2296,8 +2300,9 @@ def test_plan_fix_builds_steps_with_shift_and_caps():
 
 def test_plan_fix_without_switch_and_impossible_char():
     km = make_keymap()
-    plan = plan_fix(3, "abc", None, km, caps_on=False)
+    plan = plan_fix(3, "abc", US, km, caps_on=False, switch=False)
     assert not any(isinstance(s, SwitchLayout) for s in plan.steps)
+    assert plan.steps[-1].keys[0] == (kc.KEY_A, False)
     assert plan_fix(1, "ж", US, km, caps_on=False) is None
 
 
@@ -2446,16 +2451,16 @@ def keys_for_typing(text: str, group: int, keymap: Keymap,
     return keys
 
 
-def plan_fix(delete_count: int, target_text: str, target_group: int | None, keymap: Keymap,
-             caps_on: bool) -> Plan | None:
-    group_for_keys = target_group if target_group is not None else 0
-    keys = keys_for_typing(target_text, group_for_keys, keymap, caps_on)
+def plan_fix(delete_count: int, target_text: str, target_group: int, keymap: Keymap,
+             caps_on: bool, switch: bool = True) -> Plan | None:
+    """План: отпустить модификаторы, стереть, (переключить), набрать текст в target_group."""
+    keys = keys_for_typing(target_text, target_group, keymap, caps_on)
     if keys is None:
         return None
     steps: list = [ReleaseModifiers()]
     if delete_count > 0:
         steps.append(Backspace(delete_count))
-    if target_group is not None:
+    if switch:
         steps.append(SwitchLayout(target_group))
     if target_text:
         steps.append(Type(target_text, keys))
@@ -3048,8 +3053,8 @@ class Controller:
             return False
         # Раскладка уже переключена вторым Shift; декодируем всё в текущей группе.
         text = self.keymap.decode(keys, current)
-        return self._apply_fix(keys, 0, None, text, manual=True, reason="phrase",
-                               group_before=current, whole_phrase=True)
+        return self._apply_fix(keys, 0, current, text, manual=True, reason="phrase",
+                               group_before=current, whole_phrase=True, switch=False)
 
     # --- исполнение -------------------------------------------------------------
 
@@ -3066,10 +3071,11 @@ class Controller:
             self.sleep(0.005)
         return True
 
-    def _apply_fix(self, keys: list[KeyPress], tail: int, target_group: int | None, text: str,
+    def _apply_fix(self, keys: list[KeyPress], tail: int, target_group: int, text: str,
                    *, manual: bool, reason: str, group_before: int,
-                   whole_phrase: bool = False) -> bool:
-        plan = plan_fix(len(keys) + tail, text, target_group, self.keymap, self.buffer.caps)
+                   whole_phrase: bool = False, switch: bool = True) -> bool:
+        plan = plan_fix(len(keys) + tail, text, target_group, self.keymap, self.buffer.caps,
+                        switch=switch)
         if plan is None:
             log.warning("не могу набрать %r в группе %s", text, target_group)
             return False
@@ -3097,9 +3103,8 @@ class Controller:
             return False
         log.info("%s: %r → %r за %.0f мс", reason, original, text.rstrip(),
                  (self.clock() - started) * 1000)
-        typed_group = target_group if target_group is not None else group_before
         new_keys = [KeyPress(code, shift) for code, shift in
-                    keys_for_typing(text, typed_group, self.keymap, False) or []]
+                    keys_for_typing(text, target_group, self.keymap, False) or []]
         if whole_phrase:
             self.buffer.replace_all(new_keys)
         else:
