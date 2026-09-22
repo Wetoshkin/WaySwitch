@@ -1,5 +1,6 @@
 """Тесты чистых функций GUI: не требуют gi/GTK, годятся для CI без дисплея."""
 
+from wayswitch.gui.app import parse_gui_args
 from wayswitch.gui.autostart import tray_desktop_text
 from wayswitch.gui.tray import menu_layout
 
@@ -17,3 +18,9 @@ def test_menu_layout_reflects_status():
                  menu_layout({"paused": True, "auto_correct": True, "active": False}))
     assert "Возобновить" in items["pause"][0]
     assert "✓" in items["auto"][0]
+
+
+def test_parse_gui_args():
+    assert parse_gui_args(["gui"]) is False
+    assert parse_gui_args(["--tray"]) is True
+    assert parse_gui_args(["gui", "--tray"]) is True
