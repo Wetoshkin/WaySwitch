@@ -57,6 +57,14 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         while ctx.pending():
             ctx.iteration(False)
 
+    loop = GLib.MainLoop()
+    exit_code = 0
+
+    def on_fatal(code: int) -> None:
+        nonlocal exit_code
+        exit_code = code
+        loop.quit()
+
     service: DaemonService | None = None
     controller = Controller(
         config, keymap, detector, backend, typist_for_controller, pump=pump, dry_run=dry_run,
@@ -96,7 +104,7 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         except cfgmod.ConfigError as e:
             log.error("конфиг не перечитан: %s", e)
 
-    service = DaemonService(controller, reload)
+    service = DaemonService(controller, reload, on_fatal)
     service.start()
 
     from gi.repository import Gio
@@ -105,7 +113,6 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     monitor = Gio.File.new_for_path(str(path)).monitor_file(Gio.FileMonitorFlags.NONE, None)
     monitor.connect("changed", lambda *_: reload())
 
-    loop = GLib.MainLoop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         GLib.unix_signal_add(GLib.PRIORITY_HIGH, sig, lambda *_: (loop.quit(), False)[1])
     log.info("WaySwitch запущен%s", " (dry-run)" if dry_run else "")
@@ -114,4 +121,4 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     finally:
         watcher.stop()
         typist.close()
-    return 0
+    return exit_code

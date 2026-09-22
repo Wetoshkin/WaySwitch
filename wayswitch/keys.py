@@ -38,7 +38,7 @@ class DeviceWatcher:
         self._devices: dict[str, tuple] = {}  # путь → (dev, device_id, kind, source_id)
         self._next_id = 1
         self._monitor = None
-        self._rescans: list[int] = []
+        self._denied: set[str] = set()  # пути, по которым уже предупредили о нехватке прав
 
     # --- перечисление -------------------------------------------------------------
 
@@ -46,17 +46,19 @@ class DeviceWatcher:
         return [(path, d[0].name, d[2]) for path, d in self._devices.items()]
 
     def start(self) -> None:
-        from gi.repository import Gio, GLib
+        from gi.repository import Gio
 
         self.rescan()
         self._monitor = Gio.File.new_for_path(INPUT_DIR).monitor_directory(
             Gio.FileMonitorFlags.NONE, None)
         self._monitor.connect("changed", self._on_dir_changed)
-        self._GLib = GLib
 
     def stop(self) -> None:
         for path in list(self._devices):
             self._close(path)
+        if self._monitor is not None:
+            self._monitor.cancel()
+            self._monitor = None
 
     def rescan(self) -> None:
         from evdev import list_devices
@@ -95,6 +97,14 @@ class DeviceWatcher:
         try:
             dev = InputDevice(path)
             caps = set(dev.capabilities().get(ecodes.EV_KEY, []))
+        except PermissionError as e:
+            # Нет прав на устройство (не применилось правило udev) — важная
+            # причина, по которой демон может остаться без клавиатуры;
+            # предупреждаем один раз на путь, а не тонем в debug-логе.
+            if path not in self._denied:
+                self._denied.add(path)
+                log.warning("нет доступа к %s: %s (правило udev? см. wayswitch doctor)", path, e)
+            return
         except OSError as e:
             log.debug("не открыть %s: %s", path, e)
             return
@@ -139,6 +149,12 @@ class DeviceWatcher:
             return False
         try:
             events = list(dev.read())
+        except BlockingIOError:
+            # GLib разбудил колбэк по готовности fd, но evdev неблокирующим
+            # read() ещё не отдал ни одного события (ложное пробуждение или
+            # события уже разобраны предыдущим вызовом) — это не отключение
+            # устройства, просто нечего читать прямо сейчас.
+            return True
         except OSError:
             self._close(path)
             return False
