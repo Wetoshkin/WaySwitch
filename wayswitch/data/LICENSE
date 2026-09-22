@@ -1,0 +1,6 @@
+Файлы ru.words.gz, en.words.gz и производные от них ru.ngrams.json.gz,
+en.ngrams.json.gz собраны из проекта FrequencyWords
+(https://github.com/hermitdave/FrequencyWords), списки 2018 года на основе
+корпуса субтитров OpenSubtitles. Лицензия данных: CC-BY-SA 4.0
+(https://creativecommons.org/licenses/by-sa/4.0/). Код проекта WaySwitch
+распространяется по MIT и на эти файлы не распространяется.
