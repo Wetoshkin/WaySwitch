@@ -19,6 +19,7 @@ USER_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
 
 echo "== Пакеты"
 if command -v apt-get >/dev/null; then
+    apt-get update
     apt-get install -y python3 python3-evdev python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 \
         gir1.2-ibus-1.0 libxkbcommon0
 elif command -v dnf >/dev/null; then

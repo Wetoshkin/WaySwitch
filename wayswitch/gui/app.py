@@ -13,6 +13,17 @@ from wayswitch.gui.tray import StatusNotifier
 APP_ID = "ru.siberia.WaySwitch"
 
 
+def layout_label(index) -> str:
+    """Подпись строки «Раскладка» по layout_index из GetStatus.
+
+    Демон отдаёт -1 (None в контроллере), когда бэкенд не знает текущую
+    группу — показывать «индекс -1» бессмысленно. Чистая функция.
+    """
+    if index is None or index < 0:
+        return "неизвестно"
+    return f"индекс {index}"
+
+
 def parse_gui_args(argv: list[str]) -> bool:
     """Разобрать argv GUI: единственный поддерживаемый флаг — ``--tray``.
 
@@ -94,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
                 "работает" if status.get("active") else "только ручной режим"
             self.row_state.set_subtitle(state + (" (dry-run)" if status.get("dry_run") else ""))
             self.row_backend.set_subtitle(str(status.get("backend", "?")))
-            self.row_layout.set_subtitle(f"индекс {status.get('layout_index')}")
+            self.row_layout.set_subtitle(layout_label(status.get("layout_index")))
             self.row_count.set_subtitle(
                 f"авто {status.get('corrections_total', 0)}, вручную "
                 f"{status.get('manual_total', 0)}, откатов {status.get('undo_total', 0)}")

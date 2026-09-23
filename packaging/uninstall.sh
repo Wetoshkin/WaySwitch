@@ -10,7 +10,8 @@ USER_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
 USER_UID="$(id -u "$SUDO_USER")"
 sudo -u "$SUDO_USER" env XDG_RUNTIME_DIR="/run/user/$USER_UID" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$USER_UID/bus" systemctl --user disable --now wayswitch 2>/dev/null || true
 rm -f "$USER_HOME/.config/systemd/user/wayswitch.service"
-rm -f "$USER_HOME/.config/systemd/user/default.target.wants/wayswitch.service"
+rm -f "$USER_HOME/.config/systemd/user/graphical-session.target.wants/wayswitch.service"
+rm -f "$USER_HOME/.config/systemd/user/default.target.wants/wayswitch.service"  # юнит старых версий
 rm -f "$USER_HOME/.config/autostart/ru.siberia.WaySwitch.desktop"
 rm -rf "$USER_HOME/.local/share/gnome-shell/extensions/wayswitch@siberia.ru"
 rm -rf /usr/local/lib/wayswitch /usr/local/bin/wayswitch /usr/local/bin/wayswitch-gui
