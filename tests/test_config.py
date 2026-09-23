@@ -36,6 +36,11 @@ def test_invalid_values_raise():
         cfgmod.from_dict({"general": {"unknown_key": 1}})
 
 
+def test_pause_hotkey_accepts_documented_spelling():
+    cfg = cfgmod.from_dict({"gesture": {"pause_hotkey": "scroll_lock"}})
+    assert cfg.gesture.pause_hotkey == "scroll_lock"
+
+
 def test_unknown_section_ignored_but_unknown_key_rejected():
     cfg = cfgmod.from_dict({"future": {"x": 1}})
     assert cfg.general.auto_correct is True

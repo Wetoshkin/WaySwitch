@@ -23,3 +23,14 @@ def test_key_names_round_trip():
     assert kc.KEY_NAMES["space"] == kc.KEY_SPACE
     assert kc.KEY_NAMES["pause"] == kc.KEY_PAUSE
     assert kc.key_name(kc.KEY_LEFTSHIFT) == "leftshift"
+
+
+def test_lock_key_aliases_with_underscore():
+    # README и спецификация приводят пример pause_hotkey = "scroll_lock".
+    assert kc.KEY_NAMES["scroll_lock"] == kc.KEY_NAMES["scrolllock"] == kc.KEY_SCROLLLOCK
+    assert kc.KEY_NAMES["caps_lock"] == kc.KEY_NAMES["capslock"] == kc.KEY_CAPSLOCK
+    assert kc.KEY_NAMES["num_lock"] == kc.KEY_NAMES["numlock"] == kc.KEY_NUMLOCK
+    # Обратное имя — по-прежнему слитное.
+    assert kc.key_name(kc.KEY_SCROLLLOCK) == "scrolllock"
+    assert kc.key_name(kc.KEY_CAPSLOCK) == "capslock"
+    assert kc.key_name(kc.KEY_NUMLOCK) == "numlock"
