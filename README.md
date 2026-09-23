@@ -37,7 +37,7 @@
 ## Установка
 
 ```bash
-git clone <адрес репозитория> wayswitch
+git clone https://github.com/Wetoshkin/WaySwitch.git wayswitch
 cd wayswitch
 sudo packaging/install.sh
 ```
