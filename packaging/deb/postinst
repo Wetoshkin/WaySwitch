@@ -1,0 +1,24 @@
+#!/bin/sh
+# postinst пакета wayswitch: перечитать правила udev, поднять uinput,
+# напечатать краткую подсказку по первому запуску.
+set -e
+
+case "$1" in
+    configure)
+        udevadm control --reload-rules || true
+        udevadm trigger --subsystem-match=input --subsystem-match=misc || true
+        modprobe uinput || true
+
+        cat <<'EOF'
+
+WaySwitch установлен. Дальше от имени обычного пользователя:
+  1. Перелогиньтесь (правила udev применяются к новому сеансу).
+  2. wayswitch doctor
+  3. systemctl --user enable --now wayswitch
+  4. Необязательно: gnome-extensions enable wayswitch@siberia.ru
+  5. wayswitch-gui — настройки и трей.
+EOF
+        ;;
+esac
+
+exit 0

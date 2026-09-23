@@ -1,0 +1,16 @@
+Package: wayswitch
+Version: @VERSION@
+Architecture: all
+Section: utils
+Priority: optional
+Maintainer: Wetoshkin <wetoshkin@gmail.com>
+Homepage: https://github.com/Wetoshkin/WaySwitch
+Depends: python3 (>= 3.11), python3-evdev, python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1, gir1.2-ibus-1.0, gir1.2-glib-2.0, libxkbcommon0, udev
+Recommends: gnome-shell-extension-appindicator, ibus
+Description: Keyboard layout auto-corrector for GNOME on Wayland (ru/en)
+ WaySwitch — аналог Punto Switcher для GNOME на Wayland. Демон читает
+ клавиатуру через evdev, определяет по словарю и символьным триграммам
+ слова, набранные не в той раскладке (ru <-> en), переключает раскладку
+ через IBus или расширение GNOME Shell и перепечатывает слово через
+ uinput. Есть ручной жест (двойной/тройной Shift), откат с обучением,
+ GTK4-окно настроек и трей.

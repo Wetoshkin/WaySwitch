@@ -14,3 +14,25 @@ jobs:
       - run: python -m pytest -q
       - name: Синтаксис расширения
         run: node --input-type=module --check < extension/wayswitch@siberia.ru/extension.js
+
+  deb:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Индекс apt
+        run: sudo apt-get update
+      - name: Сборка .deb
+        run: bash tools/build_deb.sh
+      - name: Установка собранного пакета
+        run: sudo apt-get install -y ./dist/*.deb
+      - name: Смок-проверка
+        run: |
+          wayswitch version
+          python3 -c "import wayswitch, wayswitch.cli"
+          test -f /usr/lib/systemd/user/wayswitch.service
+          wayswitch doctor || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wayswitch-deb
+          path: dist/*.deb
