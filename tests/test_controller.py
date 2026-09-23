@@ -341,6 +341,42 @@ def test_third_shift_tap_before_scheduled_word_fix_runs_becomes_phrase(env):
     assert env["typist"].stuck() == set()
 
 
+def test_pending_gesture_survives_guard_failure_while_other_fix_still_queued(env):
+    """Жест, пришедший при self._pending == 2 (два фикса ещё не исполнены),
+    не должен теряться, когда исполнение первого фикса не проходит гвард
+    _run_pending_gesture (второй фикс всё ещё в очереди): жест обязан
+    дождаться исполнения второго и сработать тогда."""
+    ctrl = env["ctrl"]
+    queue = deferred(env)
+    type_text(env, "ghbdtn ")
+    type_text(env, "vbh ")
+    assert ctrl._pending == 2 and len(queue) == 2
+
+    double_shift(env)  # второй фикс ещё не исполнен → жест уходит в _pending_gesture
+    assert ctrl._pending_gesture == "word"
+
+    drain_one = queue.pop(0)
+    drain_one()  # первый фикс исполнен, но второй ещё в очереди — гвард не пройден
+    assert ctrl._pending == 1
+    assert ctrl._pending_gesture == "word", "жест не должен теряться при неудачном гварде"
+
+    drain_one = queue.pop(0)
+    drain_one()  # второй фикс исполнен, гвард пройден — жест применяется
+    assert ctrl._pending_gesture is None
+    assert ctrl._pending == 1  # manual_word() из жеста запланировал третий фикс
+    assert len(queue) == 1
+    drain(queue)
+    assert ctrl._pending == 0
+    # Первый фикс ("ghbdtn") отменён самим run() — буфер успел уйти вперёд
+    # (набрано "vbh ") к моменту его исполнения; это не связано с багом
+    # гварда и ожидаемо. Важно, что жест таки применился, а не потерялся:
+    # второй (авто) фикс "vbh"→"мир" исполнился, а следом отработал жест
+    # (мануальный, из _pending_gesture), откатив его обратно на "vbh".
+    assert [c[2] for c in env["corrected"]] == [False, True]
+    assert env["corrected"][0] == ("vbh", "мир", False)
+    assert env["corrected"][1][1] == "vbh"  # жест вернул слово обратно
+
+
 # --- гонки во время исполнения (I2/I3/I4) -------------------------------------
 
 def reenter_during_fix(env, action, at_event=6):

@@ -360,10 +360,16 @@ class Controller:
         self.schedule(run)
 
     def _run_pending_gesture(self) -> None:
-        """Жест, пришедший во время фикса (или пока фикс ждал idle), — на свежем буфере."""
-        gesture, self._pending_gesture = self._pending_gesture, None
-        if gesture is None or self._pending or self.busy or self.paused or self.locked:
+        """Жест, пришедший во время фикса (или пока фикс ждал idle), — на свежем буфере.
+
+        Гвард проверяем до извлечения жеста: если он не пройден (ещё остался
+        другой отложенный фикс или конкурентный busy), жест должен остаться
+        в self._pending_gesture, а не потеряться.
+        """
+        if (self._pending_gesture is None or self._pending
+                or self.busy or self.paused or self.locked):
             return
+        gesture, self._pending_gesture = self._pending_gesture, None
         (self.manual_word if gesture == "word" else self.manual_phrase)()
 
     def _abort(self) -> bool:
