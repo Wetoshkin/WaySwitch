@@ -18,7 +18,7 @@
 - Модули `keycodes`, `config`, `keymap` (кроме `XkbKeymap`), `ngram`, `detector`, `buffer`, `gesture`, `actuator` (кроме `UInputTypist`), `controller`, `doctor` (логика) не импортируют `evdev` и `gi` на уровне модуля — тесты запускаются на Windows. Всё, что трогает `evdev`/`gi`, импортирует их внутри функций/классов.
 - Разработка идёт на Windows: `pytest` доступен, `evdev`/`gi`/libxkbcommon — нет. Тесты, требующие их, помечаются `pytest.mark.skipif`. Файлы для Linux (`.sh`, `.service`, `.rules`, `.js`) — LF (`.gitattributes` уже задан).
 - Целевое окружение: GNOME Shell 46–49 на Wayland, две xkb-раскладки: одна `ru*`, одна латинская.
-- Коммиты: сообщение на русском, в конце строка `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`. Автор коммита задаётся `git -c user.name="Wetoshkin" -c user.email="wetoshkin@gmail.com"`.
+- Коммиты: сообщение на русском, без трейлеров соавторства. Автор коммита задаётся `git -c user.name="Wetoshkin" -c user.email="wetoshkin@gmail.com"`.
 - Запуск тестов: `python -m pytest -q` из корня репозитория. Линтер: `python -m ruff check .` (установить `pip install ruff` при отсутствии).
 - Имена на D-Bus: демон `ru.siberia.WaySwitch` (`/ru/siberia/WaySwitch`, интерфейс `ru.siberia.WaySwitch.Daemon`), расширение `ru.siberia.WaySwitch.Shell` (`/ru/siberia/WaySwitch/Shell`). Идентификатор приложения GUI `ru.siberia.WaySwitch`.
 - Имя виртуальной клавиатуры uinput: `WaySwitch Virtual Keyboard`.
@@ -346,8 +346,7 @@ jobs:
 ```bash
 git add -A
 git -c user.name="Wetoshkin" -c user.email="wetoshkin@gmail.com" commit -m "chore: каркас v2, коды клавиш, CI; удалён прототип v1
-
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+"
 ```
 
 ---
