@@ -1,8 +1,14 @@
 """Тесты чистых функций GUI: не требуют gi/GTK, годятся для CI без дисплея."""
 
-from wayswitch.gui.app import parse_gui_args
+from wayswitch.gui.app import layout_label, parse_gui_args
 from wayswitch.gui.autostart import tray_desktop_text
 from wayswitch.gui.tray import menu_layout
+
+
+def test_layout_label_unknown_index():
+    assert layout_label(-1) == "неизвестно"
+    assert layout_label(None) == "неизвестно"
+    assert layout_label(1) == "индекс 1"
 
 
 def test_desktop_entry():

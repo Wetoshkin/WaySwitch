@@ -14,7 +14,10 @@ def test_service_unit():
     text = (ROOT / "wayswitch.service").read_text(encoding="utf-8")
     assert "ExecStart=/usr/local/bin/wayswitch run" in text
     assert "After=graphical-session.target" in text
-    assert "WantedBy=default.target" in text
+    assert "PartOf=graphical-session.target" in text
+    # default.target поднял бы сервис до графической сессии (и при SSH-логине).
+    assert "WantedBy=graphical-session.target" in text
+    assert "WantedBy=default.target" not in text
 
 
 def test_scripts_are_lf_and_executable_shebang():
@@ -26,12 +29,17 @@ def test_scripts_are_lf_and_executable_shebang():
 
 def test_uninstall_has_sudo_user_validation():
     text = (ROOT / "uninstall.sh").read_text(encoding="utf-8")
-    assert "SUDO_USER" in text and "default.target.wants" in text
+    assert "SUDO_USER" in text and "graphical-session.target.wants" in text
 
 
 def test_install_has_xdg_runtime_dir():
     text = (ROOT / "install.sh").read_text(encoding="utf-8")
     assert "XDG_RUNTIME_DIR" in text
+
+
+def test_install_updates_apt_index_before_install():
+    text = (ROOT / "install.sh").read_text(encoding="utf-8")
+    assert text.index("apt-get update") < text.index("apt-get install")
 
 
 def test_scripts_use_env_for_xdg_runtime_dir():

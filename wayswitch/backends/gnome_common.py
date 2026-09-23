@@ -69,12 +69,6 @@ def read_xkb_options() -> list[str]:
     return list(_settings(SCHEMA_SOURCES).get_strv("xkb-options"))
 
 
-def read_switch_binding() -> list[int]:
-    """Прямой (forward) хоткей — им HotkeyBackend.set() эмулирует переключение."""
-    values = _settings(SCHEMA_WM).get_strv("switch-input-source")
-    return parse_gnome_binding(values[0]) if values else []
-
-
 def read_switch_bindings() -> list[list[int]]:
     """Прямой и обратный хоткей смены раскладки — оба нужны для observe_physical.
 

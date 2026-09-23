@@ -23,6 +23,7 @@ class GnomeIbusBackend(LayoutBackend):
         self._GLib = GLib
         self._settle = settle_ms / 1000.0
         self._specs = gnome_common.read_sources()
+        IBus.init()  # документация IBus требует вызвать до создания IBus.Bus
         self._bus = IBus.Bus()
         if not self._bus.is_connected():
             raise BackendError("IBus не отвечает (ibus-daemon не запущен?)")

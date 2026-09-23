@@ -115,7 +115,17 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
 
     path = config_path or cfgmod.default_path()
     monitor = Gio.File.new_for_path(str(path)).monitor_file(Gio.FileMonitorFlags.NONE, None)
-    monitor.connect("changed", lambda *_: reload())
+    # Одно сохранение — несколько событий (os.replace: DELETED/CREATED/…,
+    # редактор: CHANGED×N). Перечитываем один раз — по CHANGES_DONE_HINT,
+    # который GLib шлёт после серии изменений (и синтетически после rename);
+    # если этого события в биндинге нет (очень старый GLib) — по CHANGED.
+    done_event = getattr(Gio.FileMonitorEvent, "CHANGES_DONE_HINT", Gio.FileMonitorEvent.CHANGED)
+
+    def on_config_changed(_monitor, _file, _other, event_type) -> None:
+        if event_type == done_event:
+            reload()
+
+    monitor.connect("changed", on_config_changed)
 
     for sig in (signal.SIGTERM, signal.SIGINT):
         GLib.unix_signal_add(GLib.PRIORITY_HIGH, sig, lambda *_: (loop.quit(), False)[1])
