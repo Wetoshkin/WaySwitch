@@ -17,7 +17,7 @@
 - Сторонние проекты-аналоги в коде, комментариях и документации **не упоминаются**.
 - Модули `keycodes`, `config`, `keymap` (кроме `XkbKeymap`), `ngram`, `detector`, `buffer`, `gesture`, `actuator` (кроме `UInputTypist`), `controller`, `doctor` (логика) не импортируют `evdev` и `gi` на уровне модуля — тесты запускаются на Windows. Всё, что трогает `evdev`/`gi`, импортирует их внутри функций/классов.
 - Разработка идёт на Windows: `pytest` доступен, `evdev`/`gi`/libxkbcommon — нет. Тесты, требующие их, помечаются `pytest.mark.skipif`. Файлы для Linux (`.sh`, `.service`, `.rules`, `.js`) — LF (`.gitattributes` уже задан).
-- Целевое окружение: GNOME Shell 46–49 на Wayland, две xkb-раскладки: одна `ru*`, одна латинская.
+- Целевое окружение: GNOME Shell 46–50 на Wayland, две xkb-раскладки: одна `ru*`, одна латинская.
 - Коммиты: сообщение на русском, без трейлеров соавторства. Автор коммита задаётся `git -c user.name="Wetoshkin" -c user.email="wetoshkin@gmail.com"`.
 - Запуск тестов: `python -m pytest -q` из корня репозитория. Линтер: `python -m ruff check .` (установить `pip install ruff` при отсутствии).
 - Имена на D-Bus: демон `ru.siberia.WaySwitch` (`/ru/siberia/WaySwitch`, интерфейс `ru.siberia.WaySwitch.Daemon`), расширение `ru.siberia.WaySwitch.Shell` (`/ru/siberia/WaySwitch/Shell`). Идентификатор приложения GUI `ru.siberia.WaySwitch`.
@@ -4435,7 +4435,7 @@ def main(argv: list[str] | None = None) -> int:
   "uuid": "wayswitch@siberia.ru",
   "name": "WaySwitch",
   "description": "Состояние раскладки и печать символов для демона WaySwitch по D-Bus.",
-  "shell-version": ["46", "47", "48", "49"],
+  "shell-version": ["46", "47", "48", "49", "50"],
   "url": "https://github.com/Wetoshkin/WaySwitch",
   "version": 1
 }

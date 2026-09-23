@@ -24,7 +24,7 @@
 
 В первой версии:
 
-- Окружение: GNOME Shell 46–49 на Wayland (Ubuntu 24.04–25.10, Fedora 40+).
+- Окружение: GNOME Shell 46–50 на Wayland (Ubuntu 24.04–26.04, Fedora 40+).
 - Раскладки: ровно две xkb-раскладки, одна кириллическая `ru` (любой вариант) и одна
   латинская (`us` с любым вариантом, включая dvorak). Если у пользователя другой
   набор — авторежим отключается с понятным сообщением, ручной жест работает.
@@ -401,7 +401,7 @@ prefer = "auto"               # auto | shell | ibus | hotkey
 
 ## 7. Расширение GNOME Shell (необязательное)
 
-`extension/wayswitch@siberia.ru/`, ESM, `shell-version: ["46","47","48","49"]`.
+`extension/wayswitch@siberia.ru/`, ESM, `shell-version: ["46","47","48","49","50"]`.
 Экспортирует на сессионной шине `ru.siberia.WaySwitch.Shell`,
 объект `/ru/siberia/WaySwitch/Shell`:
 

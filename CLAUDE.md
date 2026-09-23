@@ -43,7 +43,7 @@ IBus/расширение GNOME Shell и перепечатывает слово
 | `wayswitch/gui/tray.py` | `StatusNotifierItem` через `Gio.DBus` |
 | `wayswitch/gui/autostart.py` | автозапуск сервиса и трея (`systemctl --user`, XDG autostart) |
 | `wayswitch/gui/daemon_proxy.py` | клиент D-Bus демона для GUI |
-| `extension/wayswitch@siberia.ru/` | расширение GNOME Shell (ESM, `shell-version` 46–49) |
+| `extension/wayswitch@siberia.ru/` | расширение GNOME Shell (ESM, `shell-version` 46–50) |
 | `packaging/` | udev-правило, systemd-юнит, `.desktop`, `install.sh`/`uninstall.sh` |
 | `tools/build_data.py` | сборка `wayswitch/data/*.gz` (словари, триграммы) из открытого корпуса |
 | `tests/` | pytest; `tests/e2e_vm.py` — сквозной тест, гоняется руками в VM |
