@@ -1,16 +1,20 @@
+from pathlib import Path
+
 import pytest
 
 from tests.fakes import RU, US, K, keys_for_text, make_keymap
+from wayswitch import config as cfgmod
 from wayswitch import keycodes as kc
 from wayswitch.detector import SENSITIVITY, Detector, LanguageModel, Sensitivity
 
+DATA = Path(__file__).resolve().parents[1] / "wayswitch" / "data"
 RU_ALPHABET = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
 EN_ALPHABET = "abcdefghijklmnopqrstuvwxyz"
 
 RU_WORDS = [("я", 1000.0), ("не", 900.0), ("это", 800.0), ("привет", 500.0), ("мы", 700.0),
             ("буква", 100.0), ("книга", 120.0), ("эту", 300.0), ("пока", 200.0),
             ("спасибо", 250.0), ("который", 150.0), ("сон", 60.0), ("дом", 90.0),
-            ("дорогой", 80.0), ("игорь", 40.0)]
+            ("дорогой", 80.0), ("игорь", 40.0), ("ёлка", 50.0)]
 EN_WORDS = [("the", 1000.0), ("hello", 500.0), ("world", 400.0), ("book", 300.0),
             ("letter", 200.0), ("this", 350.0), ("that", 340.0), ("a", 900.0), ("i", 950.0),
             ("with", 330.0), ("son", 50.0)]
@@ -50,6 +54,27 @@ def test_case_and_tail_punctuation_follow_target_layout(det):
     d = det.decide(keys, US, RU)
     assert d.action == "fix"
     assert d.target_text == "Привет,"
+
+
+def test_trailing_slash_is_russian_period_not_path(det):
+    # В ru точка — KEY_SLASH без Shift: «привет.» в US выглядит как «ghbdtn/».
+    d = det.decide(typed("ghbdtn/", US), US, RU)
+    assert d.action == "fix", d.reason
+    assert d.target_text == "привет."
+
+
+def test_leading_tilde_is_yo_not_home_path(det):
+    # Shift+grave в ru — «Ё»: «Ёлка» в US выглядит как «~krf».
+    keys = [K(kc.KEY_GRAVE, shift=True), K(kc.KEY_K), K(kc.KEY_R), K(kc.KEY_F)]
+    d = det.decide(keys, US, RU)
+    assert d.action == "fix", d.reason
+    assert d.target_text == "Ёлка"
+
+
+@pytest.mark.parametrize("text", ["hello/world", "usr\\bin", "foo~bar", "/usr/bin"])
+def test_path_markers_inside_word_are_kept(det, text):
+    d = det.decide(typed(text, US), US, RU)
+    assert d.action == "keep" and d.reason == "tech", (text, d.reason)
 
 
 def test_english_word_typed_in_russian_layout_is_fixed(det):
@@ -120,3 +145,20 @@ def test_word_language(det):
     assert det.word_language("привет") == "ru"
     assert det.word_language("Hello") == "en"
     assert det.word_language("ghbdtn") is None
+
+
+# --- стыковка с конфигом и боевыми данными -----------------------------------
+
+def test_sensitivity_names_match_config():
+    # daemon.run делает SENSITIVITY[config.general.sensitivity]: рассинхрон = KeyError.
+    assert set(SENSITIVITY) == set(cfgmod.SENSITIVITY_NAMES)
+
+
+@pytest.mark.skipif(not (DATA / "ru.words.gz").exists(), reason="нет данных")
+def test_language_model_load_real_data():
+    # Единственный путь загрузки боевых данных — формат words.gz/ngrams из build_data.py.
+    ru = LanguageModel.load("ru")
+    assert ru.lang == "ru" and ru.is_word("привет") and "и" in ru.top
+    assert ru.score("привет") > ru.score("ьоыфжз")
+    en = LanguageModel.load("en", data_dir=DATA)
+    assert en.is_word("hello") and en.score("hello") > en.score("xqzvkw")

@@ -21,7 +21,12 @@ LETTERS = {"ru": CYRILLIC, "en": LATIN}
 INNER_MARKS = {"-", "'"}
 URL_SCHEMES = ("http://", "https://", "ftp://")
 TECH_PREFIXES = URL_SCHEMES + ("ssh://", "www.", "git@")
-TECH_MARKERS = ("://", "/", "\\", "@", "~", "--", ".com", ".ru", ".org", ".net", ".io", ".dev")
+TECH_MARKERS = ("://", "@", "--", ".com", ".ru", ".org", ".net", ".io", ".dev")
+# Признаки пути проверяются только внутри слова (между первой и последней
+# буквой), а не по всему тексту: в ru точка — это KEY_SLASH, и «привет.»,
+# набранное в US, выглядит как «ghbdtn/»; Ё — Shift+grave, и «Ёлка» — «~krf».
+# Хвостовой «/» и ведущий «~» — не путь, а пунктуация/буква другой раскладки.
+PATH_MARKERS = ("/", "\\", "~")
 TECH_WORDS = {"http", "https", "ftp", "www", "ssh", "git", "sudo", "apt", "dnf"}
 
 
@@ -98,6 +103,14 @@ def _split_tail(text: str, letters: set[str]) -> tuple[str, str]:
     while i > 0 and text[i - 1].lower() not in letters and text[i - 1] not in INNER_MARKS:
         i -= 1
     return text[:i], text[i:]
+
+
+def _inner(core: str, letters: set[str]) -> str:
+    """Часть core от первой буквы языка (хвост уже отрезан в _split_tail)."""
+    i = 0
+    while i < len(core) and core[i].lower() not in letters:
+        i += 1
+    return core[i:]
 
 
 def _is_camel(core: str) -> bool:
@@ -185,8 +198,9 @@ class Detector:
         if _is_camel(a.core):
             return keep("camel")
         al = a.text.lower()
-        if any(m in al for m in TECH_MARKERS) or al.startswith(TECH_PREFIXES) \
-                or a.core.lower() in TECH_WORDS:
+        inner = _inner(a.core, LETTERS[a.lang])
+        if any(m in al for m in TECH_MARKERS) or any(m in inner for m in PATH_MARKERS) \
+                or al.startswith(TECH_PREFIXES) or a.core.lower() in TECH_WORDS:
             return keep("tech")
         if 2 <= len(a.core) < 5 and a.core.isupper():
             return keep("abbrev")

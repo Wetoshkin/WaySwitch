@@ -101,6 +101,9 @@ KEY_NAMES: dict[str, int] = {
     "esc": KEY_ESC, "escape": KEY_ESC, "backspace": KEY_BACKSPACE,
     "insert": KEY_INSERT, "delete": KEY_DELETE, "home": KEY_HOME, "end": KEY_END,
     "pause": KEY_PAUSE, "scrolllock": KEY_SCROLLLOCK, "capslock": KEY_CAPSLOCK,
+    "numlock": KEY_NUMLOCK,
+    # Написание с подчёркиванием (как в README/спецификации и у X11-keysym'ов).
+    "scroll_lock": KEY_SCROLLLOCK, "caps_lock": KEY_CAPSLOCK, "num_lock": KEY_NUMLOCK,
     "menu": KEY_COMPOSE, "compose": KEY_COMPOSE,
     "leftshift": KEY_LEFTSHIFT, "rightshift": KEY_RIGHTSHIFT, "shift": KEY_LEFTSHIFT,
     "leftctrl": KEY_LEFTCTRL, "rightctrl": KEY_RIGHTCTRL, "ctrl": KEY_LEFTCTRL,
@@ -123,9 +126,11 @@ KEY_NAMES.update({str(i): c for i, c in zip([1, 2, 3, 4, 5, 6, 7, 8, 9, 0],
                                             range(KEY_1, KEY_0 + 1), strict=False)})
 
 _NAME_BY_CODE = {code: name for name, code in KEY_NAMES.items()}
-# Для модификаторов оставляем полное имя (leftshift, а не shift).
+# Для модификаторов оставляем полное имя (leftshift, а не shift); для lock-клавиш —
+# слитное (scrolllock, а не алиас scroll_lock).
 for _name in ("leftshift", "rightshift", "leftctrl", "rightctrl", "leftalt", "rightalt",
-              "leftmeta", "rightmeta", "enter", "esc", "period"):
+              "leftmeta", "rightmeta", "enter", "esc", "period",
+              "scrolllock", "capslock", "numlock"):
     _NAME_BY_CODE[KEY_NAMES[_name]] = _name
 
 
