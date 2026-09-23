@@ -39,13 +39,16 @@
 ### Debian/Ubuntu: .deb-пакет (рекомендуется)
 
 ```bash
-wget https://github.com/Wetoshkin/WaySwitch/releases/latest/download/wayswitch_2.0.0~a1_all.deb   # имя файла — см. страницу релизов
+# скачать .deb последнего релиза (имя файла содержит версию, поэтому берём его из API)
+url=$(curl -s https://api.github.com/repos/Wetoshkin/WaySwitch/releases/latest | grep -o 'https://[^"]*\.deb' | head -1)
+wget "$url"
 sudo apt install ./wayswitch_*.deb
 ```
 
 Пакет архитектурно-независимый (`all`), зависимости (`python3-evdev`,
 `python3-gi`, GTK4/libadwaita, IBus, `libxkbcommon0`, `udev`) подтягивает
-`apt` сам. Дальше от обычного пользователя:
+`apt` сам. Файлы всех релизов — на странице
+<https://github.com/Wetoshkin/WaySwitch/releases>. Дальше от обычного пользователя:
 
 ```bash
 # перелогиньтесь — правила udev применяются к новому сеансу

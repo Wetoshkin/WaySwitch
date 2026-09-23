@@ -12,7 +12,13 @@ jobs:
       - name: Индекс apt
         run: sudo apt-get update
       - name: Сборка .deb
-        run: bash tools/build_deb.sh
+        # Тег обязан совпадать с версией в pyproject.toml (v2.0.0a1 ↔ 2.0.0a1),
+        # иначе релиз получит чужой номер версии в имени пакета.
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          grep -q "^version = \"${tag}\"" pyproject.toml \
+            || { echo "тег v${tag} не совпадает с version в pyproject.toml"; exit 1; }
+          bash tools/build_deb.sh
       - name: Публикация релиза
         env:
           GH_TOKEN: ${{ github.token }}
