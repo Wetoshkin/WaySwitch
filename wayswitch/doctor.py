@@ -112,9 +112,13 @@ def run_checks() -> list[Check]:
     checks.append(_check("Правило udev установлено", udev_rule, "sudo packaging/install.sh"))
 
     def unit():
-        p = Path.home() / ".config/systemd/user/wayswitch.service"
-        return p.exists(), ""
-    checks.append(_check("systemd user-сервис", unit, "sudo packaging/install.sh",
+        # .deb кладёт юнит системно, install.sh — в профиль пользователя.
+        candidates = (Path("/usr/lib/systemd/user/wayswitch.service"),
+                      Path.home() / ".config/systemd/user/wayswitch.service")
+        found = [str(c) for c in candidates if c.exists()]
+        return bool(found), found[0] if found else ""
+    checks.append(_check("systemd user-сервис", unit,
+                         "sudo apt install ./wayswitch_*.deb или sudo packaging/install.sh",
                          required=False))
 
     def tools():
