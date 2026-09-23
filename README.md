@@ -36,6 +36,30 @@
 
 ## Установка
 
+### Debian/Ubuntu: .deb-пакет (рекомендуется)
+
+```bash
+wget https://github.com/Wetoshkin/WaySwitch/releases/latest/download/wayswitch_2.0.0~a1_all.deb   # имя файла — см. страницу релизов
+sudo apt install ./wayswitch_*.deb
+```
+
+Пакет архитектурно-независимый (`all`), зависимости (`python3-evdev`,
+`python3-gi`, GTK4/libadwaita, IBus, `libxkbcommon0`, `udev`) подтягивает
+`apt` сам. Дальше от обычного пользователя:
+
+```bash
+# перелогиньтесь — правила udev применяются к новому сеансу
+wayswitch doctor
+systemctl --user enable --now wayswitch
+wayswitch-gui
+```
+
+Расширение GNOME Shell ставится пакетом системно
+(`/usr/share/gnome-shell/extensions/`) и включается отдельно:
+`gnome-extensions enable wayswitch@siberia.ru` (после перелогина).
+
+### Из исходников / Fedora
+
 ```bash
 git clone https://github.com/Wetoshkin/WaySwitch.git wayswitch
 cd wayswitch
@@ -57,7 +81,8 @@ wayswitch-gui
 клавиатуры/мыши, systemd user-юнит и расширение GNOME Shell в профиль
 вызвавшего пользователя (`sudo <скрипт>` от обычного пользователя, не от
 root). Расширение включается отдельно: `gnome-extensions enable
-wayswitch@siberia.ru` (после перелогина).
+wayswitch@siberia.ru` (после перелогина). На Debian/Ubuntu предпочтительнее
+`.deb`-пакет выше — этот путь остаётся для Fedora и сборки из исходников.
 
 ## Использование
 

@@ -1,6 +1,11 @@
 #!/bin/bash
 # Установка WaySwitch: пакеты, код в /usr/local, правило udev, user-сервис
 # для вызвавшего пользователя, расширение GNOME Shell в его профиль.
+#
+# На Debian/Ubuntu предпочтительнее готовый .deb-пакет
+# (wayswitch_<версия>_all.deb со страницы релизов, `sudo apt install ./...`):
+# он ставит зависимости через apt и чище удаляется. Этот скрипт — для
+# Fedora и сборки/установки из исходников.
 set -euo pipefail
 
 if [ "$EUID" -ne 0 ]; then

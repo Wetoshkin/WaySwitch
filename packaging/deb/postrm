@@ -1,0 +1,12 @@
+#!/bin/sh
+# postrm пакета wayswitch: перечитать правила udev после удаления файла
+# правила.
+set -e
+
+case "$1" in
+    remove|purge)
+        udevadm control --reload-rules || true
+        ;;
+esac
+
+exit 0
