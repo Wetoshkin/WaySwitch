@@ -97,3 +97,15 @@ class GnomeIbusBackend(LayoutBackend):
 
     def on_change(self, cb: Callable[[int, bool], None]) -> None:
         self._callbacks.append(cb)
+
+    def verify_layout(self) -> bool:
+        """Движок IBus и раскладка GNOME — одно и то же?
+
+        На GNOME 46+ set_global_engine() меняет движок IBus, но раскладку
+        компоузитора не трогает. Сверяемся с mru-sources: его Shell обновляет
+        сам при смене источника ввода, и первый элемент — текущий.
+        """
+        real = gnome_common.read_current_index(self._specs)
+        if real is None or self._current is None:
+            return True  # не смогли прочитать — не мешаем работать
+        return real == self._current

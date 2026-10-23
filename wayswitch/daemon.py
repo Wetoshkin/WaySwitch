@@ -39,6 +39,20 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         typist_for_controller = ShellTypist(backend)
     else:
         typist_for_controller = typist
+        if backend.name == "ibus" and not backend.verify_layout():
+            # На GNOME 46+ глобальный движок IBus — не то же самое, что
+            # раскладка компоузитора: set_global_engine() меняет движок, а
+            # раскладка ввода остаётся прежней. Демон тогда уверен, что
+            # переключил, стирает слово и печатает его в старой раскладке —
+            # на экране не меняется ничего.
+            log.error(
+                "IBus-движок расходится с раскладкой GNOME (источники: %s): на этом "
+                "GNOME IBus не переключает раскладку, автоисправление сломало бы "
+                "текст. Включите расширение wayswitch@siberia.ru "
+                "(gnome-extensions enable wayswitch@siberia.ru) и перезапустите "
+                "демон: systemctl --user restart wayswitch",
+                [s.xkb_id for s in backend.layouts()])
+            backend.supports_auto = False
     keymap = XkbKeymap.from_names(backend.layouts(), backend.xkb_options())
     models = {}
     for group in range(keymap.num_groups):
