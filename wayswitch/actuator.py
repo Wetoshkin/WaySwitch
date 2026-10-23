@@ -237,7 +237,10 @@ def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: flo
         return DONE
     except Exception as exc:  # noqa: BLE001 — GLib.Error таймаута D-Bus и прочее
         log.error("исправление прервано ошибкой: %s", exc)
-        if run.committed and isinstance(step, Type):
+        timed_out = "timed out" in str(exc).lower() or "timeout" in str(exc).lower()
+        if run.committed and isinstance(step, Type) and not timed_out:
+            # По таймауту не повторяем: расширение могло напечатать слово, а
+            # ответ просто не успел — повтор задвоил бы его.
             # Слово уже стёрто: одна повторная попытка напечатать лучше, чем
             # оставить пустое место (таймаут D-Bus бывает разовым).
             try:

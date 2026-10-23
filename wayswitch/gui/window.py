@@ -236,7 +236,7 @@ class MainWindow:
     # --- состояние ---------------------------------------------------------------
 
     def render_status(self, status: dict | None) -> None:
-        from gi.repository import Adw
+        from gi.repository import Adw, Gtk
 
         view = texts.status_view(status)
         if view.kind == "off":
@@ -256,6 +256,9 @@ class MainWindow:
         self.status_switch.set_active(view.switch_active)
         self.status_switch.handler_unblock(self._switch_handler)
         self.status_switch.set_sensitive(view.switch_sensitive)
+        self.status_switch.update_property(
+            [Gtk.AccessibleProperty.LABEL],
+            ["Исправление включено" if view.switch_active else "Исправление на паузе"])
         for key, label in self.stat_labels.items():
             label.set_label(str(int(status.get(key, 0) or 0)))
         alphabet = status.get("layout")
@@ -280,8 +283,21 @@ class MainWindow:
         self.app.proxy.call("Resume" if switch.get_active() else "Pause")
 
     def _start_service(self) -> None:
+        from gi.repository import GLib
+
         if not autostart.start_service():
             self.toast("Не удалось запустить службу — откройте журнал")
+            return
+
+        def check():
+            # Служба могла стартовать и сразу выйти (например, не нашла,
+            # чем переключать раскладку): подсказать, где искать причину.
+            if self.app.proxy.status is None:
+                self.toast("Служба не запустилась", "Журнал",
+                           lambda: dialogs.journal_dialog(self.window))
+            return GLib.SOURCE_REMOVE
+
+        GLib.timeout_add_seconds(3, check)
 
     def toast(self, text: str, button: str | None = None, on_button=None) -> None:
         from gi.repository import Adw

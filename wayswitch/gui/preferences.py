@@ -36,14 +36,23 @@ class Preferences:
 
         self.app = app
         self.proxy = app.proxy
+        self.broken = None
         try:
             self.cfg = cfgmod.load()
-        except cfgmod.ConfigError:
+        except cfgmod.ConfigError as exc:
             # Битый конфиг не должен мешать открыть параметры: показываем
-            # исходные значения, первое же изменение перезапишет файл.
+            # исходные значения и предупреждаем. Файл перепишется, только если
+            # человек что-то поменяет сам.
             self.cfg = cfgmod.Config()
+            self.broken = str(exc)
         self._loading = False
         self._save_source = 0
+        # Что человек поменял в этом окне: (секция, ключ) → значение. При
+        # записи файл перечитывается и поверх кладутся только эти поля —
+        # иначе переключатель из меню значка, сделанный при открытом окне,
+        # затёрся бы старым снимком.
+        self._dirty: dict[tuple[str, str], object] = {}
+        self._replace = False
         self.dialog = Adw.PreferencesDialog(search_enabled=False)
         self.dialog.set_content_width(640)
         self.dialog.add(self._page_correction())
@@ -53,6 +62,9 @@ class Preferences:
 
     def present(self, parent) -> None:
         self.dialog.present(parent)
+        if self.broken:
+            self.toast("Файл настроек повреждён — показаны исходные значения. "
+                       "Он перезапишется при первом изменении")
 
     # --- сохранение ----------------------------------------------------------
 
@@ -72,11 +84,26 @@ class Preferences:
         if self._save_source:
             GLib.source_remove(self._save_source)
             self._save_source = 0
+        if not self._dirty and not self._replace:
+            return GLib.SOURCE_REMOVE  # ничего не меняли — файл не трогаем
+        if self._replace:
+            fresh = self.cfg
+        else:
+            try:
+                fresh = cfgmod.load()
+            except cfgmod.ConfigError:
+                fresh = self.cfg
+            for (section, key), value in self._dirty.items():
+                setattr(getattr(fresh, section), key, value)
         try:
-            cfgmod.save(self.cfg)
+            cfgmod.save(fresh)
         except (cfgmod.ConfigError, OSError) as exc:
             self.toast(f"Не удалось сохранить: {exc}")
-            return False
+            return GLib.SOURCE_REMOVE
+        self.cfg = fresh
+        self._dirty.clear()
+        self._replace = False
+        self.broken = None
         self.proxy.call("Reload")
         return GLib.SOURCE_REMOVE
 
@@ -197,11 +224,20 @@ class Preferences:
         if self._loading:
             return
         setattr(getattr(self.cfg, section), key, value)
+        self._dirty[(section, key)] = value
         self._changed()
 
     def _set_manual(self, mode: str) -> None:
         # Строка «Клавиша» нужна только для жеста «Нажатие клавиши».
         self.row_key.set_visible(mode == "tap_key")
+        if self._loading:
+            return
+        g = self.cfg.gesture
+        if mode == "tap_key" and g.selection_key and g.selection_key == g.tap_key:
+            # Одна клавиша не может и исправлять слово, и выделение.
+            self._set("gesture", "selection_key", "")
+            self.sel_cap.set_label("Нет")
+            self.toast("Клавиша «Исправить выделенное» снята: она совпала с клавишей жеста")
         self._set("gesture", "manual", mode)
 
     def _on_key_chosen(self, name: str | None) -> None:
@@ -212,18 +248,16 @@ class Preferences:
         if name == self.cfg.gesture.selection_key:
             self.toast("Эта клавиша уже исправляет выделенный текст")
             return
-        self.cfg.gesture.tap_key = name
+        self._set("gesture", "tap_key", name)
         self.key_cap.set_label(gesture_keys.human_name(name))
-        self._changed()
 
     def _on_sel_key_chosen(self, name: str | None) -> None:
         name = name or ""
         if name and self.cfg.gesture.manual == "tap_key" and name == self.cfg.gesture.tap_key:
             self.toast("Эта клавиша уже исправляет последнее слово")
             return
-        self.cfg.gesture.selection_key = name
+        self._set("gesture", "selection_key", name)
         self.sel_cap.set_label(gesture_keys.human_name(name) if name else "Нет")
-        self._changed()
 
     # --- страница «Исключения» --------------------------------------------------
 
@@ -262,7 +296,7 @@ class Preferences:
         clear_list(self.words_box)
         self.words_box.append(self.entry_word)
         for word in sorted(cfgmod.load_exceptions()):
-            row = Adw.ActionRow(title=word)
+            row = Adw.ActionRow(title=word, use_markup=False)
             row.add_css_class("ws-mono")
             row.add_suffix(flat_icon_button("user-trash-symbolic", f"Удалить «{word}»",
                                             lambda w=word: self._remove_word(w)))
@@ -365,8 +399,9 @@ class Preferences:
         tiling = desktop in (SWAY, HYPRLAND)
         sw_service = Adw.SwitchRow(
             title="Запускать при входе в систему",
-            subtitle="Через systemd. Если сеанс запущен без него — добавьте в конфиг "
-                     "exec-once = wayswitch run" if tiling else "",
+            subtitle=("Через systemd. Если сеанс запущен без него — добавьте в конфиг "
+                      + ("exec-once = wayswitch run" if desktop == HYPRLAND
+                         else "exec wayswitch run")) if tiling else "",
             active=autostart.is_service_enabled())
         sw_service.connect("notify::active",
                            lambda r, _p: autostart.set_service_enabled(r.get_active()))
@@ -488,6 +523,8 @@ class Preferences:
             self.step_settle.set_value(c.typing.settle_ms)
             self.step_delay.set_value(c.typing.key_delay_ms)
             self.cb_typing.set_selected(cfgmod.SHELL_TYPING.index(c.backend.shell_typing))
+            if getattr(self, "sw_track", None) is not None:
+                self.sw_track.set_active(c.backend.track_hotkey)
         finally:
             self._loading = False
 
@@ -521,12 +558,14 @@ class Preferences:
         self.cfg = cfgmod.Config()
         self._load_correction()
         self._load_system()
+        self._replace = True
         self._flush()
 
         def undo():
             self.cfg = before
             self._load_correction()
             self._load_system()
+            self._replace = True
             self._flush()
 
         self.toast("Параметры сброшены", "Отменить", undo)

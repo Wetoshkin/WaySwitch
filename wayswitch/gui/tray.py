@@ -129,6 +129,11 @@ def menu_layout(status: dict | None, update: str | None = None) -> list[MenuItem
     return items
 
 
+# Постоянные номера пунктов dbusmenu (0 — корень).
+MENU_IDS = {ident: n for n, ident in enumerate(
+    ("summary", "sep1", "auto", "pause", "fix", "fix_selection", "sep2", "update",
+     "settings", "quit"), start=1)}
+
 # Имена значков из packaging/icons: ставятся установщиком в hicolor.
 INSTALLED_ICON = "ru.siberia.WaySwitch"
 TRAY_ICON = "ru.siberia.WaySwitch-symbolic"
@@ -153,8 +158,15 @@ class StatusNotifier:
         self._conn.register_object(ITEM_PATH, sni, self._sni_call, self._sni_get, None)
         self._conn.register_object(MENU_PATH, menu, self._menu_call, self._menu_get, None)
         name = f"org.kde.StatusNotifierItem-{os.getpid()}-1"
+        self._name = name
         Gio.bus_own_name_on_connection(self._conn, name, Gio.BusNameOwnerFlags.NONE,
                                        lambda *_: self._register(name), None)
+        # Панель (plasmashell, waybar, расширение AppIndicator) могла стартовать
+        # позже нас или перезапуститься — регистрируемся при каждом появлении
+        # StatusNotifierWatcher, иначе значок пропал бы до перезапуска WaySwitch.
+        Gio.bus_watch_name_on_connection(self._conn, "org.kde.StatusNotifierWatcher",
+                                         Gio.BusNameWatcherFlags.NONE,
+                                         lambda *_: self._register(self._name), None)
 
     def _register(self, name: str) -> None:
         from gi.repository import Gio, GLib
@@ -221,7 +233,8 @@ class StatusNotifier:
         from gi.repository import GLib
 
         out = []
-        for i, item in enumerate(menu_layout(self._status, self._update), start=1):
+        for item in menu_layout(self._status, self._update):
+            i = MENU_IDS[item.ident]
             if item.kind == "separator":
                 props = {"type": GLib.Variant("s", "separator")}
             else:

@@ -259,5 +259,8 @@ class Onboarding:
                 cfgmod.save(cfg)
             except (cfgmod.ConfigError, OSError):
                 pass
-        mark_done()
+        if self._index() == 2:
+            # Закрыли раньше последнего шага — служба не включена, покажем
+            # первый запуск ещё раз в следующий раз.
+            mark_done()
         self.on_finish()
