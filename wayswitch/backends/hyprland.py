@@ -28,7 +28,10 @@ def find_dir(env=None) -> str | None:
     sig = env.get("HYPRLAND_INSTANCE_SIGNATURE")
     if sig:
         path = os.path.join(runtime, "hypr", sig)
-        return path if os.path.isdir(path) else None
+        if os.path.exists(os.path.join(path, ".socket.sock")):
+            return path
+        # Переменная от прошлого сеанса (менеджер systemd пережил перелогин) —
+        # ищем живой экземпляр ниже.
     # Служба systemd могла стартовать без переменной: берём самый свежий экземпляр.
     found = sorted(glob.glob(os.path.join(runtime, "hypr", "*", ".socket.sock")),
                    key=os.path.getmtime)
@@ -81,11 +84,20 @@ def index_of(spec: LayoutSpec | None, specs: list[LayoutSpec]) -> int | None:
     return None
 
 
-def parse_event(line: str) -> tuple[str, str] | None:
-    """«activelayout>>kbd,Russian» → ("kbd", "Russian")."""
+def parse_event(line: str, known=None) -> tuple[str, str] | None:
+    """«activelayout>>kbd,Russian» → ("kbd", "Russian").
+
+    Запятые бывают и в имени устройства, и в описании раскладки («English
+    (US, intl., with dead keys)»): если передан known(описание) -> bool, берём
+    ту запятую, после которой стоит известное описание.
+    """
     name, sep, data = line.partition(">>")
     if name != "activelayout" or not sep:
         return None
+    if known is not None:
+        for i, ch in enumerate(data):
+            if ch == "," and known(data[i + 1:]):
+                return data[:i], data[i + 1:]
     keyboard, _, layout = data.partition(",")
     return keyboard, layout
 
@@ -93,6 +105,7 @@ def parse_event(line: str) -> tuple[str, str] | None:
 class HyprlandBackend(LayoutBackend):
     name = "hyprland"
     supports_auto = True
+    always_switch = True
 
     def __init__(self, settle_ms: int = 120, ipc=None, watch=None, rules=None):
         self._settle = settle_ms
@@ -115,6 +128,11 @@ class HyprlandBackend(LayoutBackend):
         self._options = [o for o in _clean(options).split(",") if o]
         self._expected: int | None = None
         self._callbacks: list[Callable[[int, bool], None]] = []
+        try:
+            kb = main_keyboard(ipc.json("devices"))
+        except (OSError, ValueError):
+            kb = None
+        self._kbd = kb.get("name") if kb else None
         self._current = self._query()
         self._unwatch = (watch or _glib_watch)(self._ipc, self._on_line)
 
@@ -163,9 +181,14 @@ class HyprlandBackend(LayoutBackend):
         self._callbacks.append(cb)
 
     def _on_line(self, line: str) -> None:
-        parsed = parse_event(line)
+        if line.startswith("configreloaded>>") or line == "*restart*":
+            self.layouts_changed()  # раскладки могли поменяться в конфиге
+            return
+        parsed = parse_event(line, lambda d: self._index_of_desc(d) is not None)
         if parsed is None:
             return
+        if self._kbd is not None and parsed[0] != self._kbd:
+            return  # другая клавиатура со своей раскладкой
         index = self._index_of_desc(parsed[1])
         if index is None or index == self._current and self._expected is None:
             return
@@ -195,8 +218,10 @@ def _glib_watch(ipc: HyprIpc, on_line):
         try:
             chunk = sock.recv(65536)
         except OSError:
-            return GLib.SOURCE_REMOVE
+            chunk = b""
         if not chunk:
+            # Hyprland закрыл сокет событий — без перезапуска раскладка устареет.
+            on_line("*restart*")
             return GLib.SOURCE_REMOVE
         buf["data"] += chunk
         *lines, buf["data"] = buf["data"].split(b"\n")

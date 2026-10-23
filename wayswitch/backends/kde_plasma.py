@@ -149,7 +149,10 @@ class KdePlasmaBackend(LayoutBackend):
     def on_change(self, cb: Callable[[int, bool], None]) -> None:
         self._callbacks.append(cb)
 
-    def _on_signal(self, index: int) -> None:
+    def _on_signal(self, index: int | None) -> None:
+        if index is None:
+            self.layouts_changed()
+            return
         if not 0 <= index < len(self._specs):
             return
         external = self._expected != index
@@ -189,14 +192,18 @@ def _dbus_subscriber():
     conn = Gio.bus_get_sync(Gio.BusType.SESSION, None)
 
     def subscribe(callback):
-        def handler(_conn, _sender, _path, _iface, _signal, params):
+        def handler(_conn, _sender, _path, _iface, signal, params):
+            if signal == "layoutListChanged":
+                callback(None)  # список раскладок поменялся
+                return None
             (index,) = params.unpack()
             callback(index)
             return None
 
-        sub = conn.signal_subscribe(SERVICE, INTERFACE, "layoutChanged", OBJECT, None,
-                                    Gio.DBusSignalFlags.NONE, handler)
-        return lambda: conn.signal_unsubscribe(sub)
+        subs = [conn.signal_subscribe(SERVICE, INTERFACE, name, OBJECT, None,
+                                      Gio.DBusSignalFlags.NONE, handler)
+                for name in ("layoutChanged", "layoutListChanged")]
+        return lambda: [conn.signal_unsubscribe(s) for s in subs]
 
     return subscribe
 

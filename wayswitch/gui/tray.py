@@ -113,8 +113,6 @@ def menu_layout(status: dict | None, update: str | None = None) -> list[MenuItem
         MenuItem("pause", "Возобновить" if paused else "Пауза", running,
                  icon="media-playback-start-symbolic" if paused
                  else "media-playback-pause-symbolic"),
-        MenuItem("fix", "Исправить последнее слово", running,
-                 icon="tools-check-spelling-symbolic"),
         MenuItem("fix_selection", "Исправить выделенное", running,
                  icon="edit-select-all-symbolic"),
         MenuItem("sep2", kind="separator"),
@@ -131,7 +129,7 @@ def menu_layout(status: dict | None, update: str | None = None) -> list[MenuItem
 
 # Постоянные номера пунктов dbusmenu (0 — корень).
 MENU_IDS = {ident: n for n, ident in enumerate(
-    ("summary", "sep1", "auto", "pause", "fix", "fix_selection", "sep2", "update",
+    ("summary", "sep1", "auto", "pause", "fix_selection", "sep2", "update",
      "settings", "quit"), start=1)}
 
 # Имена значков из packaging/icons: ставятся установщиком в hicolor.

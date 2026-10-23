@@ -85,7 +85,6 @@ def main(argv: list[str] | None = None) -> int:
             self.tray = StatusNotifier({
                 "auto": self._toggle_auto,
                 "pause": self._toggle_pause,
-                "fix": lambda: self.proxy.call("FixLastWord"),
                 "fix_selection": lambda: self.proxy.call("FixSelection"),
                 "update": self.open_release,
                 "settings": self.show_window,

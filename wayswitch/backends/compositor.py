@@ -42,7 +42,28 @@ TOGGLES = {
     "grp:rctrl_toggle": [kc.KEY_RIGHTCTRL],
     "grp:lwin_toggle": [kc.KEY_LEFTMETA],
     "grp:menu_toggle": [kc.KEY_COMPOSE],
+    "grp:alt_shift_toggle_bidir": [kc.KEY_LEFTALT, kc.KEY_LEFTSHIFT],
+    "grp:ctrl_shift_toggle_bidir": [kc.KEY_LEFTCTRL, kc.KEY_LEFTSHIFT],
+    "grp:lalt_toggle": [kc.KEY_LEFTALT],
+    "grp:rshift_toggle": [kc.KEY_RIGHTSHIFT],
+    "grp:lshift_toggle": [kc.KEY_LEFTSHIFT],
+    "grp:shifts_toggle": [kc.KEY_LEFTSHIFT, kc.KEY_RIGHTSHIFT],
+    "grp:alts_toggle": [kc.KEY_LEFTALT, kc.KEY_RIGHTALT],
+    "grp:ctrls_toggle": [kc.KEY_LEFTCTRL, kc.KEY_RIGHTCTRL],
 }
+# Опции, где левая и правая клавиши равноправны («Alt+Shift» любой стороной).
+_SIDE_AGNOSTIC = {"grp:alt_shift_toggle", "grp:ctrl_shift_toggle", "grp:ctrl_alt_toggle",
+                  "grp:win_space_toggle", "grp:alt_space_toggle", "grp:shift_caps_toggle",
+                  "grp:alt_caps_toggle", "grp:alt_shift_toggle_bidir",
+                  "grp:ctrl_shift_toggle_bidir"}
+_LEFT = {kc.KEY_RIGHTALT: kc.KEY_LEFTALT, kc.KEY_RIGHTSHIFT: kc.KEY_LEFTSHIFT,
+         kc.KEY_RIGHTCTRL: kc.KEY_LEFTCTRL, kc.KEY_RIGHTMETA: kc.KEY_LEFTMETA}
+
+
+def state_path(env=None) -> Path:
+    env = os.environ if env is None else env
+    runtime = env.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    return Path(runtime) / "wayswitch" / "group"
 
 
 def toggle_combos(options: list[str]) -> list[list[int]]:
@@ -118,9 +139,43 @@ class CompositorBackend(HotkeyBackend):
         super().__init__(typist, settle_ms, combos=combos, specs=specs)
         self._options = options
         self.source = where
+        self._agnostic = any(o in _SIDE_AGNOSTIC for o in options)
+        # Счётчик живёт до конца сеанса (XDG_RUNTIME_DIR очищается при
+        # выходе): перезапуск службы посреди сеанса не сбрасывает его в 0.
+        self._state = state_path(env)
+        try:
+            saved = int(self._state.read_text(encoding="ascii"))
+            if 0 <= saved < len(self._specs):
+                self._current = saved
+        except (OSError, ValueError):
+            pass
         # Счётчик раскладки ненадёжен (смена мышью ему не видна) — доверять ли
         # ему автоисправление, решает человек.
         self.supports_auto = bool(track)
 
     def xkb_options(self) -> list[str]:
         return list(self._options)
+
+    def _norm(self, codes) -> set[int]:
+        return {_LEFT.get(c, c) for c in codes} if self._agnostic else set(codes)
+
+    def observe_physical(self, code: int, value: int) -> None:
+        """XKB переключает группу на любом порядке нажатия и любой стороной
+        (Shift→Alt так же, как Alt→Shift; правый Alt — как левый)."""
+        if value == 1:
+            self._held.add(code)
+            held = self._norm(self._held)
+            for combo in self._combos:
+                if self._norm([code]) <= self._norm(combo) and held == self._norm(combo):
+                    self._advance(external=True)
+                    break
+        elif value == 0:
+            self._held.discard(code)
+
+    def _advance(self, external: bool) -> None:
+        super()._advance(external)
+        try:
+            self._state.parent.mkdir(parents=True, exist_ok=True)
+            self._state.write_text(str(self._current), encoding="ascii")
+        except OSError:
+            pass

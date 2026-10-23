@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import glob
 import json
+import logging
 import os
 import socket
 import struct
@@ -26,16 +27,31 @@ MAGIC = b"i3-ipc"
 HEADER = struct.Struct("=6sII")
 RUN_COMMAND, SUBSCRIBE, GET_INPUTS = 0, 2, 100
 EVENT_INPUT = 0x80000015
+log = logging.getLogger("wayswitch")
 
 
-def find_socket(env=None) -> str | None:
-    """$SWAYSOCK, а если служба запущена без него — сокет в XDG_RUNTIME_DIR."""
+def _alive(path: str) -> bool:
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1.0)
+            sock.connect(path)
+        return True
+    except OSError:
+        return False
+
+
+def find_socket(env=None, alive=_alive) -> str | None:
+    """$SWAYSOCK, а если он устарел или служба запущена без него — живой сокет
+    в XDG_RUNTIME_DIR (каталог 0700 — чужих сокетов там нет)."""
     env = os.environ if env is None else env
-    if env.get("SWAYSOCK"):
+    if env.get("SWAYSOCK") and alive(env["SWAYSOCK"]):
         return env["SWAYSOCK"]
     runtime = env.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
     found = sorted(glob.glob(os.path.join(runtime, "sway-ipc.*.sock")), key=os.path.getmtime)
-    return found[-1] if found else None
+    for path in reversed(found):
+        if alive(path):
+            return path
+    return None
 
 
 def pack(msg_type: int, payload: str = "") -> bytes:
@@ -83,15 +99,28 @@ class SwayIpc:
         return sock
 
 
-def keyboard_state(inputs: list[dict]) -> tuple[list[str], int | None]:
-    """Описания раскладок и индекс текущей у первой клавиатуры с раскладками."""
+VIRTUAL = "WaySwitch Virtual Keyboard"
+
+
+def main_keyboard(inputs: list[dict], identifier: str | None = None) -> dict | None:
+    """Клавиатура, за которой следим: заданная или первая настоящая с ≥2 раскладками."""
     for dev in inputs or []:
-        if dev.get("type") != "keyboard":
+        if dev.get("type") != "keyboard" or dev.get("name") == VIRTUAL:
             continue
-        names = dev.get("xkb_layout_names") or []
-        if len(names) >= 2:
-            return list(names), dev.get("xkb_active_layout_index")
-    return [], None
+        if identifier is not None and dev.get("identifier") != identifier:
+            continue
+        if len(dev.get("xkb_layout_names") or []) >= 2:
+            return dev
+    return None
+
+
+def keyboard_state(inputs: list[dict], identifier: str | None = None
+                   ) -> tuple[list[str], int | None]:
+    """Описания раскладок и индекс текущей у отслеживаемой клавиатуры."""
+    dev = main_keyboard(inputs, identifier)
+    if dev is None:
+        return [], None
+    return list(dev.get("xkb_layout_names") or []), dev.get("xkb_active_layout_index")
 
 
 def specs_from_names(names: list[str], rules=None) -> list[LayoutSpec]:
@@ -107,6 +136,7 @@ def specs_from_names(names: list[str], rules=None) -> list[LayoutSpec]:
 class SwayBackend(LayoutBackend):
     name = "sway"
     supports_auto = True
+    always_switch = True
 
     def __init__(self, settle_ms: int = 120, ipc=None, watch=None, rules=None):
         self._settle = settle_ms
@@ -117,9 +147,12 @@ class SwayBackend(LayoutBackend):
             ipc = SwayIpc(path)
         self._ipc = ipc
         try:
-            names, index = keyboard_state(self._ipc.request(GET_INPUTS))
+            inputs = self._ipc.request(GET_INPUTS)
         except (OSError, ValueError) as e:
             raise BackendError(f"sway не отвечает: {e}") from None
+        main = main_keyboard(inputs)
+        self._kbd = main.get("identifier") if main else None
+        names, index = keyboard_state(inputs, self._kbd)
         if len(names) < 2:
             raise BackendError("в sway у клавиатуры меньше двух раскладок (xkb_layout)")
         self._specs = specs_from_names(names, rules)
@@ -139,7 +172,7 @@ class SwayBackend(LayoutBackend):
 
     def _query(self) -> int | None:
         try:
-            _names, index = keyboard_state(self._ipc.request(GET_INPUTS))
+            _names, index = keyboard_state(self._ipc.request(GET_INPUTS), self._kbd)
         except (OSError, ValueError):
             return None
         return index
@@ -167,9 +200,16 @@ class SwayBackend(LayoutBackend):
         self._callbacks.append(cb)
 
     def _on_event(self, event: dict) -> None:
+        dev = event.get("input") or {}
+        if dev.get("identifier") == "*restart*" or (
+                event.get("change") == "xkb_keymap" and dev.get("identifier") == self._kbd):
+            self.layouts_changed()  # поменяли раскладки в конфиге sway
+            return
         if event.get("change") != "xkb_layout":
             return
-        index = (event.get("input") or {}).get("xkb_active_layout_index")
+        if self._kbd is not None and dev.get("identifier") != self._kbd:
+            return  # другая клавиатура (у неё может быть своя раскладка)
+        index = dev.get("xkb_active_layout_index")
         if not isinstance(index, int) or index == self._current and self._expected is None:
             return
         external = index != self._expected
@@ -192,7 +232,11 @@ def _glib_watch(ipc: SwayIpc, on_event):
     def readable(_fd, _cond):
         try:
             msg_type, data = read_message(sock)
-        except (OSError, ValueError, BackendError):
+        except (OSError, ValueError, BackendError) as exc:
+            # sway перезапустили или закрыли сокет: состояние раскладки больше
+            # не обновится — перезапуск службы подключится к новому сокету.
+            log.warning("события sway больше не приходят: %s", exc)
+            on_event({"change": "xkb_keymap", "input": {"identifier": "*restart*"}})
             return GLib.SOURCE_REMOVE
         if msg_type == EVENT_INPUT and isinstance(data, dict):
             on_event(data)

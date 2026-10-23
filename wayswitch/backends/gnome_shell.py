@@ -26,6 +26,19 @@ def shell_extension_present() -> bool:
     return bool(reply.unpack()[0])
 
 
+def extension_version() -> int | None:
+    """Версия протокола загруженного расширения (None — старое, без GetVersion)."""
+    from gi.repository import Gio, GLib
+
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+    try:
+        reply = bus.call_sync(BUS_NAME, OBJECT_PATH, INTERFACE, "GetVersion", None,
+                              GLib.VariantType("(u)"), Gio.DBusCallFlags.NONE, 1000, None)
+    except GLib.Error:
+        return 1
+    return int(reply.unpack()[0])
+
+
 class GnomeShellBackend(LayoutBackend):
     name = "shell"
     supports_auto = True
@@ -50,6 +63,13 @@ class GnomeShellBackend(LayoutBackend):
         # переопрашиваем раскладку — пользователь мог сменить её на экране входа.
         self._proxy.connect("notify::g-name-owner", self._on_owner_changed)
         self._current = self._query()
+        # Человек добавил или переставил раскладку — индексы сдвинулись.
+        try:
+            self._sources_settings = gnome_common._settings(gnome_common.SCHEMA_SOURCES)
+            self._sources_settings.connect("changed::sources",
+                                           lambda *_: self.layouts_changed())
+        except BackendError:
+            self._sources_settings = None
 
     def _query(self) -> int | None:
         index, _ident = self._proxy.call_sync("GetLayout", None, 0, 1000, None).unpack()

@@ -82,7 +82,6 @@ WAYBAR_CONFIG = """\
   "exec": "wayswitch waybar",
   "return-type": "json",
   "on-click": "wayswitch toggle",
-  "on-click-middle": "wayswitch fix",
   "on-click-right": "wayswitch gui"
 }"""
 
@@ -98,9 +97,8 @@ HYPRLAND_SNIPPET = """\
 input {
     kb_layout = us,ru
 }
-# пауза и ручное исправление
+# пауза (последнее слово исправляет жест — двойной Shift)
 bind = SUPER SHIFT, W, exec, wayswitch toggle
-bind = SUPER, grave, exec, wayswitch fix
 # окно параметров — плавающее
 windowrule = float, class:^(ru\\.siberia\\.WaySwitch\\.Settings)$
 windowrule = size 640 740, class:^(ru\\.siberia\\.WaySwitch\\.Settings)$"""
@@ -110,8 +108,7 @@ SWAY_SNIPPET = """\
 input type:keyboard {
     xkb_layout us,ru
 }
-# пауза и ручное исправление
+# пауза (последнее слово исправляет жест — двойной Shift)
 bindsym $mod+Shift+w exec wayswitch toggle
-bindsym $mod+grave exec wayswitch fix
 # окно параметров — плавающее
 for_window [app_id="ru.siberia.WaySwitch.Settings"] floating enable, resize set 640 740"""

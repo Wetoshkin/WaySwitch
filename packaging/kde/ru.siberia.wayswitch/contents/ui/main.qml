@@ -1,7 +1,9 @@
 // Виджет WaySwitch для системного лотка KDE Plasma 6.
 //
-// Состояние берёт у службы командой `wayswitch status --json` (раз в две
-// секунды), управляет командами `wayswitch toggle` / `fix` / `gui`. Так виджет
+// Состояние берёт у службы командой `wayswitch status --json` (раз в 15 с,
+// а при открытом окне виджета — раз в 2 с), управляет командами
+// `wayswitch toggle` и `gui`. Последнее слово исправляет жест: щелчок по
+// виджету уводит фокус и сбрасывает набранное слово. Так виджет
 // не зависит от D-Bus-модулей QML и работает в любой Plasma 6.
 // Щелчок — открыть, средний щелчок — пауза.
 
@@ -64,7 +66,8 @@ PlasmoidItem {
     }
 
     Timer {
-        interval: 2000; running: true; repeat: true; triggeredOnStart: true
+        interval: root.expanded ? 2000 : 15000
+        running: true; repeat: true; triggeredOnStart: true
         onTriggered: root.refresh()
     }
     Timer { id: refreshSoon; interval: 300; onTriggered: root.refresh() }
@@ -140,19 +143,17 @@ PlasmoidItem {
                     }
                 }
                 PlasmaComponents3.Switch {
+                    id: pauseSwitch
                     visible: root.running
                     checked: root.running && !root.paused
-                    onToggled: root.command("toggle")
+                    onToggled: {
+                        root.command("toggle")
+                        // Щелчок разрывает привязку checked — возвращаем её, чтобы
+                        // переключатель следил за паузой, поставленной горячей клавишей.
+                        checked = Qt.binding(() => root.running && !root.paused)
+                    }
                     Accessible.name: "Исправление включено"
                 }
-            }
-
-            PlasmaComponents3.Button {
-                Layout.fillWidth: true
-                visible: root.running
-                icon.name: "tools-check-spelling"
-                text: "Исправить последнее слово"
-                onClicked: root.command("fix")
             }
 
             PlasmaComponents3.Button {
