@@ -24,10 +24,19 @@ const IFACE_XML = `
   </interface>
 </node>`;
 
+// GNOME 51 убрал Clutter.get_default_backend() — берём бэкенд у контекста
+// сцены (get_backend() есть с GNOME 48), а старый путь оставляем для 46–47.
+function defaultBackend() {
+    const ctx = global.stage?.context;
+    if (ctx && typeof ctx.get_backend === 'function')
+        return ctx.get_backend();
+    return Clutter.get_default_backend();
+}
+
 export default class WaySwitchExtension extends Extension {
     enable() {
         this._ism = Keyboard.getInputSourceManager();
-        const seat = Clutter.get_default_backend().get_default_seat();
+        const seat = defaultBackend().get_default_seat();
         this._vdev = seat.create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
         this._dbus = Gio.DBusExportedObject.wrapJSObject(IFACE_XML, this);
         this._dbus.export(Gio.DBus.session, OBJECT_PATH);
