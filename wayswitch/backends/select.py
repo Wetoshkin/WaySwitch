@@ -27,7 +27,7 @@ def choose_backend(prefer: str, typist, settle_ms: int) -> LayoutBackend:
 
                 if not shell_extension_present():
                     raise BackendError("расширение не на шине")
-                return GnomeShellBackend()
+                return GnomeShellBackend(settle_ms)
             if name == "ibus":
                 from wayswitch.backends.gnome_ibus import GnomeIbusBackend
 

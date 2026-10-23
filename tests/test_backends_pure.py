@@ -69,3 +69,22 @@ def test_index_of_mru_points_to_current_layout():
     assert index_of_mru([], specs) is None
     assert index_of_mru([("ibus", "mozc")], specs) is None
     assert index_of_mru([("xkb", "de")], specs) is None
+
+
+def test_shell_wait_applied_waits_settle(monkeypatch):
+    """После SetLayout композитору нужно время: пауза обязательна до печати."""
+    from wayswitch.backends import gnome_shell
+
+    backend = object.__new__(gnome_shell.GnomeShellBackend)
+    backend._settle = 25
+    backend._current = 1
+
+    slept = []
+    monkeypatch.setattr(gnome_shell.time, "sleep", lambda s: slept.append(s))
+
+    assert backend.wait_applied(1, 2.0) is True
+    assert slept == [0.025]
+
+    slept.clear()
+    assert backend.wait_applied(0, 2.0) is False
+    assert slept == [0.025]

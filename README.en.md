@@ -165,7 +165,7 @@ current layout and retypes instantly: `gnome-extensions enable
 wayswitch@siberia.ru`, or via the "Extensions" app. Then, in the
 WaySwitch settings window (below), on the "Settings" page, set "Backend"
 to "GNOME Shell extension". Without it, WaySwitch talks to IBus with a
-small delay (`settle_ms`, 30 ms by default) — usually unnoticeable, but
+small delay (`settle_ms`) — usually unnoticeable, but
 the extension is more precise.
 
 ### Settings window and tray icon
@@ -198,6 +198,12 @@ dialog, but say a form on a website), pause WaySwitch — in the tray
 don't rely on that alone.
 
 ### If something goes wrong
+
+**The last key (usually the space) disappears after a correction.** The app
+has not accepted the new layout yet: raise `[typing] settle_ms` to 150–200 in
+`~/.config/wayswitch/config.toml` and restart the daemon (`systemctl --user
+restart wayswitch`). On GNOME 51 the space was lost consistently at 30 ms;
+120 ms is enough with margin.
 
 `wayswitch doctor` — check for a new `✗`; `journalctl --user -u
 wayswitch -n 50` — the daemon's recent log lines; `wayswitch dry-run` in
@@ -250,7 +256,7 @@ manual = "double_shift"       # double_shift | pause_key | none
 pause_hotkey = ""             # pause key, e.g. "scroll_lock" (empty — not assigned)
 
 [typing]
-settle_ms = 30                # delay after the layout-change signal on the IBus path, ms (0..2000)
+settle_ms = 120               # pause after the layout switch before typing, ms (0..2000)
 key_delay_ms = 0              # delay between keystrokes sent while typing, ms (0..100)
 
 [backend]
