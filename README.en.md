@@ -183,7 +183,11 @@ or find "WaySwitch" in the app grid (Super). Four pages:
 - **Exceptions** — words that are never autocorrected; add or remove
   them by hand.
 - **Autostart** — toggles for "Daemon on login" and "Tray icon on
-  login".
+  login", a GitHub link and an "About" dialog with the version and licence.
+
+The manual-fix key is picked on an **on-screen keyboard**: press "Choose" in
+the settings and click the key (Ctrl, Shift, Alt, Super, CapsLock, ScrollLock,
+Pause, F1–F12, Insert, Menu, Esc). The window sizes itself to its content.
 
 To have the tray icon show up right after login, turn on the second
 toggle on the "Autostart" page — it needs the AppIndicator extension in
@@ -251,6 +255,9 @@ auto_correct = true           # whether autocorrect on space is on
 sensitivity = "normal"        # conservative | normal | aggressive
 phrase_timeout_sec = 8.0      # gap between words after which the phrase for triple Shift resets (1..300)
 undo_window_sec = 5.0         # how many seconds after a fix a double Shift still undoes it (0..60)
+edit_guard_sec = 1.0          # autocorrect pauses after Backspace/arrows/Delete and manual layout switches (0..10)
+punct_fix = true              # "пирогб" → "пирог,": punctuation typed as a letter of the other layout
+particles_fix = true          # "чтото" → "что-то", "кембы" → "кем бы"
 
 [gesture]
 manual = "double_shift"       # double_shift | tap_key | pause_key | none
@@ -303,10 +310,16 @@ recall, 0.07% false-positive rate.
 
 ## Requirements
 
-- GNOME 46–50 on Wayland.
+**Wayland only.** X11 is not supported: the layout cannot be read or switched
+the same way there, and `evdev`/`uinput` input races the X server.
+
+- Supported desktops: **GNOME 46–51** (through the Shell extension) and
+  **KDE Plasma 6** (through KWin's D-Bus API `org.kde.keyboard`).
+- Other Wayland compositors (Sway, Hyprland, XFCE Wayland, Cinnamon): the daemon
+  reads the keyboard and types, but cannot read the active layout — autocorrect
+  stays off, only the manual gesture works (it presses the system layout shortcut).
 - Exactly two input layouts: one `ru*`, one Latin.
-- Ubuntu 24.04+, Fedora 40+ or Arch/CachyOS.
-- Python 3.11+.
+- Ubuntu 24.04+, Fedora 40+, Arch/CachyOS (apt/dnf/pacman), Python 3.11+.
 
 ## Status and limitations
 
@@ -325,7 +338,10 @@ it has not yet run on a live GNOME session; the first-run VM checklist is
 - The `uaccess` udev rule lets any program running as the current user
   read keystroke events, not just WaySwitch — that's the price of the
   `evdev`-based design.
-- GNOME only for now; KDE and Sway/Hyprland are on the roadmap.
+- KDE Plasma 6 on Wayland works through the `kde` backend; Sway/Hyprland get
+  the manual gesture only (no way to read the layout).
+- Per-application exclusions (skip Telegram/IDE/CMD like Punto does) are not
+  there yet: on Wayland the focused window is only visible through at-spi.
 
 ## Development
 
@@ -344,7 +360,10 @@ the version in `pyproject.toml`.
 
 ## Roadmap
 
-- A KDE Plasma backend and IPC backends for Sway/Hyprland.
+- IPC backends for Sway/Hyprland (KDE Plasma 6 already works via
+  `org.kde.keyboard`).
+- Per-application exclusions, derived from Punto Switcher users' pain points —
+  see `docs/punto-forum-findings.md`.
 - Detecting password fields and the active application via AT-SPI, on any
   desktop, instead of GNOME-specific heuristics.
 - Fixing already-selected text through the clipboard/portal.

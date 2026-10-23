@@ -15,6 +15,25 @@ from wayswitch.gui.tray import StatusNotifier
 # и падает с «Failed to register», не показав окна. С отдельным именем окно
 # открывается, а демон остаётся доступен через DaemonProxy.
 APP_ID = "ru.siberia.WaySwitch.Settings"
+REPO_URL = "https://github.com/Wetoshkin/WaySwitch"
+
+
+def window_size_for(pages: list[tuple[int, int]], screen: tuple[int, int] | None = None,
+                    margin: int = 48) -> tuple[int, int]:
+    """Размер окна по содержимому страниц.
+
+    Раньше окно всегда открывалось 560x640, а страница настроек выше — её
+    приходилось тянуть руками. Берём natural-размер каждой страницы, добавляем
+    поля и ограничиваем экраном, чтобы окно не упиралось в панели.
+    """
+    width = max((w for w, _h in pages), default=560) + margin
+    height = max((h for _w, h in pages), default=640) + margin
+    if screen is not None:
+        screen_w, screen_h = screen
+        width = min(width, int(screen_w * 0.9))
+        height = min(height, int(screen_h * 0.85))
+    # Минимум — прежняя ширина окна: тексты подсказок длинные, уже 560 некрасиво.
+    return max(width, 560), max(height, 480)
 
 
 def layout_label(index) -> str:
@@ -26,6 +45,13 @@ def layout_label(index) -> str:
     if index is None or index < 0:
         return "неизвестно"
     return f"индекс {index}"
+
+
+def _open_uri(uri: str) -> None:
+    """Открыть ссылку системным браузером (без gi до вызова)."""
+    from gi.repository import Gio
+
+    Gio.AppInfo.launch_default_for_uri(uri, None)
 
 
 def parse_gui_args(argv: list[str]) -> bool:
@@ -58,6 +84,14 @@ def main(argv: list[str] | None = None) -> int:
             self.stack = Adw.ViewStack()
             switcher = Adw.ViewSwitcher(stack=self.stack, policy=Adw.ViewSwitcherPolicy.WIDE)
             header.set_title_widget(switcher)
+            self._header = header
+            menu = Gio.Menu()
+            menu.append("О программе WaySwitch", "app.about")
+            menu_button = Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu,
+                                        tooltip_text="Меню")
+            # Подпись для скринридеров: у кнопки-иконки своего текста нет.
+            menu_button.update_property([Gtk.AccessibleProperty.LABEL], ["Меню"])
+            header.pack_end(menu_button)
             toolbar.add_top_bar(header)
             toolbar.set_content(self.stack)
             self.set_content(toolbar)
@@ -70,6 +104,8 @@ def main(argv: list[str] | None = None) -> int:
             self.stack.add_titled_with_icon(self._autostart_page(), "autostart", "Автозапуск",
                                             "system-run-symbolic")
             self.render_status(proxy.status)
+            # После первого показа мерим страницы и подгоняем окно под них.
+            self.connect("map", lambda *_: self._apply_size())
 
         # --- Статус ---------------------------------------------------------------
         def _status_page(self):
@@ -150,10 +186,20 @@ def main(argv: list[str] | None = None) -> int:
             g2.add(self.cb_manual)
             self.er_tap = Adw.EntryRow(title="Клавиша для тапа")
             self.er_tap.set_text(self.cfg.gesture.tap_key)
-            self.er_tap.set_tooltip_text(
-                "Название клавиши: leftctrl, rightctrl, scrolllock, pause, f13…")
+            # Поле не для ручного ввода: клавиша выбирается на экранной
+            # клавиатуре, чтобы нельзя было вписать букву или опечатку.
+            self.er_tap.set_editable(False)
+            self.er_tap.set_tooltip_text("Нажмите кнопку справа и выберите клавишу")
             self._update_tap_key_sensitivity()
             g2.add(self.er_tap)
+            # Отдельная строка, а не суффикс EntryRow: суффикс не попадает в дерево
+            # доступности, и кнопку не находят ни скринридеры, ни автопроверка.
+            self.row_pick = Adw.ActionRow(title="Выбрать клавишу",
+                                          subtitle="Экранная клавиатура: нажать нужную")
+            self.btn_pick = Gtk.Button(label="Выбрать", valign=Gtk.Align.CENTER)
+            self.btn_pick.connect("clicked", lambda *_: self._pick_tap_key())
+            self.row_pick.add_suffix(self.btn_pick)
+            g2.add(self.row_pick)
             self.sp_undo = Adw.SpinRow.new_with_range(0, 60, 1)
             self.sp_undo.set_title("Окно отката, с")
             self.sp_undo.set_subtitle("Жест в это время возвращает слово и учит исключение")
@@ -174,7 +220,8 @@ def main(argv: list[str] | None = None) -> int:
             g3.add(self.sp_delay)
             self.cb_backend = Adw.ComboRow(title="Бэкенд раскладки")
             self.cb_backend.set_model(Gtk.StringList.new(
-                ["Автовыбор", "Расширение GNOME Shell", "IBus", "Системный хоткей"]))
+                ["Автовыбор", "Расширение GNOME Shell", "KDE Plasma (D-Bus KWin)",
+                 "IBus", "Системный хоткей"]))
             self.cb_backend.set_selected(cfgmod.BACKEND_PREFS.index(self.cfg.backend.prefer))
             g3.add(self.cb_backend)
             page.add(g3)
@@ -185,6 +232,47 @@ def main(argv: list[str] | None = None) -> int:
             gs.add(btn)
             page.add(gs)
             return page
+
+        def _apply_size(self):
+            """Подогнать окно под содержимое страниц (один раз после показа)."""
+            pages = []
+            model = self.stack.get_pages()
+            for i in range(model.get_n_items()):
+                child = model.get_item(i).get_child()
+                if child is None:
+                    continue
+                width = child.measure(Gtk.Orientation.HORIZONTAL, -1)[1]
+                height = child.measure(Gtk.Orientation.VERTICAL, -1)[1]
+                pages.append((width, height))
+            screen = None
+            display = self.get_display()
+            if display is not None:
+                monitors = display.get_monitors()
+                if monitors is not None and monitors.get_n_items():
+                    geometry = monitors.get_item(0).get_geometry()
+                    screen = (geometry.width, geometry.height)
+            # Ширину задаёт ещё и шапка: ViewSwitcher с четырьмя вкладками шире
+            # иной страницы, и при измерении одних страниц вкладки не вмещались.
+            header_width = self._header.measure(Gtk.Orientation.HORIZONTAL, -1)[1]
+            pages.append((header_width, 0))
+            width, height = window_size_for(pages, screen)
+            self.set_default_size(width, height)
+
+        def _pick_tap_key(self):
+            from wayswitch.gui.keyboard_picker import build_picker_window
+
+            # Одно окно на все нажатия: иначе кнопка «Выбрать» открывает стопку
+            # одинаковых модальных окон.
+            existing = getattr(self, "_pick_window", None)
+            if existing is not None and existing.get_visible():
+                existing.present()
+                return
+            self._pick_window = build_picker_window(
+                self, self.er_tap.get_text().strip().lower(), self._on_tap_key_picked)
+            self._pick_window.present()
+
+        def _on_tap_key_picked(self, name: str):
+            self.er_tap.set_text(name)
 
         def _update_tap_key_sensitivity(self):
             # Поле клавиши имеет смысл только в режиме одиночного тапа.
@@ -266,6 +354,16 @@ def main(argv: list[str] | None = None) -> int:
             page.add(g)
             about = Adw.PreferencesGroup(title="О программе")
             about.add(Adw.ActionRow(title="WaySwitch", subtitle=f"версия {__version__}"))
+            repo_row = Adw.ActionRow(title="Исходники на GitHub", subtitle=REPO_URL)
+            repo_btn = Gtk.Button(label="Открыть", valign=Gtk.Align.CENTER)
+            repo_btn.connect("clicked", lambda *_: _open_uri(REPO_URL))
+            repo_row.add_suffix(repo_btn)
+            about.add(repo_row)
+            about_row = Adw.ActionRow(title="О программе", subtitle="лицензия, авторы, ссылки")
+            about_btn = Gtk.Button(label="Подробнее", valign=Gtk.Align.CENTER)
+            about_btn.connect("clicked", lambda *_: self.get_application().show_about())
+            about_row.add_suffix(about_btn)
+            about.add(about_row)
             page.add(about)
             return page
 
@@ -312,6 +410,46 @@ def main(argv: list[str] | None = None) -> int:
         def _on_corrected(self, original, fixed, manual):
             if self.window:
                 self.window.add_correction(original, fixed, manual)
+
+        def show_about(self):
+            """Окно «О программе»: версия, лицензия, автор и ссылки.
+
+            Своё окно, а не Adw.AboutDialog: тот на этой сборке молча ничего не
+            показывает, а нам нужны ещё и кликабельные ссылки на GitHub.
+            """
+            about = Adw.Window(transient_for=self.window, modal=True, title="О программе")
+            about.set_default_size(480, 420)
+            toolbar = Adw.ToolbarView()
+            toolbar.add_top_bar(Adw.HeaderBar())
+            page = Adw.PreferencesPage()
+
+            main = Adw.PreferencesGroup(title="WaySwitch")
+            main.add(Adw.ActionRow(title="Версия", subtitle=__version__))
+            main.add(Adw.ActionRow(title="Лицензия", subtitle="MIT"))
+            main.add(Adw.ActionRow(title="Автор", subtitle="Илья Ветошкин"))
+            main.add(Adw.ActionRow(
+                title="Что делает",
+                subtitle="Автоисправление раскладки на Wayland: GNOME и KDE Plasma. "
+                         "Читает клавиатуру через /dev/input, печатает через uinput."))
+            page.add(main)
+
+            links = Adw.PreferencesGroup(title="Ссылки")
+            repo_row = Adw.ActionRow(title="GitHub", subtitle=REPO_URL)
+            repo_btn = Gtk.Button(label="Открыть", valign=Gtk.Align.CENTER)
+            repo_btn.connect("clicked", lambda *_: _open_uri(REPO_URL))
+            repo_row.add_suffix(repo_btn)
+            links.add(repo_row)
+            issues_row = Adw.ActionRow(title="Сообщить о проблеме",
+                                       subtitle=f"{REPO_URL}/issues")
+            issues_btn = Gtk.Button(label="Открыть", valign=Gtk.Align.CENTER)
+            issues_btn.connect("clicked", lambda *_: _open_uri(f"{REPO_URL}/issues"))
+            issues_row.add_suffix(issues_btn)
+            links.add(issues_row)
+            page.add(links)
+
+            toolbar.set_content(page)
+            about.set_content(toolbar)
+            about.present()
 
         def _toggle_auto(self):
             cfg = cfgmod.load()

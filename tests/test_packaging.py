@@ -62,3 +62,14 @@ def test_scripts_use_env_for_xdg_runtime_dir():
     for name in ("install.sh", "uninstall.sh"):
         text = (ROOT / name).read_text(encoding="utf-8")
         assert "env XDG_RUNTIME_DIR=" in text, name
+
+
+def test_install_pins_absolute_python():
+    """Обёртки не должны зависеть от PATH: venv без PyGObject ломает запуск."""
+    from pathlib import Path
+
+    script = (Path(__file__).resolve().parent.parent / "packaging" / "install.sh").read_text(
+        encoding="utf-8")
+    assert "PY=/usr/bin/python3" in script
+    assert "exec $PY -m wayswitch" in script
+    assert "exec python3 -m wayswitch" not in script

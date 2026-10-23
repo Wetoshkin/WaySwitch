@@ -71,6 +71,15 @@ BTN_TASK = 0x117
 
 # Наборы клавиш, которыми оперирует буфер и контроллер.
 SHIFT_KEYS = frozenset({KEY_LEFTSHIFT, KEY_RIGHTSHIFT})
+
+# Клавиши правки и навигации: после них автоисправление на секунду замирает.
+# Так делает Punto Switcher («Не переключать раскладку, если перед вводом были
+# нажаты Backspace / стрелки / Delete»): иначе программа правит раскладку в
+# момент, когда человек как раз правит текст руками.
+EDIT_KEYS = frozenset({
+    KEY_BACKSPACE, KEY_DELETE, KEY_HOME, KEY_END, KEY_PAGEUP, KEY_PAGEDOWN,
+    KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN,
+})
 CTRL_KEYS = frozenset({KEY_LEFTCTRL, KEY_RIGHTCTRL})
 ALT_KEYS = frozenset({KEY_LEFTALT, KEY_RIGHTALT})
 META_KEYS = frozenset({KEY_LEFTMETA, KEY_RIGHTMETA})
@@ -105,6 +114,8 @@ KEY_NAMES: dict[str, int] = {
     "space": KEY_SPACE, "tab": KEY_TAB, "enter": KEY_ENTER, "return": KEY_ENTER,
     "esc": KEY_ESC, "escape": KEY_ESC, "backspace": KEY_BACKSPACE,
     "insert": KEY_INSERT, "delete": KEY_DELETE, "home": KEY_HOME, "end": KEY_END,
+    "pageup": KEY_PAGEUP, "pagedown": KEY_PAGEDOWN,
+    "page_up": KEY_PAGEUP, "page_down": KEY_PAGEDOWN,
     "pause": KEY_PAUSE, "scrolllock": KEY_SCROLLLOCK, "capslock": KEY_CAPSLOCK,
     "numlock": KEY_NUMLOCK,
     # Написание с подчёркиванием (как в README/спецификации и у X11-keysym'ов).
@@ -123,6 +134,17 @@ KEY_NAMES: dict[str, int] = {
 }
 KEY_NAMES.update({f"f{i}": code for i, code in enumerate(range(KEY_F1, KEY_F10 + 1), 1)})
 KEY_NAMES.update({"f11": KEY_F11, "f12": KEY_F12})
+
+# Клавиши, которые можно назначить жестом ручного исправления.
+# Литеры, цифры и знаки сюда не входят: одиночный тап такой клавиши — это
+# буквально набранный символ, и жест срабатывал бы на каждом слове.
+GESTURE_KEY_NAMES = frozenset({
+    "leftctrl", "rightctrl", "leftshift", "rightshift", "leftalt", "rightalt",
+    "leftmeta", "rightmeta", "capslock", "numlock", "scrolllock", "pause",
+    "insert", "menu", "compose", "escape", "esc", "printscreen",
+    *[f"f{i}" for i in range(1, 13)],
+})
+GESTURE_KEYS = frozenset(KEY_NAMES[name] for name in GESTURE_KEY_NAMES if name in KEY_NAMES)
 KEY_NAMES.update({chr(ord("a") + i): c for i, c in enumerate(
     [KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_H, KEY_I, KEY_J, KEY_K, KEY_L,
      KEY_M, KEY_N, KEY_O, KEY_P, KEY_Q, KEY_R, KEY_S, KEY_T, KEY_U, KEY_V, KEY_W, KEY_X,
