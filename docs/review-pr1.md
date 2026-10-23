@@ -114,3 +114,16 @@
 7. `journalctl --user -u wayswitch` — исправленных слов в журнале нет;
    `journalctl --user -t gnome-shell | grep TypeText` — пусто.
 8. Параметры → Система → «Проверить» обновления — пишет «последняя версия».
+
+### Новое после ревью (проверить там, где есть)
+
+9. Sway / Hyprland: `wayswitch doctor` — строка «Переключение раскладки … IPC»
+   зелёная; `ghbdtn ` → «привет »; модуль Waybar (`wayswitch waybar`)
+   показывает раскладку и вспыхивает при исправлении.
+10. KDE Plasma 6: виджет WaySwitch в системном лотке (может понадобиться
+    включить: значок лотка → «Настроить» → «Элементы»); средний щелчок — пауза.
+11. Xfce/LXQt на labwc: `XKB_DEFAULT_LAYOUT=us,ru` и
+    `XKB_DEFAULT_OPTIONS=grp:alt_shift_toggle` в `~/.config/labwc/environment`;
+    ручной жест переворачивает слово и переключает раскладку.
+12. `sh packaging/get.sh` на чистой системе (после слияния в main — командой
+    из README).

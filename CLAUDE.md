@@ -4,7 +4,8 @@
 
 ## Что это за проект
 
-WaySwitch — аналог Punto Switcher для Wayland (GNOME 46–51, KDE Plasma 6):
+WaySwitch — аналог Punto Switcher для Wayland (GNOME 46–51, KDE Plasma 6, Sway,
+Hyprland, Xfce/MATE/Cinnamon/Budgie/LXQt на labwc и Wayfire):
 демон на Python читает клавиатуру через `evdev`, решает по словарю и
 символьным триграммам, что слово набрано не в той раскладке (ru ↔ en),
 переключает раскладку через расширение GNOME Shell или KWin и перепечатывает
@@ -34,6 +35,7 @@ GNOME: в контейнере Debian с GTK4/libadwaita под Xvfb и подд
 | `wayswitch/controller.py` | оркестрация без GLib: события клавиш → правила/детектор → действия, откат, выделение |
 | `wayswitch/a11y.py` | at-spi: программа в фокусе и поле пароля (поток-проба, обход от активного окна) |
 | `wayswitch/sound.py` | звук при исправлении |
+| `wayswitch/panel.py` | модуль Waybar (`wayswitch waybar`), сводка состояния, фрагменты конфигов Sway/Hyprland |
 | `wayswitch/updates.py` | проверка новых версий на GitHub Releases (только GUI, суточный кэш) |
 | `wayswitch/keys.py` | обход `/dev/input/event*`, hot-plug, классификация устройств, `SYN_DROPPED`/`ENODEV` |
 | `wayswitch/session.py` | охрана сессии: блокировка экрана (`org.gnome.ScreenSaver`), `logind` |
@@ -47,6 +49,10 @@ GNOME: в контейнере Debian с GTK4/libadwaita под Xvfb и подд
 | `wayswitch/backends/gnome_shell.py` | бэкенд через расширение (`ru.siberia.WaySwitch.Shell`), `ShellTypist`, выделение |
 | `wayswitch/backends/gnome_ibus.py` | бэкенд через `IBus.Bus` (на GNOME 46+ не переключает раскладку — только страховка) |
 | `wayswitch/backends/kde_plasma.py` | KDE Plasma 6: D-Bus KWin `org.kde.keyboard`, варианты из `kxkbrc` |
+| `wayswitch/backends/sway.py` | Sway: i3-ipc (раскладки, переключение, событие input) |
+| `wayswitch/backends/hyprland.py` | Hyprland: `.socket.sock` / `.socket2.sock` |
+| `wayswitch/backends/compositor.py` | labwc / Wayfire (Xfce, MATE, Budgie, LXQt): XKB из конфига, переключение сочетанием, счётчик |
+| `wayswitch/backends/xkbnames.py` | описание раскладки («Russian») → идентификатор XKB по evdev.xml |
 | `wayswitch/backends/hotkey.py` | резерв: эмуляция системного хоткея GNOME |
 | `wayswitch/backends/select.py` | выбор бэкенда по среде |
 | `wayswitch/gui/app.py` | `Adw.Application`: окна, действия и горячие клавиши, значок, уведомления, обновления |
@@ -62,7 +68,9 @@ GNOME: в контейнере Debian с GTK4/libadwaita под Xvfb и подд
 | `wayswitch/gui/autostart.py` | служба и автозапуск значка (`systemctl --user`, XDG autostart) |
 | `wayswitch/gui/daemon_proxy.py` | клиент D-Bus демона для GUI |
 | `extension/wayswitch@siberia.ru/` | расширение GNOME Shell (ESM, `shell-version` 46–51); печатать может только демон |
-| `packaging/` | udev-правило, systemd-юнит, `.desktop`, значки, `install.sh`/`uninstall.sh`, `deb/` |
+| `packaging/` | udev-правило, systemd-юнит, `.desktop`, значки, `install.sh`/`uninstall.sh`, `get.sh` (одной командой), `deb/`, `rpm/`, `arch/PKGBUILD`, `kde/` (виджет лотка Plasma 6) |
+| `tools/stage.sh` | раскладка файлов пакета — общая для .deb, .rpm и AUR |
+| `tools/build_rpm.sh` | сборка `.rpm` |
 | `tools/build_data.py` | сборка `wayswitch/data/*.gz` (словари, триграммы) из открытого корпуса |
 | `tools/build_deb.sh` | сборка `.deb` |
 | `tools/live_rules.py` | живой прогон правил без окон |
@@ -72,8 +80,9 @@ GNOME: в контейнере Debian с GTK4/libadwaita под Xvfb и подд
 
 `keycodes`, `config`, `keymap` (кроме `XkbKeymap`), `ngram`, `detector`,
 `buffer`, `gesture`, `actuator` (кроме `UInputTypist`), `selection`,
-`updates`, `controller`, `a11y` (кроме `query_focus`), `gui/texts`,
-`gui/gesture_keys` —
+`updates`, `panel`, `controller`, `a11y` (кроме `query_focus`), `gui/texts`,
+`gui/gesture_keys`, `backends/sway`, `backends/hyprland`, `backends/compositor`,
+`backends/xkbnames` —
 **никогда не импортируют `evdev`/`gi` на уровне модуля**. Это то, что
 позволяет разрабатывать и тестировать логику на Windows без живого GNOME.
 Любой новый импорт `evdev`/`gi.repository` в этих модулях должен быть

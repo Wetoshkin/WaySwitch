@@ -61,6 +61,16 @@
   fix-selection`), «ДВе ЗАглавные», проверка обновлений раз в сутки.
 - Чек-лист живой проверки — в конце `docs/review-pr1.md`.
 
+## 2026-10-24 — все графические среды, установка одной командой
+
+- Бэкенды Sway (i3-ipc) и Hyprland (IPC-сокеты), среды на labwc/Wayfire
+  (Xfce, MATE, Budgie, LXQt) через сочетание XKB; модуль Waybar.
+- `packaging/get.sh`, пакеты .rpm (Fedora/openSUSE) и PKGBUILD (Arch),
+  виджет лотка KDE Plasma 6, README по макету страницы GitHub.
+- Проверено в контейнерах: установка .deb/.rpm/Arch и get.sh; клиент Sway
+  IPC — против настоящего sway (headless). Живьём не проверены: KDE,
+  Sway/Hyprland с реальной клавиатурой, labwc/Wayfire.
+
 ## Релизы
 
 - v2.0.0a1 (2026-09-23) — первый .deb: https://github.com/Wetoshkin/WaySwitch/releases/tag/v2.0.0a1 (не проверен на живой GNOME; см. чек-лист VM выше).
