@@ -16,7 +16,14 @@ from __future__ import annotations
 import logging
 
 from wayswitch.backends.base import BackendError, LayoutBackend
-from wayswitch.backends.desktop import KDE, OTHER, detect_desktop
+from wayswitch.backends.desktop import (
+    COMPOSITOR_DESKTOPS,
+    HYPRLAND,
+    KDE,
+    OTHER,
+    SWAY,
+    detect_desktop,
+)
 
 log = logging.getLogger("wayswitch")
 
@@ -25,7 +32,9 @@ BACKEND_ORDERS = {
     "gnome": ["shell", "ibus", "hotkey"],
     # В KDE системный хоткей GNOME не годится: свои раскладки и сочетания.
     KDE: ["kde"],
-    OTHER: ["hotkey"],
+    SWAY: ["sway"],
+    HYPRLAND: ["hyprland"],
+    **{d: ["compositor", "hotkey"] for d in COMPOSITOR_DESKTOPS},
 }
 
 
@@ -37,7 +46,7 @@ def order_for(desktop: str, prefer: str) -> list[str]:
 
 
 def choose_backend(prefer: str, typist, settle_ms: int,
-                   desktop: str | None = None) -> LayoutBackend:
+                   desktop: str | None = None, track_hotkey: bool = False) -> LayoutBackend:
     order = order_for(detect_desktop() if desktop is None else desktop, prefer)
     errors = []
     for name in order:
@@ -61,6 +70,18 @@ def choose_backend(prefer: str, typist, settle_ms: int,
                 from wayswitch.backends.gnome_ibus import GnomeIbusBackend
 
                 return GnomeIbusBackend(settle_ms)
+            if name == "sway":
+                from wayswitch.backends.sway import SwayBackend
+
+                return SwayBackend(settle_ms)
+            if name == "hyprland":
+                from wayswitch.backends.hyprland import HyprlandBackend
+
+                return HyprlandBackend(settle_ms)
+            if name == "compositor":
+                from wayswitch.backends.compositor import CompositorBackend
+
+                return CompositorBackend(typist, settle_ms, track=track_hotkey)
             if name == "hotkey":
                 from wayswitch.backends.hotkey import HotkeyBackend
 

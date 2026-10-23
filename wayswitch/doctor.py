@@ -12,7 +12,16 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from wayswitch.backends.desktop import DESKTOP_NAMES, GNOME, KDE, detect_desktop, is_wayland
+from wayswitch.backends.desktop import (
+    COMPOSITOR_DESKTOPS,
+    DESKTOP_NAMES,
+    GNOME,
+    HYPRLAND,
+    KDE,
+    SWAY,
+    detect_desktop,
+    is_wayland,
+)
 
 
 @dataclass
@@ -136,6 +145,45 @@ def run_checks() -> list[Check]:
         checks.append(_check("KWin отдаёт раскладки (org.kde.keyboard)", kde_service,
                              "нужен KDE Plasma с двумя и более раскладками"))
 
+    if desktop == SWAY:
+        def sway_ipc():
+            from wayswitch.backends import sway
+            path = sway.find_socket()
+            if path is None:
+                return False, "сокет sway не найден"
+            sway.SwayIpc(path).request(sway.GET_INPUTS)
+            return True, "Sway IPC"
+        checks.append(_check("Переключение раскладки (Sway IPC)", sway_ipc,
+                             "запустите службу из сеанса sway: exec systemctl --user "
+                             "import-environment SWAYSOCK в конфиге sway", key="switch"))
+
+    if desktop == HYPRLAND:
+        def hypr_ipc():
+            from wayswitch.backends import hyprland
+            directory = hyprland.find_dir()
+            if directory is None:
+                return False, "сокет Hyprland не найден"
+            hyprland.HyprIpc(directory).request("version")
+            return True, "Hyprland IPC"
+        checks.append(_check("Переключение раскладки (Hyprland IPC)", hypr_ipc,
+                             "запустите службу из сеанса Hyprland (uwsm или exec-once)",
+                             key="switch"))
+
+    if desktop in COMPOSITOR_DESKTOPS:
+        def compositor_xkb():
+            from wayswitch.backends import compositor
+            specs, options, where = compositor.read_xkb()
+            if len(specs) < 2:
+                return False, "раскладки композитора не найдены"
+            if not compositor.toggle_combos(options):
+                return False, f"нет сочетания переключения в xkb_options ({where})"
+            return True, f"{where}: {', '.join(s.xkb_id for s in specs)}"
+        checks.append(_check("Сочетание переключения раскладки (labwc / Wayfire)",
+                             compositor_xkb,
+                             "задайте в ~/.config/labwc/environment: XKB_DEFAULT_LAYOUT=us,ru и "
+                             "XKB_DEFAULT_OPTIONS=grp:alt_shift_toggle (или xkb_layout / "
+                             "xkb_options в [input] wayfire.ini)", key="switch"))
+
     def modules():
         import evdev  # noqa: F401
         import gi
@@ -164,14 +212,27 @@ def run_checks() -> list[Check]:
         elif desktop == GNOME:
             from wayswitch.backends.gnome_common import read_sources
             specs = read_sources()
+        elif desktop == SWAY:
+            from wayswitch.backends import sway
+            names, _i = sway.keyboard_state(
+                sway.SwayIpc(sway.find_socket() or "").request(sway.GET_INPUTS))
+            specs = sway.specs_from_names(names)
+        elif desktop == HYPRLAND:
+            from wayswitch.backends import hyprland, xkbnames
+            ipc = hyprland.HyprIpc(hyprland.find_dir() or "")
+            specs = xkbnames.parse_layout_list(
+                ipc.json("getoption input:kb_layout").get("str", ""))
         else:
-            return False, "раскладку в этой среде прочитать неоткуда"
+            from wayswitch.backends import compositor
+            specs, _o, _w = compositor.read_xkb()
+            if not specs:
+                return False, "раскладки композитора не найдены"
         km = XkbKeymap.from_names(specs, [])
         alphabets = sorted(km.alphabet(g) for g in range(km.num_groups))
         return alphabets == ["latin", "ru"], ", ".join(s.xkb_id for s in specs)
     checks.append(_check("Две раскладки: русская и латинская", sources,
                          "оставьте в системе ровно две раскладки: ru и en/us",
-                         required=desktop in (GNOME, KDE), key="layouts"))
+                         key="layouts"))
 
     def uinput():
         return uinput_status()

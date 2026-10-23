@@ -37,7 +37,8 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         log.error("не открыть /dev/uinput: %s (правило udev? см. wayswitch doctor)", e)
         return 1
     try:
-        backend = choose_backend(config.backend.prefer, typist, config.typing.settle_ms)
+        backend = choose_backend(config.backend.prefer, typist, config.typing.settle_ms,
+                                 track_hotkey=config.backend.track_hotkey)
     except BackendError as e:
         # Перезапуск не поможет: среда та же. Код 4 — в RestartPreventExitStatus.
         log.error("%s. Подробности: wayswitch doctor", e)
@@ -46,10 +47,10 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     log.info("среда: %s", session_summary())
     log.info("бэкенд раскладки: %s, источники: %s", backend.name,
              [s.xkb_id for s in backend.layouts()])
-    if backend.name == "kde":
-        # В KDE расширения нет: печатаем сканкодами через uinput. Раскладку
-        # переключает KWin, паузу после переключения ждёт wait_applied.
-        log.info("печать символов: uinput (бэкенд kde)")
+    if backend.name in ("kde", "sway", "hyprland"):
+        # Расширения нет: печатаем сканкодами через uinput. Раскладку
+        # переключает композитор, паузу после переключения ждёт wait_applied.
+        log.info("печать символов: uinput (бэкенд %s)", backend.name)
         typist_for_controller = typist
     elif backend.name == "shell" and config.backend.shell_typing == "uinput":
         # Печать сканкодами через uinput, хотя раскладку переключает расширение:

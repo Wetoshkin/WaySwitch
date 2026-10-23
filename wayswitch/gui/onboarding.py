@@ -231,7 +231,9 @@ class Onboarding:
             gestures.append(row)
         switches = boxed_list()
         self.sw_service = Adw.SwitchRow(title="Запускать при входе в систему", active=True)
-        self.sw_tray = Adw.SwitchRow(title="Значок в верхней панели", active=True)
+        from wayswitch.backends.desktop import detect_desktop
+
+        self.sw_tray = Adw.SwitchRow(title=texts.tray_title(detect_desktop()), active=True)
         self.sw_updates = Adw.SwitchRow(title="Сообщать о новых версиях",
                                         subtitle="Раз в сутки спрашивать GitHub",
                                         active=cfg.general.check_updates)
