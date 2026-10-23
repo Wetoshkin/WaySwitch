@@ -19,6 +19,11 @@ CYRILLIC = set("абвгдеёжзийклмнопрстуфхцчшщъыьэю
 LATIN = set("abcdefghijklmnopqrstuvwxyz")
 # Буквенные клавиши, по которым определяем алфавит группы.
 _ALPHABET_PROBE = (30, 31, 32, 33, 34, 35, 36, 37, 38)  # KEY_A..KEY_L
+# Цифровой блок: те же символы, что у основных клавиш, но печатать ими нельзя
+# (NumLock, режим навигации). В обратной таблице основные клавиши важнее.
+NUMPAD_KEYS = frozenset({
+    55, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 96, 98, 117, 118, 121, 179, 180,
+})
 
 
 @dataclass(frozen=True)
@@ -64,13 +69,22 @@ class Keymap(ABC):
         for group in range(self.num_groups):
             rev: dict[str, tuple[int, bool]] = {}
             table = self._table(group)
-            # Сначала символы с Shift, затем без — без Shift перекрывает.
-            for code, (_lo, hi) in table.items():
-                if hi:
-                    rev.setdefault(hi, (code, True))
-            for code, (lo, _hi) in table.items():
-                if lo:
-                    rev[lo] = (code, False)
+            # Сначала символы без Shift, затем с Shift — без Shift перекрывает.
+            # Внутри прохода первый найденный код побеждает (таблица идёт по
+            # возрастанию кодов), но основная клавиша важнее цифрового блока:
+            # на реальной xkb-раскладке «.» и «/» есть ещё на KEY_KPCOMMA и
+            # KEY_KPSLASH, а печатать ими нельзя — NumLock/навигация.
+            for shift in (False, True):
+                for code, pair in table.items():
+                    ch = pair[1] if shift else pair[0]
+                    if not ch:
+                        continue
+                    current = rev.get(ch)
+                    if current is not None:
+                        keep_previous = not (code not in NUMPAD_KEYS and current[0] in NUMPAD_KEYS)
+                        if keep_previous:
+                            continue
+                    rev[ch] = (code, shift)
             result.append(rev)
         return result
 
