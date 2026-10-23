@@ -55,7 +55,7 @@ WaySwitch работает только на **GNOME** и только на **Wa
 X11, там WaySwitch бесполезен). Откройте «Параметры → О системе»
 (Settings → About): рабочий стол должен быть **GNOME**, а строка
 «Windowing System» / «Оконная система» — **Wayland**, не X11.
-Поддерживаются GNOME 46–50, Ubuntu 24.04 и новее (включая 26.04). Если
+Поддерживаются GNOME 46–51, Ubuntu 24.04 и новее (включая 26.04). Если
 указано X11 — выйдите из системы, на экране входа нажмите значок
 шестерёнки рядом с полем пароля и выберите **GNOME** (не «GNOME on
 Xorg» / «GNOME на Xorg»), затем войдите заново.
@@ -115,7 +115,7 @@ systemctl --user enable --now wayswitch
 status` или `systemctl --user status wayswitch` (ищите строку `Active:
 active (running)`).
 
-### Из исходников / Fedora (для опытных)
+### Из исходников / Fedora / Arch (для опытных)
 
 ```bash
 git clone https://github.com/Wetoshkin/WaySwitch.git wayswitch
@@ -123,11 +123,12 @@ cd wayswitch
 sudo packaging/install.sh
 ```
 
-Ставит системные пакеты, копирует код в `/usr/local/lib/wayswitch`,
-кладёт udev-правило, systemd user-юнит и расширение GNOME Shell в
+Ставит системные пакеты (`apt`, `dnf` или `pacman`), копирует код в
+`/usr/local/lib/wayswitch`, кладёт udev-правило, systemd user-юнит и
+расширение GNOME Shell в
 профиль вызвавшего пользователя (`sudo` от обычного пользователя, не от
 root). Дальше — шаги 4–6 выше. На Debian/Ubuntu предпочтителен
-`.deb`-пакет; этот путь — для Fedora и сборки из исходников.
+`.deb`-пакет; этот путь — для Fedora, Arch и сборки из исходников.
 
 ### Удаление
 
@@ -290,9 +291,9 @@ prefer = "auto"               # auto | shell | ibus | hotkey
 
 ## Требования
 
-- GNOME 46–50 на Wayland.
+- GNOME 46–51 на Wayland.
 - Ровно две раскладки ввода: одна `ru*`, одна латинская.
-- Ubuntu 24.04+ или Fedora 40+.
+- Ubuntu 24.04+, Fedora 40+ или Arch/CachyOS.
 - Python 3.11+.
 
 ## Статус и ограничения

@@ -42,6 +42,22 @@ def test_install_updates_apt_index_before_install():
     assert text.index("apt-get update") < text.index("apt-get install")
 
 
+def test_install_supports_arch_pacman():
+    text = (ROOT / "install.sh").read_text(encoding="utf-8")
+    assert "command -v pacman" in text
+    assert "pacman -S --needed --noconfirm" in text
+    # Имена пакетов в Arch другие, чем в apt/dnf.
+    assert "python-evdev" in text and "libadwaita" in text
+
+
+def test_install_warns_when_uinput_module_missing():
+    # После обновления ядра модули старого ядра удалены, modprobe падает —
+    # установка не должна обрываться, но обязана сказать про перезагрузку.
+    text = (ROOT / "install.sh").read_text(encoding="utf-8")
+    assert "modprobe uinput" in text
+    assert "перезагрузк" in text
+
+
 def test_scripts_use_env_for_xdg_runtime_dir():
     for name in ("install.sh", "uninstall.sh"):
         text = (ROOT / name).read_text(encoding="utf-8")
