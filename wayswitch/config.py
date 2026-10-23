@@ -49,6 +49,11 @@ class General:
     # попадёт уже в другое место.
     fix_on_tab: bool = False
     fix_on_enter: bool = False
+    # «ПРивет» → «Привет»: Shift отпущен на букву позже.
+    two_capitals_fix: bool = True
+    # Раз в сутки спрашивать GitHub о новой версии (только GUI, демон в сеть
+    # не ходит). Отключается в Параметрах и на последнем шаге первого запуска.
+    check_updates: bool = True
 
 
 @dataclass

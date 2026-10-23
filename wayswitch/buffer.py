@@ -201,5 +201,10 @@ class InputBuffer:
             start -= 1
         self._keys[start:end] = list(keys)
 
+    def replace_tail(self, count: int, keys: list[KeyPress]) -> None:
+        """Заменить последние count нажатий (откат исправления с пробелом внутри)."""
+        count = min(count, len(self._keys))
+        self._keys[len(self._keys) - count:] = list(keys)
+
     def replace_all(self, keys: list[KeyPress]) -> None:
         self._keys = list(keys)

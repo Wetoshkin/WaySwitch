@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import signal
 import threading
+import time
 from pathlib import Path
 
 from wayswitch import a11y as cfgmod_a11y
@@ -101,11 +102,18 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     # и только там, где есть at-spi: в Gnome/KDE он поднимается в сессии.
     probe = cfgmod_a11y.make_probe(enabled=config.general.auto_correct)
 
+    last_beep = [0.0]
+
     def _corrected(old: str, new: str, manual: bool) -> None:
         """Событие исправления: наружу в D-Bus, при желании — со звуком."""
         if service is not None:
             service.emit_corrected(old, new, manual)
-        if config.general.sound_on_fix and not manual:
+        # controller.config, а не config из замыкания: после Reload настройка
+        # звука должна действовать сразу, без перезапуска демона.
+        now = time.monotonic()
+        if controller.config.general.sound_on_fix and not manual \
+                and now - last_beep[0] >= 0.1:
+            last_beep[0] = now
             # Сигнал в отдельном потоке: плеер не должен задерживать ввод.
             threading.Thread(
                 target=ensure_and_play, args=(cfgmod.config_dir(),), daemon=True).start()
@@ -147,10 +155,14 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     def reload() -> None:
         try:
             new_config = cfgmod.load(config_path)
+            auto_before = controller.config.general.auto_correct
             controller.reload_config(new_config)
             # Автоисправление включили или выключили — приводим опрос
             # доступности в соответствие: выключено, значит и опрашивать нечего.
-            controller.set_probe(cfgmod_a11y.make_probe(new_config.general.auto_correct))
+            # Только при смене: иначе каждый щелчок в Параметрах пересоздавал бы
+            # поток опроса.
+            if new_config.general.auto_correct != auto_before:
+                controller.set_probe(cfgmod_a11y.make_probe(new_config.general.auto_correct))
             detector.exceptions.clear()
             detector.exceptions.update(cfgmod.load_exceptions())
             log.info("конфиг перечитан")

@@ -1,13 +1,21 @@
 """План исправления и его исполнение.
 
 План строится без железа (тестируется), исполняется либо через uinput
-(KeyTypist), либо через расширение GNOME Shell (TextTypist). Инвариант:
-на любом выходе из execute все клавиши, нажатые виртуальным устройством,
-отпущены.
+(KeyTypist), либо через расширение GNOME Shell (TextTypist). Инварианты:
+
+* на любом выходе из execute все клавиши, нажатые виртуальным устройством,
+  отпущены;
+* первый Backspace — точка невозврата. До него прерывание (физическое
+  нажатие, пауза) отменяет исправление и возвращает прежнюю раскладку; после
+  него план доводится до конца, иначе человек остался бы со стёртым словом и
+  без нового. Нажатая в это время клавиша всё равно попадёт в поле — после
+  исправленного слова;
+* любая ошибка бэкенда или печати — FAILED, а не исключение наружу.
 """
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -130,14 +138,55 @@ class _Session:
         self.pressed.clear()
 
 
+log = logging.getLogger("wayswitch")
+
+
+class _Run:
+    """Общее для обоих исполнителей: точка невозврата и возврат раскладки."""
+
+    def __init__(self, backend, abort: Callable[[], bool], restore_group: int | None):
+        self.backend = backend
+        self._abort = abort
+        self.restore_group = restore_group
+        self.switched = False
+        self.committed = False  # первый Backspace ушёл — назад дороги нет
+
+    def aborted(self) -> bool:
+        return not self.committed and self._abort()
+
+    def switch(self, group: int, timeout: float) -> bool:
+        self.switched = True
+        self.backend.set(group)
+        return bool(self.backend.wait_applied(group, timeout))
+
+    def rollback(self) -> None:
+        """Слово не тронуто, а раскладку уже переключили — вернуть прежнюю."""
+        if self.switched and not self.committed and self.restore_group is not None:
+            try:
+                self.backend.set(self.restore_group)
+            except Exception as exc:  # noqa: BLE001 — откат по возможности
+                log.warning("не удалось вернуть раскладку: %s", exc)
+
+
 def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: False,
-            key_delay: float = 0.0, sleep=time.sleep, switch_timeout: float = 0.5) -> str:
+            key_delay: float = 0.0, sleep=time.sleep, switch_timeout: float = 0.5,
+            restore_group: int | None = None) -> str:
+    run = _Run(backend, abort, restore_group)
     if isinstance(typist, TextTypist):
-        return _execute_text(plan, typist, backend, abort, switch_timeout)
+        result = _execute_text(plan, typist, run, switch_timeout)
+    else:
+        result = _execute_keys(plan, typist, run, key_delay, sleep, switch_timeout)
+    if result != DONE:
+        run.rollback()
+    return result
+
+
+def _execute_keys(plan: Plan, typist, run: _Run, key_delay: float, sleep,
+                  switch_timeout: float) -> str:
     session = _Session(typist, key_delay, sleep)
     try:
         for step in plan.steps:
-            if abort():
+            if run.aborted():
                 return ABORTED
             if isinstance(step, ReleaseModifiers):
                 for code in ALL_MODIFIERS:
@@ -145,17 +194,17 @@ def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: Fal
                 typist.syn()
             elif isinstance(step, Backspace):
                 for _ in range(step.count):
-                    if abort():
+                    if run.aborted():
                         return ABORTED
+                    run.committed = True
                     session.press(kc.KEY_BACKSPACE)
                     session.release(kc.KEY_BACKSPACE)
             elif isinstance(step, SwitchLayout):
-                backend.set(step.group)
-                if not backend.wait_applied(step.group, switch_timeout):
+                if not run.switch(step.group, switch_timeout):
                     return FAILED
             elif isinstance(step, Type):
                 for code, shift in step.keys:
-                    if abort():
+                    if run.aborted():
                         return ABORTED
                     if shift:
                         session.press(kc.KEY_LEFTSHIFT)
@@ -164,27 +213,38 @@ def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: Fal
                     if shift:
                         session.release(kc.KEY_LEFTSHIFT)
         return DONE
-    except OSError:
+    except Exception as exc:  # noqa: BLE001 — OSError uinput, BackendError, GLib.Error
+        log.error("исправление прервано ошибкой: %s", exc)
         return FAILED
     finally:
         session.release_all()
 
 
-def _execute_text(plan: Plan, typist: TextTypist, backend, abort, switch_timeout: float) -> str:
+def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: float) -> str:
+    step = None
     try:
         for step in plan.steps:
-            if abort():
+            if run.aborted():
                 return ABORTED
             if isinstance(step, Backspace):
+                run.committed = True
                 typist.backspace(step.count)
             elif isinstance(step, SwitchLayout):
-                backend.set(step.group)
-                if not backend.wait_applied(step.group, switch_timeout):
+                if not run.switch(step.group, switch_timeout):
                     return FAILED
             elif isinstance(step, Type):
                 typist.type_text(step.text)
         return DONE
-    except OSError:
+    except Exception as exc:  # noqa: BLE001 — GLib.Error таймаута D-Bus и прочее
+        log.error("исправление прервано ошибкой: %s", exc)
+        if run.committed and isinstance(step, Type):
+            # Слово уже стёрто: одна повторная попытка напечатать лучше, чем
+            # оставить пустое место (таймаут D-Bus бывает разовым).
+            try:
+                typist.type_text(step.text)
+                return DONE
+            except Exception as again:  # noqa: BLE001
+                log.error("повторная печать не удалась: %s", again)
         return FAILED
 
 

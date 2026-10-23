@@ -21,9 +21,12 @@ class Check:
     ok: bool
     hint: str = ""
     required: bool = True
+    # Стабильный идентификатор для GUI (первый запуск): имя проверки — текст,
+    # его можно переписать, а по key окно находит «свою» проверку.
+    key: str = ""
 
 
-def _check(name: str, fn, hint: str, required: bool = True) -> Check:
+def _check(name: str, fn, hint: str, required: bool = True, key: str = "") -> Check:
     try:
         ok, detail = fn()
     except Exception as e:  # noqa: BLE001 — любая ошибка = проверка не пройдена
@@ -31,7 +34,7 @@ def _check(name: str, fn, hint: str, required: bool = True) -> Check:
     text = hint if not ok else ""
     if detail:
         text = f"{detail}. {text}".strip()
-    return Check(name, ok, text, required)
+    return Check(name, ok, text, required, key)
 
 
 def uinput_status() -> tuple[bool, str]:
@@ -43,7 +46,8 @@ def uinput_status() -> tuple[bool, str]:
     ядра уже удалены: нужна перезагрузка.
     """
     try:
-        fd = os.open("/dev/uinput", os.O_WRONLY | os.O_NONBLOCK)
+        # getattr: на Windows (разработка, тесты) O_NONBLOCK нет.
+        fd = os.open("/dev/uinput", os.O_WRONLY | getattr(os, "O_NONBLOCK", 0))
     except PermissionError:
         return False, "нет прав на /dev/uinput"
     except OSError as e:
@@ -92,7 +96,7 @@ def run_checks() -> list[Check]:
         return wayland, DESKTOP_NAMES[desktop]
     checks.append(_check("Сессия Wayland", session,
                          "WaySwitch работает только на Wayland; в X11 раскладку "
-                         "не прочитать и не переключить"))
+                         "не прочитать и не переключить", key="wayland"))
 
     checks.append(_check("Доступность GTK (toolkit-accessibility)", toolkit_accessibility,
                          "необязательно: без неё не работают исключения по "
@@ -107,7 +111,7 @@ def run_checks() -> list[Check]:
             return shell_extension_present(), ""
         checks.append(_check("Расширение GNOME Shell", gnome_tools,
                              "необязательно: gnome-extensions enable wayswitch@siberia.ru",
-                             required=False))
+                             required=False, key="extension"))
 
         def ibus():
             import gi
@@ -163,13 +167,14 @@ def run_checks() -> list[Check]:
         return alphabets == ["latin", "ru"], ", ".join(s.xkb_id for s in specs)
     checks.append(_check("Две раскладки: русская и латинская", sources,
                          "оставьте в системе ровно две раскладки: ru и en/us",
-                         required=desktop in (GNOME, KDE)))
+                         required=desktop in (GNOME, KDE), key="layouts"))
 
     def uinput():
         return uinput_status()
     checks.append(_check("/dev/uinput доступен на запись", uinput,
                          "sudo modprobe uinput (после обновления ядра — перезагрузка); "
-                         "если не помогает — правило udev: sudo packaging/install.sh"))
+                         "если не помогает — правило udev: sudo packaging/install.sh",
+                         key="uinput"))
 
     def keyboards():
         from evdev import InputDevice, ecodes, list_devices
@@ -188,7 +193,7 @@ def run_checks() -> list[Check]:
             dev.close()
         return bool(found), f"{len(found)} клавиатур, без доступа {denied}"
     checks.append(_check("Клавиатуры читаются", keyboards,
-                         "правило udev 60-wayswitch.rules + перелогин"))
+                         "правило udev 60-wayswitch.rules + перелогин", key="keyboards"))
 
     def udev_rule():
         return Path("/etc/udev/rules.d/60-wayswitch.rules").exists(), ""
