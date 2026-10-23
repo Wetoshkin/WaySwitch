@@ -83,6 +83,7 @@ export default class WaySwitchExtension extends Extension {
     }
 
     TypeText(text) {
+        log(`WaySwitch: TypeText ${text.length} символов ${JSON.stringify(text)}`);
         for (const ch of text) {
             const keyval = Clutter.unicode_to_keysym(ch.codePointAt(0));
             this._tap(keyval);
@@ -90,14 +91,22 @@ export default class WaySwitchExtension extends Extension {
     }
 
     Backspace(count) {
+        log(`WaySwitch: Backspace ${count}`);
         for (let i = 0; i < count; i++)
             this._tap(Clutter.KEY_BackSpace);
     }
 
     _tap(keyval) {
-        // время для виртуального устройства — микросекунды монотонных часов
-        const t = GLib.get_monotonic_time();
-        this._vdev.notify_keyval(t, keyval, Clutter.KeyState.PRESSED);
-        this._vdev.notify_keyval(t, keyval, Clutter.KeyState.RELEASED);
+        // Время для виртуального устройства — микросекунды монотонных часов.
+        // press и release обязаны иметь РАЗНОЕ время: с одинаковой меткой
+        // последнее нажатие в серии (чаще всего это пробел в конце
+        // исправленного слова) до приложения не доходило. GNOME Shell в своей
+        // экранной клавиатуре тоже разносит их по времени, а не шлёт парой.
+        const now = GLib.get_monotonic_time();
+        this._lastTime = Math.max(now, (this._lastTime || 0) + 1);
+        const press = this._lastTime;
+        this._lastTime += 1;
+        this._vdev.notify_keyval(press, keyval, Clutter.KeyState.PRESSED);
+        this._vdev.notify_keyval(this._lastTime, keyval, Clutter.KeyState.RELEASED);
     }
 }
