@@ -103,6 +103,10 @@ def menu_layout(status: dict | None) -> list[tuple[str, str, bool]]:
     ]
 
 
+# Имя значка из packaging/icons: ставится установщиком в hicolor/scalable/apps.
+INSTALLED_ICON = "ru.siberia.WaySwitch"
+
+
 class StatusNotifier:
     def __init__(self, on_toggle_auto: Callable[[], None], on_pause: Callable[[], None],
                  on_fix: Callable[[], None], on_settings: Callable[[], None],
@@ -139,10 +143,26 @@ class StatusNotifier:
     # --- SNI ---------------------------------------------------------------------
 
     def _icon(self) -> str:
+        """Имя значка в трее: свой, если тема его знает, иначе системный."""
         if self._status is None:
-            return "input-keyboard-symbolic"
-        return "changes-prevent-symbolic" if self._status.get("paused") \
-            else "input-keyboard-symbolic"
+            return "dialog-question-symbolic"
+        if self._status.get("paused"):
+            return "changes-prevent-symbolic"
+        return INSTALLED_ICON if self._theme_has(INSTALLED_ICON) else "input-keyboard-symbolic"
+
+    @staticmethod
+    def _theme_has(name: str) -> bool:
+        """Есть ли значок в теме: не у всех он установлен (запуск из исходников)."""
+        try:
+            from gi.repository import Gdk, Gtk
+
+            display = Gdk.Display.get_default()
+            if display is None:
+                return False
+            theme = Gtk.IconTheme.get_for_display(display)
+            return theme.has_icon(name)
+        except Exception:  # noqa: BLE001 — без GTK просто берём системный значок
+            return False
 
     def _sni_get(self, _c, _s, _p, _i, prop: str):
         from gi.repository import GLib

@@ -9,7 +9,9 @@ from pathlib import Path
 log = logging.getLogger("wayswitch.gui")
 
 SERVICE = "wayswitch.service"
-DESKTOP_NAME = "ru.siberia.WaySwitch.desktop"
+# Имя файла автозапуска совпадает с записью приложения: так GNOME считает это
+# тем же приложением, а не отдельной записью.
+DESKTOP_NAME = "ru.siberia.WaySwitch.Settings.desktop"
 
 
 def _autostart_dir() -> Path:
@@ -23,7 +25,7 @@ def tray_desktop_text() -> str:
     return "\n".join([
         "[Desktop Entry]", "Type=Application", "Name=WaySwitch",
         "Comment=Значок WaySwitch в трее", "Exec=wayswitch-gui --tray",
-        "Icon=input-keyboard", "Terminal=false", "X-GNOME-Autostart-enabled=true",
+        "Icon=ru.siberia.WaySwitch", "Terminal=false", "X-GNOME-Autostart-enabled=true",
         "X-GNOME-Autostart-Delay=3", "",
     ])
 

@@ -73,3 +73,56 @@ def test_install_pins_absolute_python():
     assert "PY=/usr/bin/python3" in script
     assert "exec $PY -m wayswitch" in script
     assert "exec python3 -m wayswitch" not in script
+
+
+# --- ярлык и значок ---------------------------------------------------------
+
+def _desktop_text() -> str:
+    return (ROOT / "ru.siberia.WaySwitch.Settings.desktop").read_text(encoding="utf-8")
+
+
+def _app_id() -> str:
+    """APP_ID окна без импорта GUI: импорт тянет GTK, которого в CI нет."""
+    import re
+
+    text = (ROOT.parent / "wayswitch" / "gui" / "app.py").read_text(encoding="utf-8")
+    return re.search(r'APP_ID = "([^"]+)"', text).group(1)
+
+
+def test_desktop_file_name_matches_app_id():
+    """Имя ярлыка обязано совпадать с APP_ID окна.
+
+    Иначе GNOME не связывает запущенное окно с записью: в доке и в списке
+    приложений рисуется заглушка «нет значка», а иногда появляется второй значок.
+    """
+    assert (ROOT / "ru.siberia.WaySwitch.Settings.desktop").exists()
+    assert (ROOT / f"{_app_id()}.desktop").exists()
+
+
+def test_desktop_entry_points_to_own_icon():
+    text = _desktop_text()
+    assert "Icon=ru.siberia.WaySwitch" in text
+    assert "StartupWMClass=" + _app_id() in text
+    assert (ROOT / "icons" / "ru.siberia.WaySwitch.svg").exists()
+
+
+def test_icon_is_scalable_svg():
+    text = (ROOT / "icons" / "ru.siberia.WaySwitch.svg").read_text(encoding="utf-8")
+    assert text.lstrip().startswith("<svg")
+    assert 'viewBox="0 0 128 128"' in text
+    assert "<text" in text and "А" in text and "A" in text
+
+
+def test_installer_installs_icon_and_removes_old_entry():
+    text = (ROOT / "install.sh").read_text(encoding="utf-8")
+    assert "share/icons/hicolor/scalable/apps" in text
+    assert "ru.siberia.WaySwitch.svg" in text
+    # старое имя ярлыка (до 2.0) не должно оставаться вторым пунктом в меню
+    assert "rm -f /usr/local/share/applications/ru.siberia.WaySwitch.desktop" in text
+
+
+def test_autostart_uses_same_name_as_desktop_entry():
+    from wayswitch.gui import autostart
+
+    assert autostart.DESKTOP_NAME == "ru.siberia.WaySwitch.Settings.desktop"
+    assert "Icon=ru.siberia.WaySwitch" in autostart.tray_desktop_text()
