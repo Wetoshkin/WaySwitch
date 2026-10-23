@@ -27,6 +27,24 @@ def _check(name: str, fn, hint: str, required: bool = True) -> Check:
     return Check(name, ok, text, required)
 
 
+def uinput_status() -> tuple[bool, str]:
+    """Открывается ли /dev/uinput на самом деле.
+
+    os.access() тут обманывает: права (ACL от udev) могут быть выданы, а
+    модуля uinput в ядре нет — тогда open() падает с ENODEV, и печатать
+    нечем. Так бывает сразу после обновления ядра, когда модули старого
+    ядра уже удалены: нужна перезагрузка.
+    """
+    try:
+        fd = os.open("/dev/uinput", os.O_WRONLY | os.O_NONBLOCK)
+    except PermissionError:
+        return False, "нет прав на /dev/uinput"
+    except OSError as e:
+        return False, f"/dev/uinput не открывается ({e.strerror or e}) — модуль uinput не загружен?"
+    os.close(fd)
+    return True, ""
+
+
 def run_checks() -> list[Check]:
     checks = []
 
@@ -84,9 +102,10 @@ def run_checks() -> list[Check]:
                          required=False))
 
     def uinput():
-        return os.access("/dev/uinput", os.W_OK), ""
+        return uinput_status()
     checks.append(_check("/dev/uinput доступен на запись", uinput,
-                         "sudo packaging/install.sh (правило udev), затем перелогиньтесь"))
+                         "sudo modprobe uinput (после обновления ядра — перезагрузка); "
+                         "если не помогает — правило udev: sudo packaging/install.sh"))
 
     def keyboards():
         from evdev import InputDevice, ecodes, list_devices
