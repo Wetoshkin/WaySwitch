@@ -4,54 +4,76 @@
 
 ## Что это за проект
 
-WaySwitch — аналог Punto Switcher для GNOME на Wayland: демон на Python
-читает клавиатуру через `evdev`, решает по словарю и символьным триграммам,
-что слово набрано не в той раскладке (ru ↔ en), переключает раскладку через
-IBus/расширение GNOME Shell и перепечатывает слово через `uinput`. Плюс
-ручной жест (двойной/тройной Shift), откат с обучением, GTK4-окно настроек
-и трей. Подробное обоснование решений — в спецификации, пошаговый план
+WaySwitch — аналог Punto Switcher для Wayland (GNOME 46–51, KDE Plasma 6):
+демон на Python читает клавиатуру через `evdev`, решает по словарю и
+символьным триграммам, что слово набрано не в той раскладке (ru ↔ en),
+переключает раскладку через расширение GNOME Shell или KWin и перепечатывает
+слово. Плюс ручные жесты, «Исправить выделенное», откат с обучением, окно на
+GTK4/libadwaita и значок в панели. Подробное обоснование решений — в спецификации, пошаговый план
 реализации — в плане (пути ниже).
 
-Разработка ведётся на Windows; живой GNOME пока не тестировался — см.
-`docs/testing-vm.md`.
+Разработка ведётся на Windows; живьём проверено на CachyOS, GNOME 51
+(Wayland). KDE Plasma 6 живьём не проверялся. GUI можно проверить без
+GNOME: в контейнере Debian с GTK4/libadwaita под Xvfb и поддельным демоном
+на D-Bus (так сняты `docs/screenshots`). Модули `gui/*` импортируют `gi`
+только внутри функций — это проверяет тест.
 
 ## Карта модулей
 
 | Модуль | Роль |
 |---|---|
-| `wayswitch/keycodes.py` | имена/коды клавиш evdev, таблицы модификаторов |
-| `wayswitch/config.py` | `~/.config/wayswitch/config.toml` — загрузка, валидация, запись; `exceptions.txt` |
+| `wayswitch/keycodes.py` | имена/коды клавиш evdev, таблицы модификаторов, клавиши жестов |
+| `wayswitch/config.py` | `~/.config/wayswitch/config.toml` — загрузка, валидация, запись; `exceptions.txt`, `apps.txt` |
 | `wayswitch/keymap.py` | раскладки: `Keymap` (интерфейс), `XkbKeymap` — обёртка над `libxkbcommon` через ctypes |
 | `wayswitch/ngram.py` | символьные триграммы, логвероятность строки в языке |
-| `wayswitch/detector.py` | решение `keep`/`fix` по слову: словарь → триграммы → контекст; ранний триггер URL |
+| `wayswitch/detector.py` | решение `keep`/`fix` по слову: словарь → триграммы → контекст; правила знаков, частиц, слипшихся слов, двух заглавных |
 | `wayswitch/buffer.py` | буфер слова/фразы: Shift/CapsLock, правила сброса, `held_physical()` |
-| `wayswitch/gesture.py` | распознавание двойного/тройного Shift |
-| `wayswitch/actuator.py` | план действий (`plan_fix`) и его исполнение; `UInputTypist` — печать через `uinput` |
-| `wayswitch/controller.py` | оркестрация без привязки к GLib: события клавиш → детектор → действия |
+| `wayswitch/gesture.py` | двойной/тройной Shift, одиночный тап своей клавиши |
+| `wayswitch/actuator.py` | план (`plan_fix`) и исполнение с точкой невозврата на первом Backspace; `UInputTypist` |
+| `wayswitch/selection.py` | «Исправить выделенное»: перевод текста в другую раскладку |
+| `wayswitch/controller.py` | оркестрация без GLib: события клавиш → правила/детектор → действия, откат, выделение |
+| `wayswitch/a11y.py` | at-spi: программа в фокусе и поле пароля (поток-проба, обход от активного окна) |
+| `wayswitch/sound.py` | звук при исправлении |
+| `wayswitch/updates.py` | проверка новых версий на GitHub Releases (только GUI, суточный кэш) |
 | `wayswitch/keys.py` | обход `/dev/input/event*`, hot-plug, классификация устройств, `SYN_DROPPED`/`ENODEV` |
 | `wayswitch/session.py` | охрана сессии: блокировка экрана (`org.gnome.ScreenSaver`), `logind` |
 | `wayswitch/daemon.py` | сборка демона: GLib main loop, устройства, бэкенд, контроллер, D-Bus |
-| `wayswitch/dbus_service.py` | D-Bus сервис `ru.siberia.WaySwitch` (`Pause`/`Resume`/`FixLastWord`/`GetStatus`/…) |
+| `wayswitch/dbus_service.py` | D-Bus сервис `ru.siberia.WaySwitch` (`Pause`/`Resume`/`FixLastWord`/`FixSelection`/`GetStatus`/…) |
 | `wayswitch/cli.py` | подкоманды `wayswitch` |
-| `wayswitch/doctor.py` | проверки окружения для `wayswitch doctor` |
+| `wayswitch/doctor.py` | проверки окружения для `wayswitch doctor` и шага «Проверка системы» |
 | `wayswitch/backends/base.py` | интерфейс `LayoutBackend` |
-| `wayswitch/backends/gnome_ibus.py` | бэкенд через `IBus.Bus` |
-| `wayswitch/backends/gnome_shell.py` | бэкенд через расширение (`ru.siberia.WaySwitch.Shell`), `ShellTypist` |
-| `wayswitch/backends/hotkey.py` | резервный бэкенд: эмуляция системного хоткея переключения раскладки |
-| `wayswitch/backends/select.py` | выбор бэкенда при старте (`shell` → `ibus` → `hotkey`) |
-| `wayswitch/gui/app.py` | `Adw.Application`, окно настроек, тест-поле |
-| `wayswitch/gui/tray.py` | `StatusNotifierItem` через `Gio.DBus` |
-| `wayswitch/gui/autostart.py` | автозапуск сервиса и трея (`systemctl --user`, XDG autostart) |
+| `wayswitch/backends/desktop.py` | определение среды (GNOME/KDE/прочие), Wayland |
+| `wayswitch/backends/gnome_common.py` | источники ввода и хоткей из gsettings (с проверкой схемы) |
+| `wayswitch/backends/gnome_shell.py` | бэкенд через расширение (`ru.siberia.WaySwitch.Shell`), `ShellTypist`, выделение |
+| `wayswitch/backends/gnome_ibus.py` | бэкенд через `IBus.Bus` (на GNOME 46+ не переключает раскладку — только страховка) |
+| `wayswitch/backends/kde_plasma.py` | KDE Plasma 6: D-Bus KWin `org.kde.keyboard`, варианты из `kxkbrc` |
+| `wayswitch/backends/hotkey.py` | резерв: эмуляция системного хоткея GNOME |
+| `wayswitch/backends/select.py` | выбор бэкенда по среде |
+| `wayswitch/gui/app.py` | `Adw.Application`: окна, действия и горячие клавиши, значок, уведомления, обновления |
+| `wayswitch/gui/window.py` | главное окно: состояние, проверка, история; страница «не запущен» |
+| `wayswitch/gui/preferences.py` | «Параметры» (`AdwPreferencesDialog`): Исправление, Исключения, Система |
+| `wayswitch/gui/dialogs.py` | выбор клавиши, добавить приложение, жесты, журнал, «О WaySwitch», подтверждения |
+| `wayswitch/gui/onboarding.py` | первый запуск (`AdwCarousel`, графический doctor) |
+| `wayswitch/gui/texts.py` | чистые тексты и модели окна (статус, история, онбординг) — тестируются без GTK |
+| `wayswitch/gui/style.py` | акцент «терракота»/«шалфей» для libadwaita 1.5 и 1.6+ |
+| `wayswitch/gui/widgets.py` | строка «значение · − +», клавиша-надпись, работа в потоке |
+| `wayswitch/gui/gesture_keys.py` | человеческие имена клавиш и разбор нажатия в диалоге выбора |
+| `wayswitch/gui/tray.py` | `StatusNotifierItem` + dbusmenu через `Gio.DBus` |
+| `wayswitch/gui/autostart.py` | служба и автозапуск значка (`systemctl --user`, XDG autostart) |
 | `wayswitch/gui/daemon_proxy.py` | клиент D-Bus демона для GUI |
-| `extension/wayswitch@siberia.ru/` | расширение GNOME Shell (ESM, `shell-version` 46–50) |
-| `packaging/` | udev-правило, systemd-юнит, `.desktop`, `install.sh`/`uninstall.sh` |
+| `extension/wayswitch@siberia.ru/` | расширение GNOME Shell (ESM, `shell-version` 46–51); печатать может только демон |
+| `packaging/` | udev-правило, systemd-юнит, `.desktop`, значки, `install.sh`/`uninstall.sh`, `deb/` |
 | `tools/build_data.py` | сборка `wayswitch/data/*.gz` (словари, триграммы) из открытого корпуса |
+| `tools/build_deb.sh` | сборка `.deb` |
+| `tools/live_rules.py` | живой прогон правил без окон |
 | `tests/` | pytest; `tests/e2e_vm.py` — сквозной тест, гоняется руками в VM |
 
 ## Чистые модули
 
 `keycodes`, `config`, `keymap` (кроме `XkbKeymap`), `ngram`, `detector`,
-`buffer`, `gesture`, `actuator` (кроме `UInputTypist`), `controller` —
+`buffer`, `gesture`, `actuator` (кроме `UInputTypist`), `selection`,
+`updates`, `controller`, `a11y` (кроме `query_focus`), `gui/texts`,
+`gui/gesture_keys` —
 **никогда не импортируют `evdev`/`gi` на уровне модуля**. Это то, что
 позволяет разрабатывать и тестировать логику на Windows без живого GNOME.
 Любой новый импорт `evdev`/`gi.repository` в этих модулях должен быть

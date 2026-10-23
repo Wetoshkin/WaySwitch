@@ -1,28 +1,25 @@
-<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-        <filter id="filter0_d_shadow" x="40" y="48" width="176" height="168" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-            <feFlood flood-opacity="0" result="BackgroundImageFix"/>
-            <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
-            <feOffset dy="8"/>
-            <feGaussianBlur stdDeviation="8"/>
-            <feComposite in2="hardAlpha" operator="out"/>
-            <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0"/>
-            <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow"/>
-            <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow" result="shape"/>
-        </filter>
-    </defs>
-
-    <g filter="url(#filter0_d_shadow)">
-        <rect x="56" y="64" width="120" height="120" rx="32" transform="rotate(-15 116 124)" fill="#3584E4"/>
-        
-        <rect x="104" y="64" width="120" height="120" rx="32" transform="rotate(-15 164 124)" fill="#F6D32D"/>
-        
-        <path d="M150.168 64.884C141.83 62.6696 133.097 63.4611 125.342 67.1775L111.58 74.5608C101.673 79.8679 96.4646 91.3769 99.2555 102.332L103.846 120.338C106.637 131.293 116.621 138.771 127.773 138.492L144.355 138.078C155.507 137.799 165.194 129.621 167.836 118.629L172.181 100.55C174.823 89.5579 171.374 78.0006 163.863 70.691L150.168 64.884Z" fill="#1C71D8" fill-opacity="0.6"/>
-
-        <path d="M122 128H148V114L170 135L148 156V142H122V128Z" fill="#1C71D8"/>
-
-        <text x="82" y="142" fill="white" font-family="sans-serif" font-weight="bold" font-size="48" text-anchor="middle">W</text>
-
-        <text x="190" y="142" fill="white" font-family="sans-serif" font-weight="bold" font-size="48" text-anchor="middle">Ц</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- WaySwitch: клавиша, на которой живут Q и Й. Буквы нарисованы линиями,
+       а не текстом — значок не зависит от установленных шрифтов. -->
+  <rect x="12" y="22" width="104" height="96" rx="24" fill="#8f4a20"/>
+  <rect x="12" y="12" width="104" height="96" rx="24" fill="#c67139"/>
+  <rect x="21" y="17" width="86" height="78" rx="17" fill="#f5ead8"/>
+  <rect x="21" y="17" width="86" height="6" rx="3" fill="#ffffff" opacity=".45"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Q -->
+    <g stroke="#7a8a5e" stroke-width="5">
+      <ellipse cx="40" cy="42" rx="8.5" ry="10.5"/>
+      <path d="M44 48l6.5 7.5"/>
     </g>
+    <!-- Й -->
+    <g stroke="#c67139" stroke-width="5.5">
+      <path d="M74 68v21M92 68v21M74 89l18-21"/>
+      <path d="M78 60q5 4.5 10 0"/>
+    </g>
+    <!-- стрелка Q → Й -->
+    <g stroke="#201e1d" stroke-width="5">
+      <path d="M56 40c14 0 22 4 23 12"/>
+      <path d="M73 47l6 7 6-7"/>
+    </g>
+  </g>
 </svg>
