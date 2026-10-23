@@ -118,6 +118,7 @@ class FakeBackend:
         self.set_calls: list[int] = []
         self.fail_switch = fail_switch
         self._callbacks = []
+        self.layout_trusted = True  # False = бэкенд врёт про раскладку (IBus)
 
     def layouts(self):
         return list(self._layouts)
@@ -138,6 +139,9 @@ class FakeBackend:
 
     def on_change(self, cb):
         self._callbacks.append(cb)
+
+    def verify_layout(self) -> bool:
+        return self.layout_trusted
 
     def emit_external_change(self, index: int):
         self.current_index = index

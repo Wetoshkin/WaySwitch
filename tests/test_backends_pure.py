@@ -1,5 +1,10 @@
 from wayswitch import keycodes as kc
-from wayswitch.backends.gnome_common import engine_name_for, index_of_engine, parse_gnome_binding
+from wayswitch.backends.gnome_common import (
+    engine_name_for,
+    index_of_engine,
+    index_of_mru,
+    parse_gnome_binding,
+)
 from wayswitch.backends.hotkey import HotkeyBackend
 from wayswitch.keymap import LayoutSpec
 
@@ -52,3 +57,15 @@ def test_hotkey_observe_physical_both_directions():
     backend.observe_physical(kc.KEY_LEFTMETA, 1)
     backend.observe_physical(kc.KEY_SPACE, 1)
     assert backend.current() == 0
+
+
+def test_index_of_mru_points_to_current_layout():
+    specs = [LayoutSpec("us"), LayoutSpec("ru")]
+    assert index_of_mru([("xkb", "us"), ("xkb", "ru")], specs) == 0
+    assert index_of_mru([("xkb", "ru"), ("xkb", "us")], specs) == 1
+    # Вариант раскладки — тот же источник, сопоставляем по паре layout+variant.
+    specs_v = [LayoutSpec("us", "dvorak"), LayoutSpec("ru")]
+    assert index_of_mru([("xkb", "ru"), ("xkb", "us+dvorak")], specs_v) == 1
+    assert index_of_mru([], specs) is None
+    assert index_of_mru([("ibus", "mozc")], specs) is None
+    assert index_of_mru([("xkb", "de")], specs) is None

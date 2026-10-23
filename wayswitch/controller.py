@@ -414,6 +414,13 @@ class Controller:
                    *, manual: bool, reason: str, group_before: int,
                    whole_phrase: bool = False, switch: bool = True,
                    trigger: tuple[int, int] | None = None) -> bool:
+        # Бэкенд может ошибаться насчёт текущей раскладки (IBus на GNOME 46+).
+        # Проверяем ДО плана: после Backspace-ов откатывать уже нечего.
+        verify = getattr(self.backend, "verify_layout", None)
+        if verify is not None and not verify():
+            log.error("исправление отменено: бэкенд %s ошибается насчёт раскладки "
+                      "(включите расширение GNOME Shell)", getattr(self.backend, "name", "?"))
+            return False
         plan = plan_fix(len(keys) + tail, text, target_group, self.keymap, self.buffer.caps,
                         switch=switch)
         if plan is None:

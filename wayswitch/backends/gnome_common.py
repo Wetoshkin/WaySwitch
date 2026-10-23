@@ -69,6 +69,33 @@ def read_xkb_options() -> list[str]:
     return list(_settings(SCHEMA_SOURCES).get_strv("xkb-options"))
 
 
+def index_of_mru(raw: list[tuple[str, str]], specs: list[LayoutSpec]) -> int | None:
+    """Индекс текущей раскладки по mru-sources (первый элемент — текущий).
+
+    Чистая часть read_current_index: GNOME Shell обновляет mru-sources при
+    смене источника ввода, поэтому первый элемент — то, что реально видит
+    компоузитор.
+    """
+    if not raw:
+        return None
+    kind, ident = raw[0]
+    if kind != "xkb":
+        return None
+    try:
+        spec = LayoutSpec.parse(ident)
+    except BackendError:
+        return None
+    for i, s in enumerate(specs):
+        if (s.layout, s.variant) == (spec.layout, spec.variant):
+            return i
+    return None
+
+
+def read_current_index(specs: list[LayoutSpec]) -> int | None:
+    """Текущая раскладка компоузитора (для сверки с бэкендом IBus)."""
+    return index_of_mru(_settings(SCHEMA_SOURCES).get_value("mru-sources").unpack(), specs)
+
+
 def read_switch_bindings() -> list[list[int]]:
     """Прямой и обратный хоткей смены раскладки — оба нужны для observe_physical.
 

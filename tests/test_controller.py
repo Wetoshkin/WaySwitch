@@ -92,6 +92,16 @@ def test_dictionary_word_kept(env):
     assert env["typist"].events == [] and env["backend"].set_calls == []
 
 
+def test_fix_skipped_when_backend_layout_is_untrusted(env):
+    # IBus на GNOME 46+ меняет свой движок, а раскладка компоузитора остаётся
+    # прежней: перепечатка легла бы в старую раскладку, поэтому не трогаем текст.
+    env["backend"].layout_trusted = False
+    type_text(env, "ghbdtn ")
+    assert env["typist"].events == [] and env["backend"].set_calls == []
+    assert env["corrected"] == []
+    assert env["ctrl"].status()["corrections_total"] == 0
+
+
 def test_manual_double_shift_without_space(env):
     type_text(env, "ghbdtn")
     double_shift(env)
