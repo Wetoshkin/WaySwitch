@@ -303,6 +303,11 @@ It requires the GTK accessibility bridge, which the installer enables:
 gsettings set org.gnome.desktop.interface toolkit-accessibility false   # to undo
 ```
 
+Other automatic rules: a punctuation mark typed as a letter of the other layout
+(`пирогб` → `пирог,`), glued particles (`чтото` → `что-то`, `кембы` → `кем бы`)
+and glued words spotted by case (`сонатуБаха` → `сонату Баха`; a word starting
+with a capital such as `WaySwitch` is left alone).
+
 ### Password fields and the sound
 
 Password fields are detected through at-spi (role `password text`) and never

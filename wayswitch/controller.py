@@ -332,6 +332,13 @@ class Controller:
                                reason="punct", group_before=current, switch=False,
                                trigger=(device_id, code))
             return
+        split = self.detector.split_words_fix(keys, current) \
+            if self.config.general.split_words_fix else None
+        if split:
+            self._schedule_fix(keys, 1, current, split + " ", manual=False,
+                               reason="split", group_before=current, switch=False,
+                               trigger=(device_id, code))
+            return
         particles = self.detector.particles_fix(keys, current) \
             if self.config.general.particles_fix else None
         if particles:

@@ -12,7 +12,8 @@ from wayswitch.controller import Controller
 from wayswitch.detector import Detector, LanguageModel
 
 RU_WORDS = [("пирог", 900.0), ("гриб", 800.0), ("что", 1000.0), ("кем", 700.0),
-            ("привет", 500.0), ("мир", 400.0)]
+            ("привет", 500.0), ("мир", 400.0), ("сонату", 300.0), ("баха", 300.0),
+            ("исполнили", 200.0)]
 EN_WORDS = [("hello", 900.0), ("world", 500.0)]
 
 
@@ -33,6 +34,21 @@ def make_env(config: Config | None = None):
     backend, typist, clock = FakeBackend(current=RU), RecordingTypist(), Clock()
     ctrl = Controller(config or Config(), km, det, backend, typist, clock=clock)
     return dict(km=km, det=det, ctrl=ctrl, backend=backend, typist=typist, clock=clock)
+
+
+def keys_with_shift(km, text, group):
+    """Клавиши текста, где заглавные буквы нажаты с Shift.
+
+    В тестовой таблице клавиш нет заглавных символов, поэтому верхний регистр
+    ставим вручную — как это сделал бы человек.
+    """
+    from wayswitch.buffer import KeyPress
+
+    keys = []
+    for ch in text:
+        base = keys_for_text(km, ch.lower(), group)[0]
+        keys.append(KeyPress(base.code, shift=ch.isupper(), caps=False))
+    return keys
 
 
 def type_keys(env, keys):
@@ -120,6 +136,54 @@ def test_particles_applied_in_controller():
     env["ctrl"].on_key(kc.KEY_SPACE, 0, 1)
     assert typed_chars(env) == "что-то "
     assert backspaces(env) == 6  # «чтото» + пробел
+    assert env["backend"].set_calls == []
+
+
+# --- слипшиеся слова --------------------------------------------------------
+
+def test_split_words_on_case_boundary():
+    env = make_env()
+    keys = keys_with_shift(env["km"], "сонатуБаха", RU)
+    assert env["det"].split_words_fix(keys, RU) == "сонату Баха"
+
+
+def test_split_words_skips_camel_case_brand():
+    """«WaySwitch» — не ошибка: слово начинается с заглавной."""
+    env = make_env()
+    keys = keys_for_text(env["km"], "WaySwitch", US)
+    assert env["det"].split_words_fix(keys, US) is None
+
+
+def test_split_words_skips_without_boundary():
+    env = make_env()
+    keys = keys_for_text(env["km"], "приветмир", RU)
+    assert env["det"].split_words_fix(keys, RU) is None
+
+
+def test_split_words_skips_known_word():
+    env = make_env()
+    keys = keys_for_text(env["km"], "привет", RU)
+    assert env["det"].split_words_fix(keys, RU) is None
+
+
+def test_split_words_requires_both_parts_in_dictionary():
+    env = make_env()
+    keys = keys_with_shift(env["km"], "абракадабруБаха", RU)
+    assert env["det"].split_words_fix(keys, RU) is None
+
+
+def test_split_words_applied_in_controller():
+    env = make_env()
+    # Shift нажимаем по-настоящему: буфер берёт регистр из зажатых клавиш,
+    # а не из отметки в самой букве.
+    type_keys(env, keys_for_text(env["km"], "сонату", RU))
+    env["ctrl"].on_key(kc.KEY_LEFTSHIFT, 1, 1)
+    type_keys(env, keys_for_text(env["km"], "б", RU))
+    env["ctrl"].on_key(kc.KEY_LEFTSHIFT, 0, 1)
+    type_keys(env, keys_for_text(env["km"], "аха", RU))
+    env["ctrl"].on_key(kc.KEY_SPACE, 1, 1)
+    env["ctrl"].on_key(kc.KEY_SPACE, 0, 1)
+    assert typed_chars(env) == "сонату Баха "
     assert env["backend"].set_calls == []
 
 

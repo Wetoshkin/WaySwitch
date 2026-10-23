@@ -218,6 +218,10 @@ def main(argv: list[str] | None = None) -> int:
                                           subtitle="«пирогб» → «пирог,», «рубю» → «руб.»")
             self.sw_punct.set_active(self.cfg.general.punct_fix)
             gr.add(self.sw_punct)
+            self.sw_split = Adw.SwitchRow(title="Слипшиеся слова",
+                                          subtitle="«сонатуБаха» → «сонату Баха» (по регистру)")
+            self.sw_split.set_active(self.cfg.general.split_words_fix)
+            gr.add(self.sw_split)
             self.sw_particles = Adw.SwitchRow(title="Слипшиеся частицы",
                                               subtitle="«чтото» → «что-то», «кембы» → «кем бы»")
             self.sw_particles.set_active(self.cfg.general.particles_fix)
@@ -330,6 +334,7 @@ def main(argv: list[str] | None = None) -> int:
             c.general.undo_window_sec = float(self.sp_undo.get_value())
             c.general.punct_fix = self.sw_punct.get_active()
             c.general.particles_fix = self.sw_particles.get_active()
+            c.general.split_words_fix = self.sw_split.get_active()
             c.general.skip_password_fields = self.sw_password.get_active()
             c.general.edit_guard_sec = float(self.sp_guard.get_value())
             c.general.fix_on_tab = self.sw_tab.get_active()

@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import gzip
 import math
+from bisect import bisect_left
 from collections.abc import Iterable
 from dataclasses import dataclass
+from functools import cached_property
 from importlib import resources
 from pathlib import Path
 
@@ -79,6 +81,35 @@ class LanguageModel:
 
     def is_word(self, word: str) -> bool:
         return word.lower() in self.words
+
+    @cached_property
+    def _sorted_words(self) -> list[str]:
+        """Слова в алфавитном порядке — для поиска по префиксу (bisect)."""
+        return sorted(self.words)
+
+    def has_prefix(self, prefix: str) -> bool:
+        """Есть ли в словаре слово, начинающееся с prefix.
+
+        Нужно для падежных форм: «сонату» в словаре нет, а «соната» есть.
+        """
+        prefix = prefix.lower()
+        if not prefix:
+            return False
+        i = bisect_left(self._sorted_words, prefix)
+        return i < len(self._sorted_words) and self._sorted_words[i].startswith(prefix)
+
+    def looks_like_word(self, word: str) -> bool:
+        """Слово или его форма: точное совпадение либо основа в словаре.
+
+        Отбрасываем до двух последних букв — так ловятся падежи и склонения
+        («сонату» → «сонат…» → «соната»), но не абракадабра.
+        """
+        if self.is_word(word):
+            return True
+        for cut in (1, 2):
+            if len(word) - cut >= 3 and self.has_prefix(word[:-cut]):
+                return True
+        return False
 
     def score(self, text: str) -> float:
         return ngram.score(self.model, text)
@@ -222,6 +253,40 @@ class Detector:
             if len(stem) >= 2 and model.is_word(stem):
                 return f"{stem}{sep}{particle}"
         return None
+
+    def split_words_fix(self, keys, current_group: int) -> str | None:
+        """Слипшиеся слова: «сонатуБаха» → «сонату Баха».
+
+        Признак — строчная буква, за которой сразу идёт заглавная. Правило
+        срабатывает только если обе половины есть в словаре, а целое слово —
+        нет, и только когда слово начинается со строчной: иначе «WaySwitch»
+        превратился бы в «Way Switch».
+        """
+        lang = self.lang_of_group(current_group)
+        if lang is None or lang not in self.models:
+            return None
+        letters = LETTERS[lang]
+        model = self.models[lang]
+        text = self.decode(keys, current_group)
+        if len(text) < 6 or not text[0].islower():
+            return None
+        # LETTERS хранит строчные буквы, а регистр здесь как раз важен.
+        if any(c.lower() not in letters for c in text):
+            return None
+        if model.is_word(text.lower()):
+            return None
+        # Ровно одна граница «строчная → заглавная».
+        cuts = [i for i in range(1, len(text) - 1)
+                if text[i - 1].islower() and text[i].isupper()]
+        if len(cuts) != 1:
+            return None
+        cut = cuts[0]
+        left, right = text[:cut], text[cut:]
+        if len(left) < 3 or len(right) < 3:
+            return None
+        if not model.looks_like_word(left.lower()) or not model.looks_like_word(right.lower()):
+            return None
+        return f"{left} {right}"
 
     def decide(self, keys, current_group: int, other_group: int,
                context: tuple[str | None, str | None] = (None, None)) -> Decision:
