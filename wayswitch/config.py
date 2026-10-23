@@ -16,6 +16,9 @@ from wayswitch.keycodes import KEY_NAMES
 SENSITIVITY_NAMES = ("conservative", "normal", "aggressive")
 MANUAL_MODES = ("double_shift", "pause_key", "none")
 BACKEND_PREFS = ("auto", "shell", "ibus", "hotkey")
+# Чем печатать символы при shell-бэкенде: клавишами расширения (keysym-ы, не
+# зависят от раскладки) или сканерами через uinput (как настоящая клавиатура).
+SHELL_TYPING = ("extension", "uinput")
 
 
 class ConfigError(ValueError):
@@ -45,6 +48,7 @@ class Typing:
 @dataclass
 class Backend:
     prefer: str = "auto"
+    shell_typing: str = "extension"
 
 
 @dataclass
@@ -111,6 +115,8 @@ def _validate(cfg: Config) -> None:
         raise ConfigError("key_delay_ms: 0..100")
     if b.prefer not in BACKEND_PREFS:
         raise ConfigError(f"prefer: допустимо {BACKEND_PREFS}")
+    if b.shell_typing not in SHELL_TYPING:
+        raise ConfigError(f"shell_typing: допустимо {SHELL_TYPING}")
 
 
 def from_dict(data: dict) -> Config:

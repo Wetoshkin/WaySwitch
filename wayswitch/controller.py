@@ -453,7 +453,9 @@ class Controller:
             self._pending_gesture = None
             self._emit_status()
             return False
-        log.info("%s: %r → %r за %.0f мс", reason, original, text.rstrip(),
+        # text печатаем через %r как есть: пробел в конце — часть исправления,
+        # и по логу видно, ушёл ли он (rstrip() это скрывал).
+        log.info("%s: %r → %r за %.0f мс", reason, original, text,
                  (self.clock() - started) * 1000)
         new_keys = [KeyPress(code, shift) for code, shift in
                     keys_for_typing(text, target_group, self.keymap, False) or []]

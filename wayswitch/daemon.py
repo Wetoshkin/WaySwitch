@@ -33,7 +33,14 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     backend = choose_backend(config.backend.prefer, typist, config.typing.settle_ms)
     log.info("бэкенд раскладки: %s, источники: %s", backend.name,
              [s.xkb_id for s in backend.layouts()])
-    if backend.name == "shell":
+    if backend.name == "shell" and config.backend.shell_typing == "uinput":
+        # Печать сканкодами через uinput, хотя раскладку переключает расширение:
+        # обход того, что виртуальное устройство Mutter теряет последнюю клавишу
+        # серии (пробел после исправленного слова). Сканкоды требуют уже
+        # применённой раскладки — SetLayout синхронен внутри Shell.
+        log.info("печать символов: uinput (shell_typing=uinput)")
+        typist_for_controller = typist
+    elif backend.name == "shell":
         from wayswitch.backends.gnome_shell import ShellTypist
 
         typist_for_controller = ShellTypist(backend)

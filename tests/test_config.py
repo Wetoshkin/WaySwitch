@@ -11,6 +11,7 @@ def test_defaults_when_file_missing(tmp_path: Path):
     assert cfg.general.sensitivity == "normal"
     assert cfg.typing.settle_ms == 30
     assert cfg.backend.prefer == "auto"
+    assert cfg.backend.shell_typing == "extension"
 
 
 def test_round_trip(tmp_path: Path):
@@ -55,3 +56,13 @@ def test_exceptions_file(tmp_path: Path):
     assert cfgmod.load_exceptions(p) == {"ghbdtn", "hello"}
     cfgmod.remove_exception("HELLO", p)
     assert cfgmod.load_exceptions(p) == {"ghbdtn"}
+
+
+def test_shell_typing_validation(tmp_path: Path):
+    p = tmp_path / "c.toml"
+    p.write_text('[backend]\nshell_typing = "uinput"\n', encoding="utf-8")
+    assert cfgmod.load(p).backend.shell_typing == "uinput"
+
+    p.write_text('[backend]\nshell_typing = "magic"\n', encoding="utf-8")
+    with pytest.raises(cfgmod.ConfigError):
+        cfgmod.load(p)
