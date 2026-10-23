@@ -1,48 +1,60 @@
-"""Раскладка экранной клавиатуры для выбора клавиши жеста.
+"""Клавиша жеста «Нажатие клавиши»: человеческие имена и разбор нажатия в
+диалоге «Клавиша исправления».
 
-Только клавиши из ``keycodes.GESTURE_KEY_NAMES``: буквы и цифры жестом быть не
-могут — одиночный тап буквы это и есть набранная буква, жест срабатывал бы на
-каждом слове. Тест проверяет, что каждая кнопка здесь входит в этот список.
+Годятся только клавиши из ``keycodes.GESTURE_KEY_NAMES``: буквы и цифры жестом
+быть не могут — одиночное нажатие буквы это и есть набранная буква, жест
+срабатывал бы на каждом слове.
 """
 
 from __future__ import annotations
 
-from wayswitch.keycodes import GESTURE_KEY_NAMES
+from wayswitch.keycodes import GESTURE_KEY_NAMES, KEY_BACKSPACE, KEY_ESC, key_name
 
-# (подпись на кнопке, имя клавиши в конфиге)
-ROWS: list[list[tuple[str, str]]] = [
-    [("Ctrl", "leftctrl"), ("Ctrl", "rightctrl"), ("Shift", "leftshift"),
-     ("Shift", "rightshift"), ("Alt", "leftalt"), ("Alt", "rightalt")],
-    [("Super", "leftmeta"), ("Super", "rightmeta"), ("CapsLock", "capslock"),
-     ("NumLock", "numlock"), ("ScrollLock", "scrolllock"), ("Pause", "pause")],
-    [("F1", "f1"), ("F2", "f2"), ("F3", "f3"), ("F4", "f4"), ("F5", "f5"), ("F6", "f6")],
-    [("F7", "f7"), ("F8", "f8"), ("F9", "f9"), ("F10", "f10"), ("F11", "f11"), ("F12", "f12")],
-    [("Insert", "insert"), ("Menu", "menu"), ("Esc", "escape")],
-]
-
-# Левая и правая клавиша называются одинаково на кнопке, поэтому поясняем.
-HINTS = {
-    "leftctrl": "левый", "rightctrl": "правый",
-    "leftshift": "левый", "rightshift": "правый",
-    "leftalt": "левый", "rightalt": "правый",
-    "leftmeta": "левый", "rightmeta": "правый",
+_SIDES = {
+    "leftctrl": "Левый Ctrl", "rightctrl": "Правый Ctrl",
+    "leftshift": "Левый Shift", "rightshift": "Правый Shift",
+    "leftalt": "Левый Alt", "rightalt": "Правый Alt",
+    "leftmeta": "Левый Super", "rightmeta": "Правый Super",
+}
+_PLAIN = {
+    "capslock": "CapsLock", "numlock": "NumLock", "scrolllock": "ScrollLock",
+    "pause": "Pause", "insert": "Insert", "menu": "Menu", "compose": "Compose",
+    "escape": "Esc", "esc": "Esc", "printscreen": "PrintScreen",
 }
 
+# Wayland/X: аппаратный код клавиши в GTK = код evdev + 8.
+GDK_KEYCODE_OFFSET = 8
 
-def all_key_names() -> list[str]:
-    return [name for row in ROWS for _label, name in row]
 
-
-def button_label(name: str) -> str:
-    """Подпись кнопки с уточнением стороны для парных клавиш."""
-    hint = HINTS.get(name)
-    if not hint:
-        return name
-    base = {"leftctrl": "Ctrl", "rightctrl": "Ctrl", "leftshift": "Shift",
-            "rightshift": "Shift", "leftalt": "Alt", "rightalt": "Alt",
-            "leftmeta": "Super", "rightmeta": "Super"}[name]
-    return f"{base} ({hint})"
+def human_name(name: str) -> str:
+    """leftctrl → «Левый Ctrl», f7 → «F7»."""
+    name = name.lower()
+    if name in _SIDES:
+        return _SIDES[name]
+    if name in _PLAIN:
+        return _PLAIN[name]
+    if name.startswith("f") and name[1:].isdigit():
+        return name.upper()
+    return name
 
 
 def is_allowed(name: str) -> bool:
     return name.lower() in GESTURE_KEY_NAMES
+
+
+def capture(evdev_code: int) -> tuple[str, str]:
+    """Что значит нажатие в диалоге выбора клавиши.
+
+    ("cancel", "") — Esc, закрыть без изменений;
+    ("clear", "") — Backspace, жест «Нажатие клавиши» выключается;
+    ("key", имя) — подходящая клавиша;
+    ("reject", подсказка) — буква, цифра или иная неподходящая клавиша.
+    """
+    if evdev_code == KEY_ESC:
+        return "cancel", ""
+    if evdev_code == KEY_BACKSPACE:
+        return "clear", ""
+    name = key_name(evdev_code)
+    if is_allowed(name):
+        return "key", name
+    return "reject", "Эта клавиша не подойдёт: её нажатие печатает текст"
