@@ -116,7 +116,7 @@ systemctl --user enable --now wayswitch
 every login. To check it's running: `wayswitch status` or `systemctl
 --user status wayswitch` (look for `Active: active (running)`).
 
-### From source / Fedora (advanced)
+### From source / Fedora / Arch (advanced)
 
 ```bash
 git clone https://github.com/Wetoshkin/WaySwitch.git wayswitch
@@ -124,12 +124,12 @@ cd wayswitch
 sudo packaging/install.sh
 ```
 
-Installs the system packages, copies the code to
+Installs the system packages (`apt`, `dnf` or `pacman`), copies the code to
 `/usr/local/lib/wayswitch`, and installs the udev rule, the systemd user
 unit and the GNOME Shell extension into the profile of the user who ran
 `sudo` (run it as your regular user via `sudo`, not as root). Then
 follow steps 4–6 above. On Debian/Ubuntu prefer the `.deb` package; this
-path is for Fedora and building from source.
+path is for Fedora, Arch and building from source.
 
 ### Uninstall
 
@@ -297,7 +297,7 @@ recall, 0.07% false-positive rate.
 
 - GNOME 46–50 on Wayland.
 - Exactly two input layouts: one `ru*`, one Latin.
-- Ubuntu 24.04+ or Fedora 40+.
+- Ubuntu 24.04+, Fedora 40+ or Arch/CachyOS.
 - Python 3.11+.
 
 ## Status and limitations

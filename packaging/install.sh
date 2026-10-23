@@ -29,6 +29,11 @@ if command -v apt-get >/dev/null; then
         gir1.2-ibus-1.0 libxkbcommon0
 elif command -v dnf >/dev/null; then
     dnf install -y python3 python3-evdev python3-gobject gtk4 libadwaita ibus libxkbcommon
+elif command -v pacman >/dev/null; then
+    # Arch/CachyOS: пакеты те же, имена другие; --needed не переустанавливает
+    # уже стоящее (gtk4 и python-gobject обычно есть).
+    pacman -S --needed --noconfirm python python-evdev python-gobject gtk4 libadwaita \
+        ibus libxkbcommon
 else
     echo "Неизвестный пакетный менеджер: поставьте python3-evdev, PyGObject, GTK4, libadwaita, IBus вручную."
 fi
@@ -54,7 +59,12 @@ echo "== udev и uinput"
 install -m 644 "$SRC/packaging/60-wayswitch.rules" /etc/udev/rules.d/60-wayswitch.rules
 mkdir -p /etc/modules-load.d
 echo uinput > /etc/modules-load.d/wayswitch.conf
-modprobe uinput || true
+if ! modprobe uinput 2>/dev/null; then
+    # Модули работающего ядра могли исчезнуть после обновления: до перезагрузки
+    # /dev/uinput отдаёт ENODEV, и печатать демону нечем.
+    echo "   ВНИМАНИЕ: модуль uinput сейчас не загрузился (обновлялось ядро?) —"
+    echo "   он подхватится при следующей загрузке; без него демон не печатает."
+fi
 udevadm control --reload-rules || true
 udevadm trigger || true
 
