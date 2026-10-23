@@ -25,16 +25,53 @@ from wayswitch.keymap import LayoutSpec
 SERVICE = "org.kde.keyboard"
 OBJECT = "/Layouts"
 INTERFACE = "org.kde.KeyboardLayouts"
-KXKBRC = Path.home() / ".config/kxkb" / "kxkbrc"
+def kxkbrc_path() -> Path:
+    import os
+
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(base) / "kxkbrc"
 
 
-def parse_layouts_list(rows: list[tuple[str, str, str]]) -> list[LayoutSpec]:
+def parse_layouts_list(rows: list[tuple[str, str, str]],
+                       variants: list[str] | None = None) -> list[LayoutSpec]:
     """a(sss) от KWin → LayoutSpec в порядке индексов KWin.
 
-    Пустые короткие имена пропускаем как есть (индекс сохраняется): KWin
-    нумерует раскладки подряд, и перепутать индекс нельзя.
+    KWin отдаёт только короткое имя раскладки («ru»), без варианта: «ru
+    (phonetic)» и «us (dvorak)» превращались в обычные ru/us, и uinput
+    печатал сканкоды по чужой карте. Варианты берём из kxkbrc (VariantList) —
+    если их число совпадает с числом раскладок.
     """
-    return [LayoutSpec.parse(short) for short, _display, _long in rows]
+    specs = [LayoutSpec.parse(short) for short, _display, _long in rows]
+    if variants is not None and len(variants) == len(specs):
+        specs = [LayoutSpec(spec.layout, variant.strip()) if variant.strip() else spec
+                 for spec, variant in zip(specs, variants, strict=True)]
+    return specs
+
+
+def _kxkbrc_value(key: str, path: Path | None = None) -> str | None:
+    target = kxkbrc_path() if path is None else path
+    try:
+        text = target.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    section = ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1].strip()
+            continue
+        name, sep, value = line.partition("=")
+        if section == "Layout" and sep and name.strip() == key:
+            return value
+    return None
+
+
+def read_kxkbrc_variants(path: Path | None = None) -> list[str] | None:
+    """VariantList из kxkbrc: «,phonetic» → ["", "phonetic"]; нет ключа — None."""
+    value = _kxkbrc_value("VariantList", path)
+    if value is None:
+        return None
+    return value.split(",")
 
 
 def read_kxkbrc_options(path: Path | None = None) -> list[str]:
@@ -43,22 +80,10 @@ def read_kxkbrc_options(path: Path | None = None) -> list[str]:
     В KDE их нет в gsettings, а keymap их учитывает (compose, переключение
     групп). Файла нет — опций нет.
     """
-    target = KXKBRC if path is None else path
-    try:
-        text = target.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    value = _kxkbrc_value("Options", path)
+    if not value:
         return []
-    section = ""
-    for raw in text.splitlines():
-        line = raw.strip()
-        if line.startswith("[") and line.endswith("]"):
-            section = line[1:-1].strip()
-            continue
-        if section != "Layout" or not line.startswith("Options"):
-            continue
-        _key, _sep, value = line.partition("=")
-        return [part.strip() for part in value.split(",") if part.strip()]
-    return []
+    return [part.strip() for part in value.split(",") if part.strip()]
 
 
 class KdePlasmaBackend(LayoutBackend):
@@ -74,7 +99,7 @@ class KdePlasmaBackend(LayoutBackend):
             (rows,) = self._call_impl("getLayoutsList", None, "(a(sss))")
         except Exception as e:  # noqa: BLE001 — нет шины/службы: бэкенд недоступен
             raise BackendError(f"KWin не отдаёт org.kde.keyboard: {e}") from None
-        self._specs = parse_layouts_list(rows)
+        self._specs = parse_layouts_list(rows, read_kxkbrc_variants())
         if len(self._specs) < 2:
             raise BackendError("в KDE настроена одна раскладка")
         self._callbacks: list[Callable[[int, bool], None]] = []

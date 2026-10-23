@@ -48,8 +48,17 @@ def parse_gnome_binding(binding: str) -> list[int]:
 
 
 def _settings(schema: str):
+    """Gio.Settings со схемой — только если схема установлена.
+
+    Gio.Settings.new() с неизвестной схемой не бросает исключение, а убивает
+    процесс (g_error): в KDE или Sway без схем GNOME демон падал бы в цикле
+    перезапусков вместо понятной ошибки.
+    """
     from gi.repository import Gio
 
+    source = Gio.SettingsSchemaSource.get_default()
+    if source is None or source.lookup(schema, True) is None:
+        raise BackendError(f"нет схемы настроек {schema} (это не GNOME?)")
     return Gio.Settings.new(schema)
 
 

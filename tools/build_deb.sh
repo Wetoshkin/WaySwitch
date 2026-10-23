@@ -76,6 +76,9 @@ cp "$ROOT/packaging/ru.siberia.WaySwitch.Settings.desktop" \
    "$APPS_DIR/ru.siberia.WaySwitch.Settings.desktop"
 cp "$ROOT/packaging/icons/ru.siberia.WaySwitch.svg" \
    "$ICONS_DIR/ru.siberia.WaySwitch.svg"
+SYMBOLIC_DIR="$STAGE/usr/share/icons/hicolor/symbolic/apps"
+mkdir -p "$SYMBOLIC_DIR"
+cp "$ROOT"/packaging/icons/ru.siberia.WaySwitch-*symbolic.svg "$SYMBOLIC_DIR/"
 
 # --- документация и лицензии ----------------------------------------------
 DOC_DIR="$STAGE/usr/share/doc/wayswitch"

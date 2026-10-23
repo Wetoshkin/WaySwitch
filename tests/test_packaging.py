@@ -110,12 +110,24 @@ def test_icon_is_scalable_svg():
     text = (ROOT / "icons" / "ru.siberia.WaySwitch.svg").read_text(encoding="utf-8")
     assert text.lstrip().startswith("<svg")
     assert 'viewBox="0 0 128 128"' in text
-    assert "<text" in text and "А" in text and "A" in text
+    # Буквы — контурами: текст в SVG без нужного шрифта разваливается.
+    assert "<text" not in text
+
+
+def test_symbolic_tray_icons_use_fill_only():
+    """GTK и AppIndicator перекрашивают symbolic-значки по fill; обводка
+    осталась бы тёмной на тёмной панели."""
+    for name in ("ru.siberia.WaySwitch-symbolic.svg",
+                 "ru.siberia.WaySwitch-paused-symbolic.svg"):
+        text = (ROOT / "icons" / name).read_text(encoding="utf-8")
+        assert 'viewBox="0 0 16 16"' in text
+        assert "stroke" not in text and "<text" not in text
 
 
 def test_installer_installs_icon_and_removes_old_entry():
     text = (ROOT / "install.sh").read_text(encoding="utf-8")
-    assert "share/icons/hicolor/scalable/apps" in text
+    assert "share/icons/hicolor" in text and "scalable/apps" in text
+    assert "symbolic/apps" in text
     assert "ru.siberia.WaySwitch.svg" in text
     # старое имя ярлыка (до 2.0) не должно оставаться вторым пунктом в меню
     assert "rm -f /usr/local/share/applications/ru.siberia.WaySwitch.desktop" in text
@@ -126,3 +138,18 @@ def test_autostart_uses_same_name_as_desktop_entry():
 
     assert autostart.DESKTOP_NAME == "ru.siberia.WaySwitch.Settings.desktop"
     assert "Icon=ru.siberia.WaySwitch" in autostart.tray_desktop_text()
+
+
+def test_versions_agree():
+    """Версия одна на всех: pyproject, пакет, расширение (version-name)."""
+    import json
+    import re
+
+    from wayswitch import __version__
+
+    repo = ROOT.parent
+    pyproject = (repo / "pyproject.toml").read_text(encoding="utf-8")
+    assert re.search(r'^version = "([^"]+)"', pyproject, re.M).group(1) == __version__
+    meta = json.loads((repo / "extension" / "wayswitch@siberia.ru" / "metadata.json")
+                      .read_text(encoding="utf-8"))
+    assert meta["version-name"] == __version__

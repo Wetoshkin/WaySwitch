@@ -63,6 +63,9 @@ class Gesture:
     # последнее слово (по умолчанию левый Ctrl, как в Punto Switcher).
     tap_key: str = "leftctrl"
     pause_hotkey: str = ""
+    # Клавиша «Исправить выделенное» (одиночное нажатие); пусто — только меню
+    # значка и команда `wayswitch fix-selection` на системное сочетание.
+    selection_key: str = ""
 
 
 @dataclass
@@ -192,6 +195,11 @@ def _validate(cfg: Config) -> None:
         raise ConfigError(
             f"tap_key: недопустимая клавиша жеста {ge.tap_key!r}, "
             f"можно: leftctrl, rightctrl, scrolllock, pause, f1…f12 и подобные")
+    if ge.selection_key:
+        if ge.selection_key.lower() not in GESTURE_KEY_NAMES:
+            raise ConfigError(f"selection_key: недопустимая клавиша {ge.selection_key!r}")
+        if ge.manual == "tap_key" and ge.selection_key.lower() == ge.tap_key.lower():
+            raise ConfigError("selection_key совпадает с клавишей жеста tap_key")
     if ge.pause_hotkey and ge.pause_hotkey.lower() not in KEY_NAMES:
         raise ConfigError(f"pause_hotkey: неизвестная клавиша {ge.pause_hotkey!r}")
     if not 0 <= t.settle_ms <= 2000:

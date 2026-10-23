@@ -4,5 +4,6 @@
   "description": "Состояние раскладки и печать символов для демона WaySwitch по D-Bus.",
   "shell-version": ["46", "47", "48", "49", "50", "51"],
   "url": "https://github.com/Wetoshkin/WaySwitch",
-  "version": 1
+  "version": 2,
+  "version-name": "2.0.0a2"
 }

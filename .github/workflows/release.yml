@@ -9,8 +9,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Индекс apt
-        run: sudo apt-get update
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Тесты перед релизом
+        run: |
+          sudo apt-get update && sudo apt-get install -y libxkbcommon0 xkb-data
+          pip install pytest evdev
+          python -m pytest -q
       - name: Сборка .deb
         # Тег обязан совпадать с версией в pyproject.toml (v2.0.0a1 ↔ 2.0.0a1),
         # иначе релиз получит чужой номер версии в имени пакета.
@@ -23,6 +28,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/*.deb \
+          # a/b/rc в теге — предрелиз: проверка обновлений предлагает его
+          # только тем, у кого уже стоит предрелиз.
+          pre=""
+          case "$GITHUB_REF_NAME" in *a[0-9]*|*b[0-9]*|*rc[0-9]*) pre="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/*.deb $pre \
             --generate-notes \
             --title "WaySwitch $GITHUB_REF_NAME"

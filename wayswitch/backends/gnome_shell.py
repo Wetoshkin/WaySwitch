@@ -111,6 +111,18 @@ class GnomeShellBackend(LayoutBackend):
     def on_change(self, cb: Callable[[int, bool], None]) -> None:
         self._callbacks.append(cb)
 
+    def get_selection(self) -> str | None:
+        """Выделенный текст (PRIMARY) — через расширение, буфер обмена не трогаем."""
+        try:
+            (text,) = self._proxy.call_sync("GetSelection", None, 0, 1000, None).unpack()
+        except self._GLib.Error as exc:
+            if "UnknownMethod" in str(exc):
+                # Shell держит загруженной старую копию расширения до перелогина.
+                raise BackendError("расширение старой версии: выйдите из сеанса и "
+                                   "войдите снова") from exc
+            raise
+        return text or None
+
     def backspace(self, count: int) -> None:
         self._proxy.call_sync("Backspace", self._GLib.Variant("(u)", (count,)), 0, 2000, None)
 
