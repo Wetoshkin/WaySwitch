@@ -30,6 +30,8 @@ rm -f /usr/local/share/applications/ru.siberia.WaySwitch.desktop
 rm -f /usr/local/share/applications/ru.siberia.WaySwitch.Settings.desktop
 rm -f /usr/local/share/icons/hicolor/scalable/apps/ru.siberia.WaySwitch.svg
 rm -rf /usr/local/share/plasma/plasmoids/ru.siberia.wayswitch
+rm -f /etc/xdg/autostart/wayswitch-session.desktop
+rm -rf /usr/local/share/wayswitch
 rm -f /usr/local/share/icons/hicolor/symbolic/apps/ru.siberia.WaySwitch-symbolic.svg
 rm -f /usr/local/share/icons/hicolor/symbolic/apps/ru.siberia.WaySwitch-paused-symbolic.svg
 
@@ -47,4 +49,6 @@ rmdir "$STATE" 2>/dev/null || true
 
 as_user systemctl --user daemon-reload 2>/dev/null || true
 udevadm control --reload-rules || true
+gtk-update-icon-cache -f -t /usr/local/share/icons/hicolor >/dev/null 2>&1 || true
+update-desktop-database /usr/local/share/applications >/dev/null 2>&1 || true
 echo "WaySwitch удалён. Настройки остались в $USER_HOME/.config/wayswitch."

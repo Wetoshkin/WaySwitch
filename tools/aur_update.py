@@ -23,7 +23,7 @@ SRCINFO = ARCH / ".SRCINFO"
 
 # Поля .SRCINFO в порядке, в котором их пишет makepkg --printsrcinfo.
 PKGBASE_FIELDS = ("pkgdesc", "pkgver", "pkgrel", "url", "install", "arch", "license",
-                  "depends", "optdepends", "source", "sha256sums")
+                  "depends", "optdepends", "backup", "source", "sha256sums")
 
 
 def parse(text: str) -> dict[str, list[str]]:

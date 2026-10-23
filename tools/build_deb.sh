@@ -51,6 +51,8 @@ mkdir -p "$DEBIAN_DIR"
 sed "s/@VERSION@/$DEB_VERSION/" "$ROOT/packaging/deb/control.in" > "$DEBIAN_DIR/control"
 cp "$ROOT/packaging/deb/postinst" "$DEBIAN_DIR/postinst"
 cp "$ROOT/packaging/deb/postrm" "$DEBIAN_DIR/postrm"
+# Файлы в /etc — настройки администратора: dpkg не затирает их правки.
+echo "/etc/xdg/autostart/wayswitch-session.desktop" > "$DEBIAN_DIR/conffiles"
 chmod 755 "$DEBIAN_DIR/postinst" "$DEBIAN_DIR/postrm"
 
 # --- права ----------------------------------------------------------------

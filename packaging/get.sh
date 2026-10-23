@@ -6,12 +6,16 @@
 #
 # Запускать от обычного пользователя, не через sudo: пароль спросят только на
 # шаге установки пакета. Без подтверждения ничего не ставится (--yes —
-# не спрашивать). Для проверки на своих исходниках: WAYSWITCH_SRC=/путь/к/WaySwitch.
+# не спрашивать). Повторный запуск обновляет WaySwitch до последней версии.
+# Для проверки на своих исходниках: WAYSWITCH_SRC=/путь/к/WaySwitch.
+#
+# Скрипт — POSIX sh (в Debian и Ubuntu это dash): без bash-конструкций.
 
 set -eu
 
 REPO="Wetoshkin/WaySwitch"
 API="https://api.github.com/repos/$REPO/releases?per_page=1"   # включает альфа-релизы, в отличие от /latest
+SOURCE_UNINSTALL=/usr/local/share/wayswitch/uninstall.sh       # кладёт packaging/install.sh
 MODE="install"
 YES=0
 for arg in "$@"; do
@@ -28,9 +32,17 @@ warn() { printf '\033[33m! '; say "$1" "$2"; printf '\033[0m'; }
 die()  { { printf '\033[31m✗ '; say "$1" "$2"; printf '\033[0m'; } >&2; exit 1; }
 ask()  { # вопрос да/нет; читаем с терминала, потому что stdin занят самим скриптом
   [ "$YES" = 1 ] && return 0
+  # /dev/tty есть всегда, но без управляющего терминала (cron, контейнер)
+  # не открывается — проверяем открытием, а не наличием.
+  # Подоболочка: в dash ошибка перенаправления у «:» завершила бы весь скрипт.
+  if ! (true </dev/tty) 2>/dev/null; then
+    die "Нет терминала, чтобы спросить подтверждение. Запустите с --yes, если уверены." \
+        "No terminal to ask for confirmation. Run with --yes if you are sure."
+  fi
   printf '%s ' "$( [ "$RU" = 1 ] && echo "$1 [Д/н]" || echo "$2 [Y/n]" )"
-  read -r a </dev/tty || a=""
-  case "$a" in ""|[YyДд]*) return 0 ;; *) return 1 ;; esac
+  read -r a </dev/tty || a="н"
+  # Шаблоны-префиксы: в dash [Дд] сравнивается побайтно, и «н» сошло бы за «да».
+  case "$a" in ""|Y*|y*|Д*|д*) return 0 ;; *) return 1 ;; esac
 }
 have() { command -v "$1" >/dev/null 2>&1; }
 
@@ -41,6 +53,8 @@ have() { command -v "$1" >/dev/null 2>&1; }
 . /etc/os-release
 ID_ALL=" ${ID:-} ${ID_LIKE:-} "
 ATOMIC=0; [ -e /run/ostree-booted ] && ATOMIC=1
+have systemctl || die "WaySwitch работает как служба systemd, а systemd в этой системе нет." \
+                      "WaySwitch runs as a systemd service, and this system has no systemd."
 
 FAMILY=source
 case "$ID_ALL" in
@@ -52,15 +66,29 @@ esac
 # Свои исходники (проверка перед релизом) — всегда установка из исходников.
 [ -n "${WAYSWITCH_SRC:-}" ] && FAMILY=source
 
-TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+# Права 755: apt читает пакет от имени своего пользователя и иначе пугает
+# предупреждением «Download is performed unsandboxed as root».
+TMP=$(mktemp -d); chmod 755 "$TMP"; trap 'rm -rf "$TMP"' EXIT
 
+need_sudo() {
+  have sudo || die "Нужна команда sudo. Войдите как root (su -), установите sudo и добавьте себя в группу sudo (usermod -aG sudo $(id -un)), затем выйдите из системы и войдите снова." \
+                   "sudo is required. Become root (su -), install sudo and add yourself to the sudo group (usermod -aG sudo $(id -un)), then log out and back in."
+  say "  Сейчас спросят пароль вашей учётной записи (при вводе символы не видны — это нормально)." \
+      "  You will be asked for your account password (it is not shown while you type — that's normal)."
+  sudo -v || die "sudo не сработал: ваша учётная запись не может выполнять команды администратора. Добавьте её в группу sudo (или wheel) от имени root и войдите снова." \
+                 "sudo failed: your account cannot run admin commands. Add it to the sudo (or wheel) group as root and log in again."
+}
 asset_url() { # $1 = расширение: deb | rpm
   have curl || die "Нужен curl." "curl is required."
   curl -fsSL "$API" | grep -o "https://[^\"]*\.$1\"" | tr -d '"' | head -n1
 }
 fetch() { # скачать пакет релиза во временную папку, напечатать путь
-  url=$(asset_url "$1"); [ -n "$url" ] || die "В последнем релизе нет пакета .$1." "No .$1 package in the latest release."
-  curl -fL --progress-bar -o "$TMP/${url##*/}" "$url"; printf '%s' "$TMP/${url##*/}"
+  url=$(asset_url "$1") || url=""
+  [ -n "$url" ] || die "Не удалось получить пакет .$1 с GitHub (нет сети или релиза)." \
+                       "Could not get the .$1 package from GitHub (no network or release)."
+  curl -fL --progress-bar -o "$TMP/${url##*/}" "$url" \
+    || die "Не удалось скачать $url" "Could not download $url"
+  printf '%s' "$TMP/${url##*/}"
 }
 from_source() { # $1 = install.sh | uninstall.sh
   if [ -n "${WAYSWITCH_SRC:-}" ]; then
@@ -74,8 +102,17 @@ from_source() { # $1 = install.sh | uninstall.sh
                 "git is required. Install it with your package manager and run again." ;;
     esac
   }
-  git clone --depth 1 "https://github.com/$REPO.git" "$TMP/src" >/dev/null 2>&1
+  git clone -q --depth 1 "https://github.com/$REPO.git" "$TMP/src" \
+    || die "Не удалось скачать исходники с GitHub (нет сети?)." \
+           "Could not download the source from GitHub (no network?)."
   sudo bash "$TMP/src/packaging/$1"
+}
+drop_source_copy() { # копия из исходников мешает пакету: её служба и расширение перекрывают пакетные
+  if [ -f "$SOURCE_UNINSTALL" ]; then
+    say "  Убираю прежнюю установку из исходников (/usr/local)…" \
+        "  Removing the previous from-source installation (/usr/local)…"
+    sudo bash "$SOURCE_UNINSTALL" >/dev/null
+  fi
 }
 aur_helper() { for h in paru yay; do have "$h" && { echo "$h"; return; }; done; }
 
@@ -90,18 +127,49 @@ enable_extension() { # GNOME: расширение из пакета включ�
     *) gsettings set org.gnome.shell enabled-extensions "${cur%]}, 'wayswitch@siberia.ru']" ;;
   esac
 }
+A11Y_PREV="${XDG_CONFIG_HOME:-$HOME/.config}/wayswitch/a11y-prev"
+enable_a11y() { # мост доступности: без него не работают защита паролей и исключения программ
+  have gsettings || return 0
+  key="org.gnome.desktop.interface toolkit-accessibility"
+  prev=$(gsettings get $key 2>/dev/null) || return 0
+  if [ ! -f "$A11Y_PREV" ]; then
+    mkdir -p "$(dirname "$A11Y_PREV")" && printf '%s\n' "$prev" > "$A11Y_PREV"
+  fi
+  gsettings set $key true 2>/dev/null || true
+}
+restore_a11y() {
+  [ -f "$A11Y_PREV" ] && have gsettings || return 0
+  prev=$(cat "$A11Y_PREV")
+  case "$prev" in true|false) gsettings set org.gnome.desktop.interface toolkit-accessibility "$prev" 2>/dev/null || true ;; esac
+  rm -f "$A11Y_PREV"
+}
+check_adwaita_deb() { # окну нужна libadwaita 1.5+ (Ubuntu 24.04+, Debian 13+)
+  have apt-cache || return 0
+  v=$(apt-cache policy gir1.2-adw-1 2>/dev/null | awk '/Candidate:/ {print $2}')
+  if [ -z "$v" ] || [ "$v" = "(none)" ] || ! dpkg --compare-versions "$v" ge 1.5; then
+    die "Эта версия системы слишком старая: WaySwitch нужны Ubuntu 24.04 или новее (Linux Mint 22+, Debian 13+)." \
+        "This system is too old: WaySwitch needs Ubuntu 24.04 or newer (Linux Mint 22+, Debian 13+)."
+  fi
+}
 
 # --- Удаление ----------------------------------------------------------------
 if [ "$MODE" = uninstall ]; then
   step "Удаляю WaySwitch (${PRETTY_NAME:-$ID})" "Removing WaySwitch (${PRETTY_NAME:-$ID})"
+  ask "Удалить WaySwitch?" "Remove WaySwitch?" || exit 0
+  need_sudo
   systemctl --user disable --now wayswitch 2>/dev/null || true
   if   have dpkg   && dpkg -s wayswitch >/dev/null 2>&1; then sudo apt remove -y wayswitch
-  elif [ "$ATOMIC" = 1 ];                                 then sudo rpm-ostree uninstall wayswitch
+  elif [ "$ATOMIC" = 1 ] && rpm -q wayswitch >/dev/null 2>&1; then sudo rpm-ostree uninstall wayswitch
   elif have rpm    && rpm -q wayswitch >/dev/null 2>&1;  then
        if have dnf; then sudo dnf remove -y wayswitch; else sudo zypper --non-interactive remove wayswitch; fi
   elif have pacman && pacman -Q wayswitch >/dev/null 2>&1; then sudo pacman -Rns --noconfirm wayswitch
-  else from_source uninstall.sh
   fi
+  if [ -f "$SOURCE_UNINSTALL" ]; then sudo bash "$SOURCE_UNINSTALL"
+  elif [ -n "${WAYSWITCH_SRC:-}" ]; then from_source uninstall.sh
+  fi
+  rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/ru.siberia.WaySwitch.Settings.desktop" \
+        "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/ru.siberia.WaySwitch.desktop"
+  restore_a11y
   say "Готово. Настройки остались в ~/.config/wayswitch — удалите папку, если они не нужны." \
       "Done. Settings are kept in ~/.config/wayswitch — delete it if you don't need them."
   exit 0
@@ -117,7 +185,7 @@ case "${XDG_CURRENT_DESKTOP:-}" in
   *sway*|*Sway*) say "  Композитор: Sway" "  Compositor: Sway" ;;
   *XFCE*)     say "  Рабочий стол: Xfce" "  Desktop: Xfce" ;;
   *MATE*)     say "  Рабочий стол: MATE" "  Desktop: MATE" ;;
-  *Cinnamon*) say "  Рабочий стол: Cinnamon" "  Desktop: Cinnamon" ;;
+  *Cinnamon*) say "  Рабочий стол: Cinnamon (поддержка экспериментальная)" "  Desktop: Cinnamon (experimental support)" ;;
   *Budgie*)   say "  Рабочий стол: Budgie" "  Desktop: Budgie" ;;
   *LXQt*)     say "  Рабочий стол: LXQt" "  Desktop: LXQt" ;;
   *)       warn "Рабочий стол «${XDG_CURRENT_DESKTOP:-неизвестно}»: WaySwitch его не знает. Поддерживаются GNOME, KDE, Xfce, MATE, Cinnamon, Budgie, LXQt, Sway, Hyprland." \
@@ -127,6 +195,7 @@ if [ "${XDG_SESSION_TYPE:-}" != wayland ]; then
   warn "Сеанс не Wayland (${XDG_SESSION_TYPE:-неизвестно}). На экране входа выберите сеанс Wayland." \
        "Not a Wayland session (${XDG_SESSION_TYPE:-unknown}). Pick a Wayland session on the login screen."
 fi
+[ "$FAMILY" = deb ] && check_adwaita_deb
 
 h=""
 case "$FAMILY" in
@@ -145,33 +214,43 @@ say "  План: $PLAN_RU." "  Plan: $PLAN_EN."
 ask "Продолжить?" "Continue?" || exit 0
 
 # --- Установка ---------------------------------------------------------------
-step "Устанавливаю — может понадобиться пароль вашей учётной записи" \
-     "Installing — you may be asked for your account password"
-say "  (при вводе пароля символы не видны — это нормально)" "  (the password is not shown while you type — that's normal)"
+step "Устанавливаю" "Installing"
+need_sudo
 case "$FAMILY" in
-  deb)    f=$(fetch deb); sudo apt install -y "$f" ;;
-  fedora) f=$(fetch rpm)
+  deb)    f=$(fetch deb); drop_source_copy; sudo apt install -y "$f"
+          # Значок в верхней панели GNOME — через AppIndicator (в Ubuntu уже есть).
+          case "${XDG_CURRENT_DESKTOP:-}" in *GNOME*)
+            sudo apt install -y gnome-shell-extension-appindicator >/dev/null 2>&1 || true ;;
+          esac ;;
+  fedora) f=$(fetch rpm); drop_source_copy
           if [ "$ATOMIC" = 1 ]; then sudo rpm-ostree install -y "$f"; else sudo dnf install -y "$f"; fi ;;
-  suse)   f=$(fetch rpm); sudo zypper --non-interactive install --allow-unsigned-rpm "$f" ;;
-  arch)   if [ -n "$h" ]; then "$h" -S --needed --noconfirm wayswitch; else from_source install.sh; fi ;;
+  suse)   f=$(fetch rpm); drop_source_copy; sudo zypper --non-interactive install --allow-unsigned-rpm "$f" ;;
+  arch)   if [ -n "$h" ]; then drop_source_copy; "$h" -S --needed --noconfirm wayswitch; else from_source install.sh; fi ;;
   *)      from_source install.sh ;;
 esac
 
+systemctl --user daemon-reload >/dev/null 2>&1 || true
 systemctl --user enable wayswitch >/dev/null 2>&1 || true
+# Обновление: работающая служба перечитает новый код.
+systemctl --user try-restart wayswitch >/dev/null 2>&1 || true
 enable_extension || true
+enable_a11y || true
 
 # --- Что дальше ----------------------------------------------------------------
 step "WaySwitch установлен" "WaySwitch is installed"
 if [ "$ATOMIC" = 1 ]; then
-  say "  Осталось перезагрузить компьютер. После перезагрузки WaySwitch запустится сам." \
-      "  Now restart the computer. WaySwitch will start on its own after the restart."
+  say "  Осталось перезагрузить компьютер. После перезагрузки откройте WaySwitch из меню приложений — он проверит систему и включит службу." \
+      "  Now restart the computer. After the restart open WaySwitch from the app menu — it will check the system and enable the service."
 else
   say "  Осталось выйти из системы и войти снова — так WaySwitch получит доступ к клавиатуре." \
       "  Now log out and log back in — this gives WaySwitch access to the keyboard."
-  say "  После входа он запустится сам." "  It will start on its own after you log in."
+  say "  После входа откройте WaySwitch из меню приложений: он проверит систему и подскажет, если чего-то не хватает." \
+      "  After logging in, open WaySwitch from the app menu: it checks the system and tells you if anything is missing."
 fi
 case "${XDG_CURRENT_DESKTOP:-}" in *Hyprland*|*sway*|*Sway*)
-  say "  Модуль для Waybar и горячие клавиши: wayswitch gui → Параметры → Система." \
-      "  Waybar module and keybindings: wayswitch gui → Preferences → System." ;;
+  say "  Автозапуск в Sway и Hyprland: добавьте в конфиг exec wayswitch run (Hyprland: exec-once = wayswitch run)." \
+      "  Autostart in Sway and Hyprland: add exec wayswitch run to the config (Hyprland: exec-once = wayswitch run)."
+  say "  Модуль для Waybar: wayswitch gui → Параметры → Система." \
+      "  Waybar module: wayswitch gui → Preferences → System." ;;
 esac
 say "  Проверить, что всё в порядке: wayswitch doctor" "  To check that everything is fine: wayswitch doctor"

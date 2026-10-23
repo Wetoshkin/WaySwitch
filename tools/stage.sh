@@ -44,6 +44,8 @@ sed 's#ExecStart=/usr/local/bin/wayswitch run#ExecStart=/usr/bin/wayswitch run#'
 install -d "$DEST/usr/share/gnome-shell/extensions/wayswitch@siberia.ru"
 cp -r "$ROOT"/extension/wayswitch@siberia.ru/. "$DEST/usr/share/gnome-shell/extensions/wayswitch@siberia.ru/"
 
+install -Dm644 "$ROOT/packaging/wayswitch-session.desktop"     "$DEST/etc/xdg/autostart/wayswitch-session.desktop"
+
 # Виджет для системного лотка KDE Plasma 6.
 install -d "$DEST/usr/share/plasma/plasmoids"
 cp -r "$ROOT/packaging/kde/ru.siberia.wayswitch" "$DEST/usr/share/plasma/plasmoids/"

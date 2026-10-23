@@ -19,8 +19,8 @@
 
 WaySwitch fixes a word typed in the wrong layout (`ghbdtn` instead of
 «привет») right away, on Space — no hotkeys, no manual layout switching. It
-works on Wayland in GNOME, KDE Plasma, Sway, Hyprland, Xfce, MATE, Cinnamon,
-Budgie and LXQt, where classic tools of this kind can neither listen to the
+works on Wayland in GNOME, KDE Plasma, Sway, Hyprland, Xfce, MATE,
+Budgie, LXQt and (experimentally) Cinnamon, where classic tools of this kind can neither listen to the
 keyboard nor type for you. The interface is in Russian: WaySwitch currently
 supports the Russian ↔ English pair.
 
@@ -74,7 +74,7 @@ Manjaro and most other modern distributions are fine.
 | Fedora 41+ | installs the `.rpm` with `dnf` |
 | Silverblue, Kinoite, Bazzite | layers the `.rpm` with `rpm-ostree` (reboot afterwards) |
 | openSUSE Tumbleweed, Slowroll | installs the `.rpm` with `zypper` |
-| Arch, CachyOS, EndeavourOS, Manjaro | AUR package via `paru`/`yay` if available, otherwise from source |
+| Arch, CachyOS, EndeavourOS, Manjaro | AUR package via `paru`/`yay` once it is published, otherwise from source |
 | others | from source via `packaging/install.sh` |
 
 Uninstall: the same command with `| sh -s -- --uninstall`.
@@ -93,9 +93,11 @@ Uninstall: the same command with `| sh -s -- --uninstall`.
 Everything is set with the mouse and applied immediately. Open **WaySwitch**
 from the app menu; preferences are under <kbd>☰</kbd> or
 <kbd>Ctrl</kbd>+<kbd>,</kbd>. On **Sway and Hyprland** the indicator is a
-Waybar module (`wayswitch waybar`), control is via commands on your hotkeys
-(`wayswitch toggle`, `wayswitch fix`), and ready-made config snippets are
-copied from Preferences → System → Panel. On **Xfce, MATE, Budgie, LXQt**
+Waybar module (`wayswitch waybar`), pausing is bound to a hotkey (`wayswitch toggle`; the last word is
+fixed with the Shift gesture), and ready-made config snippets are
+copied from Preferences → System → Panel. Sway and plain Hyprland do not
+start systemd user services: add `exec wayswitch run` (Sway) or
+`exec-once = wayswitch run` (Hyprland) to the config. On **Xfce, MATE, Budgie, LXQt**
 (labwc / Wayfire) WaySwitch reads the layouts from the compositor's XKB
 settings — see the Russian README for snippets.
 

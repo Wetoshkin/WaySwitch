@@ -176,6 +176,12 @@ if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database /usr/local/share/applications >/dev/null 2>&1 || true
 fi
 
+echo "== Автозапуск службы в Xfce, MATE, LXQt, Budgie, Cinnamon"
+install -Dm644 "$SRC/packaging/wayswitch-session.desktop" /etc/xdg/autostart/wayswitch-session.desktop
+# Копия uninstall.sh: get.sh удаляет ею установку из исходников, если
+# потом ставится пакет (иначе две копии мешают друг другу).
+install -Dm755 "$SRC/packaging/uninstall.sh" /usr/local/share/wayswitch/uninstall.sh
+
 echo "== Виджет для лотка KDE Plasma"
 rm -rf /usr/local/share/plasma/plasmoids/ru.siberia.wayswitch
 mkdir -p /usr/local/share/plasma/plasmoids

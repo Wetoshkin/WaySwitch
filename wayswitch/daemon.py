@@ -176,7 +176,8 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         controller.on_key(code, value, device_id)
 
     watcher = DeviceWatcher(on_key, controller.on_click, controller.on_resync,
-                            controller.on_device_gone, controller.set_caps)
+                            controller.on_device_gone, controller.set_caps,
+                            on_scroll=controller.on_scroll)
     watcher.start()
     if not any(kind == "keyboard" for _, _, kind in watcher.devices()):
         log.error("ни одной клавиатуры не открыто (права на /dev/input?)")

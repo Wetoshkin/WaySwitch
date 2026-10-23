@@ -10,7 +10,10 @@ url="https://github.com/Wetoshkin/WaySwitch"
 license=('MIT' 'CC-BY-SA-4.0')
 depends=('python' 'python-evdev' 'python-gobject' 'gtk4' 'libadwaita' 'libxkbcommon')
 optdepends=('gnome-shell: расширение для переключения раскладки в GNOME'
+            'gnome-shell-extension-appindicator: значок в верхней панели GNOME'
+            'ibus: запасной способ переключения раскладки в GNOME'
             'pipewire: звук при исправлении (pw-play)')
+backup=('etc/xdg/autostart/wayswitch-session.desktop')
 install=wayswitch.install
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('SKIP')
