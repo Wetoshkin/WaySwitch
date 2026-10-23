@@ -333,12 +333,19 @@ class Preferences:
     def _page_system(self):
         from gi.repository import Adw, Gtk
 
-        from wayswitch.backends.desktop import GNOME, detect_desktop
+        from wayswitch.backends.desktop import (
+            COMPOSITOR_DESKTOPS,
+            GNOME,
+            HYPRLAND,
+            SWAY,
+            detect_desktop,
+        )
 
         page = Adw.PreferencesPage(title="Система", icon_name="preferences-system-symbolic")
         status = self.proxy.status or {}
+        desktop = detect_desktop()
 
-        if detect_desktop() == GNOME and status.get("backend") not in ("shell", None):
+        if desktop == GNOME and status.get("backend") not in ("shell", None):
             text = "Включите расширение GNOME Shell — раскладка будет переключаться без задержки"
             if hasattr(page, "set_banner"):
                 banner = Adw.Banner(title=text, button_label="Включить", revealed=True)
@@ -355,18 +362,61 @@ class Preferences:
                 page.add(group)
 
         start = Adw.PreferencesGroup(title="Запуск")
-        sw_service = Adw.SwitchRow(title="Запускать при входе в систему",
-                                   active=autostart.is_service_enabled())
+        tiling = desktop in (SWAY, HYPRLAND)
+        sw_service = Adw.SwitchRow(
+            title="Запускать при входе в систему",
+            subtitle="Через systemd. Если сеанс запущен без него — добавьте в конфиг "
+                     "exec-once = wayswitch run" if tiling else "",
+            active=autostart.is_service_enabled())
         sw_service.connect("notify::active",
                            lambda r, _p: autostart.set_service_enabled(r.get_active()))
         start.add(sw_service)
-        sw_tray = Adw.SwitchRow(title="Значок в верхней панели",
-                                subtitle="Нужно расширение AppIndicator. В Ubuntu оно уже есть",
+        sw_tray = Adw.SwitchRow(title=texts.tray_title(desktop),
+                                subtitle=texts.tray_hint(desktop),
                                 active=autostart.is_tray_enabled())
         sw_tray.connect("notify::active",
                         lambda r, _p: autostart.set_tray_enabled(r.get_active()))
         start.add(sw_tray)
         page.add(start)
+
+        if desktop in (SWAY, HYPRLAND):
+            # В тайловых композиторах трея обычно нет: индикатор — модуль
+            # Waybar, управление — команды на горячих клавишах. Даём готовые
+            # фрагменты конфигов.
+            from wayswitch import panel
+
+            bar = Adw.PreferencesGroup(
+                title="Панель",
+                description="Модуль показывает раскладку и исправления прямо в Waybar.")
+            keys_snippet = panel.HYPRLAND_SNIPPET if desktop == HYPRLAND else panel.SWAY_SNIPPET
+            for title, subtitle, text in (
+                    ("Модуль для Waybar", "Фрагменты config.jsonc и style.css",
+                     panel.WAYBAR_CONFIG + "\n\n" + panel.WAYBAR_CSS),
+                    ("Горячие клавиши",
+                     "Пауза и исправление для " + ("hyprland.conf" if desktop == HYPRLAND
+                                                   else "sway/config"),
+                     keys_snippet)):
+                row = Adw.ActionRow(title=title, subtitle=subtitle)
+                copy = Gtk.Button(label="Скопировать", valign=Gtk.Align.CENTER)
+                copy.connect("clicked", lambda _b, t=text, n=title: self._copy(t, n))
+                row.add_suffix(copy)
+                bar.add(row)
+            page.add(bar)
+
+        if desktop in COMPOSITOR_DESKTOPS:
+            track = Adw.PreferencesGroup(
+                title="Отслеживание раскладки",
+                description="Ваш композитор не сообщает, какая раскладка включена. WaySwitch "
+                            "считает нажатия сочетания переключения — это ошибается, если "
+                            "менять раскладку мышью.")
+            self.sw_track = Adw.SwitchRow(title="Исправлять автоматически по счётчику",
+                                          subtitle="Без этого работают ручной жест и "
+                                                   "«Исправить выделенное»")
+            self.sw_track.set_active(self.cfg.backend.track_hotkey)
+            self.sw_track.connect("notify::active", lambda r, _p: self._set(
+                "backend", "track_hotkey", r.get_active()))
+            track.add(self.sw_track)
+            page.add(track)
 
         updates = Adw.PreferencesGroup(title="Обновления")
         self.sw_updates = Adw.SwitchRow(
@@ -440,6 +490,12 @@ class Preferences:
             self.cb_typing.set_selected(cfgmod.SHELL_TYPING.index(c.backend.shell_typing))
         finally:
             self._loading = False
+
+    def _copy(self, text: str, what: str) -> None:
+        from gi.repository import Gdk
+
+        Gdk.Display.get_default().get_clipboard().set(text)
+        self.toast(f"{what}: скопировано в буфер обмена")
 
     def _enable_extension(self, widget) -> None:
         if enable_extension():

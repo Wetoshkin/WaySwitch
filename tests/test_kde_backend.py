@@ -123,7 +123,10 @@ def test_backend_signal_marks_external_change(no_variant):
 def test_auto_order_depends_on_desktop():
     assert order_for("gnome", "auto") == ["shell", "ibus", "hotkey"]
     assert order_for("kde", "auto") == ["kde"]
-    assert order_for("other", "auto") == ["hotkey"]
+    assert order_for("other", "auto") == ["compositor", "hotkey"]
+    assert order_for("sway", "auto") == ["sway"]
+    assert order_for("hyprland", "auto") == ["hyprland"]
+    assert order_for("xfce", "auto") == ["compositor", "hotkey"]
 
 
 def test_explicit_backend_wins_over_desktop():

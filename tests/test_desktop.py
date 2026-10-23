@@ -24,9 +24,21 @@ def test_detects_kde():
     assert detect_desktop({"XDG_CURRENT_DESKTOP": "plasma"}) == KDE
 
 
-def test_other_desktop():
-    for raw in ("XFCE", "MATE", "sway", "Hyprland", ""):
-        assert detect_desktop({"XDG_CURRENT_DESKTOP": raw}) == OTHER
+def test_other_desktops_are_recognised():
+    from wayswitch.backends import desktop as d
+
+    cases = {"XFCE": d.XFCE, "MATE": d.MATE, "sway": d.SWAY, "Hyprland": d.HYPRLAND,
+             "Budgie:GNOME": d.BUDGIE, "X-Cinnamon": d.CINNAMON, "LXQt": d.LXQT,
+             "Pantheon": OTHER, "": OTHER}
+    for raw, expected in cases.items():
+        assert detect_desktop({"XDG_CURRENT_DESKTOP": raw}) == expected, raw
+
+
+def test_compositor_sockets_identify_sway_and_hyprland():
+    from wayswitch.backends import desktop as d
+
+    assert detect_desktop({"SWAYSOCK": "/run/user/1000/sway-ipc.sock"}) == d.SWAY
+    assert detect_desktop({"HYPRLAND_INSTANCE_SIGNATURE": "abc"}) == d.HYPRLAND
 
 
 def test_missing_env_is_other():

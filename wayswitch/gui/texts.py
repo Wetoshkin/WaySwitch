@@ -18,11 +18,15 @@ BACKEND_HUMAN = {
     "ibus": "через IBus",
     "kde": "через KDE Plasma",
     "hotkey": "через сочетание клавиш системы",
+    "sway": "через Sway IPC",
+    "hyprland": "через Hyprland IPC",
+    "compositor": "через сочетание клавиш композитора",
 }
 
 # Варианты «Способ» в Параметрах → Система; порядок = config.BACKEND_PREFS.
 BACKEND_CHOICES = ("Автоматически", "Расширение GNOME Shell", "KDE Plasma", "IBus",
-                   "Сочетание клавиш системы")
+                   "Сочетание клавиш GNOME", "Sway IPC", "Hyprland IPC",
+                   "Сочетание клавиш композитора")
 
 SENSITIVITY_CHOICES = ("Осторожная", "Обычная", "Смелая")
 
@@ -107,6 +111,20 @@ def status_view(status: dict | None) -> StatusView:
     return StatusView("on", "Исправление включено", where, True, True)
 
 
+def tray_title(desktop: str) -> str:
+    """Как называется место для значка в этой среде."""
+    return "Значок в верхней панели" if desktop == "gnome" else "Значок в трее"
+
+
+def tray_hint(desktop: str) -> str:
+    return {
+        "gnome": "Нужно расширение AppIndicator. В Ubuntu оно уже есть",
+        "kde": "В системном лотке Plasma",
+        "sway": "Для панелей с треем: Waybar, ironbar, AGS",
+        "hyprland": "Для панелей с треем: Waybar, ironbar, AGS",
+    }.get(desktop, "В области уведомлений панели")
+
+
 def tray_summary(status: dict | None, update: str | None = None) -> str:
     """Вторая строка в меню значка: «Исправляет · 48 слов за сеанс»."""
     if status is None:
@@ -184,6 +202,9 @@ ONBOARDING_CHECKS = {
                "Нужна перезагрузка или «sudo modprobe uinput»", None),
     "keyboards": ("Доступ к клавиатуре", "Клавиатура читается",
                   "Появится после повторного входа в систему", "logout"),
+    "switch": ("Переключение раскладки", "{detail}",
+               "Композитор не отвечает или не настроен — подробности: wayswitch doctor",
+               None),
     "extension": ("Расширение GNOME Shell", "Включено",
                   "Нужно, чтобы переключать раскладку. Включите и перелогиньтесь",
                   "extension"),

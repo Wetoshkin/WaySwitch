@@ -15,7 +15,7 @@ from wayswitch.keycodes import GESTURE_KEY_NAMES, KEY_NAMES
 
 SENSITIVITY_NAMES = ("conservative", "normal", "aggressive")
 MANUAL_MODES = ("double_shift", "tap_key", "pause_key", "none")
-BACKEND_PREFS = ("auto", "shell", "kde", "ibus", "hotkey")
+BACKEND_PREFS = ("auto", "shell", "kde", "ibus", "hotkey", "sway", "hyprland", "compositor")
 # Чем печатать символы при shell-бэкенде: клавишами расширения (keysym-ы, не
 # зависят от раскладки) или сканерами через uinput (как настоящая клавиатура).
 SHELL_TYPING = ("extension", "uinput")
@@ -82,6 +82,10 @@ class Typing:
 class Backend:
     prefer: str = "auto"
     shell_typing: str = "extension"
+    # labwc/Wayfire (Xfce, MATE, Budgie, LXQt): текущую раскладку ведём
+    # счётчиком нажатий сочетания. Он ошибается при смене раскладки мышью,
+    # поэтому автоисправление там включается только по желанию.
+    track_hotkey: bool = False
 
 
 @dataclass

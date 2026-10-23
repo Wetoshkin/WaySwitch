@@ -16,9 +16,22 @@ from collections.abc import Mapping
 
 GNOME = "gnome"
 KDE = "kde"
+SWAY = "sway"
+HYPRLAND = "hyprland"
+XFCE = "xfce"
+MATE = "mate"
+CINNAMON = "cinnamon"
+BUDGIE = "budgie"
+LXQT = "lxqt"
 OTHER = "other"
 
-DESKTOP_NAMES = {GNOME: "GNOME", KDE: "KDE Plasma", OTHER: "другая среда"}
+DESKTOP_NAMES = {GNOME: "GNOME", KDE: "KDE Plasma", SWAY: "Sway", HYPRLAND: "Hyprland",
+                 XFCE: "Xfce", MATE: "MATE", CINNAMON: "Cinnamon", BUDGIE: "Budgie",
+                 LXQT: "LXQt", OTHER: "другая среда"}
+
+# Среды, которые в Wayland работают поверх отдельного композитора (labwc,
+# Wayfire): раскладка — в его конфиге XKB, переключение — его сочетанием.
+COMPOSITOR_DESKTOPS = frozenset({XFCE, MATE, CINNAMON, BUDGIE, LXQT, OTHER})
 
 
 def _session_env(runner=None) -> dict[str, str]:
@@ -41,7 +54,8 @@ def _session_env(runner=None) -> dict[str, str]:
     for line in out.splitlines():
         name, sep, value = line.partition("=")
         if sep and name in ("XDG_CURRENT_DESKTOP", "XDG_SESSION_TYPE", "WAYLAND_DISPLAY",
-                            "DISPLAY", "XAUTHORITY"):
+                            "DISPLAY", "XAUTHORITY", "SWAYSOCK",
+                            "HYPRLAND_INSTANCE_SIGNATURE"):
             env.setdefault(name, value)
     return env
 
@@ -56,7 +70,16 @@ def detect_desktop(env: Mapping[str, str] | None = None) -> str:
     raw = (source.get("XDG_CURRENT_DESKTOP") or "").lower()
     if "kde" in raw or "plasma" in raw:
         return KDE
-    if "gnome" in raw or "unity" in raw or "budgie" in raw or "pantheon" in raw:
+    if "hyprland" in raw or source.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return HYPRLAND
+    if "sway" in raw or source.get("SWAYSOCK"):
+        return SWAY
+    # Budgie, Cinnamon и прочие пишут себя рядом с GNOME («Budgie:GNOME»),
+    # поэтому проверяем их раньше GNOME: gnome-shell у них нет.
+    for name in (BUDGIE, CINNAMON, XFCE, MATE, LXQT):
+        if name in raw:
+            return name
+    if "gnome" in raw or "unity" in raw:
         return GNOME
     return OTHER
 
