@@ -16,11 +16,20 @@ from wayswitch import a11y as focus
 from wayswitch import keycodes as kc
 from wayswitch.actuator import DONE, execute, keys_for_typing, plan_fix
 from wayswitch.buffer import InputBuffer, KeyPress
-from wayswitch.config import Config
+from wayswitch.config import Config, apps_path
 from wayswitch.detector import SENSITIVITY, Detector
 from wayswitch.gesture import ShiftGesture, TapKeyGesture
 
 log = logging.getLogger("wayswitch")
+
+
+_UNSET = object()  # «кэш ещё не заполнялся»: None значило бы «файла нет»
+
+
+def cfgmod_apps_stamp() -> float | None:
+    """Время изменения apps.txt (None — файла нет)."""
+    path = apps_path()
+    return path.stat().st_mtime if path.exists() else None
 RELEASE_WAIT = 0.3  # сколько ждать отпускания физических клавиш перед печатью
 
 
@@ -66,9 +75,12 @@ class Controller:
         # Сведения о фокусе (приложение, поле пароля) — из at-spi, через снимок
         # в отдельном потоке: в пути ввода опрашивать доступность нельзя.
         self.probe = probe
-        # Список исключённых приложений читается при каждом решении, поэтому
-        # правка apps.txt подхватывается без перезапуска демона.
+        # Список исключённых приложений нужен на каждом слове, а читать файл
+        # каждый раз незачем: кэшируем по mtime, тогда правка apps.txt всё равно
+        # подхватывается без перезапуска демона.
         self._apps_provider = apps_provider
+        self._apps_cache: list[str] = []
+        self._apps_stamp: object = _UNSET
         self.sleep = sleep
         self.schedule = schedule
 
@@ -284,11 +296,22 @@ class Controller:
         if close is not None:
             close()
 
+    def _apps(self) -> list[str]:
+        """Исключённые приложения с кэшем по времени изменения файла."""
+        try:
+            stamp = cfgmod_apps_stamp()
+        except OSError:
+            return self._apps_cache
+        if stamp != self._apps_stamp:
+            self._apps_cache = self._apps_provider()
+            self._apps_stamp = stamp
+        return self._apps_cache
+
     def _focus_blocks(self) -> str | None:
         """Почему сейчас нельзя трогать текст: поле пароля или исключённая программа."""
         if self.probe is None:
             return None
-        return focus.skip_reason(self.probe, self._apps_provider(),
+        return focus.skip_reason(self.probe, self._apps(),
                                  self.config.general.skip_password_fields, self.clock())
 
     def _edit_guard_active(self) -> bool:

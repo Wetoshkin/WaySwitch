@@ -206,6 +206,38 @@ def test_controller_pokes_probe_on_word():
     assert probe.pokes >= 1
 
 
+# --- кэш списка приложений --------------------------------------------------
+
+def test_apps_list_is_cached_by_mtime(tmp_path, monkeypatch):
+    """Файл не перечитывается на каждом слове, но правка подхватывается."""
+    from wayswitch import controller as ctrl_mod
+
+    path = tmp_path / "apps.txt"
+    path.write_text("telegram\n", encoding="utf-8")
+    monkeypatch.setattr(ctrl_mod, "apps_path", lambda: path)
+
+    calls = []
+
+    def provider():
+        calls.append(1)
+        return cfgmod.load_apps(path)
+
+    clock = Clock()
+    env = make_env(probe=FakeProbe(clock, app="gedit"), apps=[])
+    env["ctrl"]._apps_provider = provider
+
+    assert env["ctrl"]._apps() == ["telegram"]
+    assert env["ctrl"]._apps() == ["telegram"]
+    assert len(calls) == 1, "второй вызов должен прийти из кэша"
+
+    # файл изменился — кэш обязан перечитаться
+    path.write_text("telegram\ncode\n", encoding="utf-8")
+    import os
+    os.utime(path, (path.stat().st_atime, path.stat().st_mtime + 5))
+    assert env["ctrl"]._apps() == ["telegram", "code"]
+    assert len(calls) == 2
+
+
 # --- файл исключённых приложений --------------------------------------------
 
 def test_apps_file_roundtrip(tmp_path):
