@@ -62,11 +62,16 @@ def _waybar() -> int:
     bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
     state = {"status": None, "flash": None, "timer": 0, "last": None}
 
+    loop = GLib.MainLoop()
+
     def emit():
         line = json.dumps(waybar_payload(state["status"], state["flash"]), ensure_ascii=False)
         if line != state["last"]:
             state["last"] = line
-            print(line, flush=True)
+            try:
+                print(line, flush=True)
+            except (BrokenPipeError, OSError):
+                loop.quit()  # Waybar закрыл канал — процесс больше не нужен
 
     def refresh():
         try:
@@ -110,7 +115,7 @@ def _waybar() -> int:
                                      lambda *_: refresh(), lambda *_: refresh())
     refresh()
     try:
-        GLib.MainLoop().run()
+        loop.run()
     except KeyboardInterrupt:
         pass
     return 0

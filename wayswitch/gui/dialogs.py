@@ -76,7 +76,9 @@ def key_capture_dialog(parent, current: str, on_done: Callable[[str | None], Non
         elif verdict == "key":
             chosen["name"] = value
             cap.set_label(gesture_keys.human_name(value))
-            note.set_label("Нажмите «Готово» или выберите другую клавишу")
+            note.set_label("Нажмите «Готово» (или Enter) или выберите другую клавишу")
+        elif verdict == "done":
+            finish()
         else:
             note.set_label(value)
         return True  # клавиша не уходит дальше: Alt не открывает меню и т. п.
@@ -111,7 +113,8 @@ def app_row(name: str, suffix=None, subtitle: str | None = None):
 
     info = _app_info(name)
     title = info.get_display_name() if info is not None else name
-    row = Adw.ActionRow(title=title, subtitle=subtitle if subtitle is not None else name)
+    row = Adw.ActionRow(title=title, subtitle=subtitle if subtitle is not None else name,
+                        use_markup=False)
     row.set_title_lines(1)
     icon = Gtk.Image(pixel_size=32)
     gicon = info.get_icon() if info is not None else None
@@ -356,8 +359,8 @@ def about_dialog(parent, update=None):
         issue_url=f"{REPO_URL}/issues", license_type=Gtk.License.MIT_X11,
         copyright="© 2026 Илья Ветошкин",
         developers=["Илья Ветошкин https://github.com/Wetoshkin"],
-        comments="Исправляет слова, набранные не в той раскладке, на Wayland: "
-                 "GNOME и KDE Plasma.",
+        comments="Исправляет слова, набранные не в той раскладке, на Wayland: GNOME, "
+                 "KDE Plasma, Sway, Hyprland, Xfce, MATE, Budgie, LXQt.",
         debug_info="Сбор сведений…", debug_info_filename="wayswitch-debug.txt")
     if update is not None:
         about.set_release_notes_version(update.version)

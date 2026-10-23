@@ -102,12 +102,23 @@ def test_text_typist_error_after_backspace_retries_typing():
         def type_text(self, text):
             if not self.failed:
                 self.failed = True
-                raise RuntimeError("D-Bus timeout")
+                raise RuntimeError("расширение перезапускалось")
             super().type_text(text)
 
     typist = Flaky()
     assert execute(_plan(), typist, FakeBackend(current=0)) == DONE
     assert typist.calls == [("backspace", 3), ("type", "abc")]
+
+
+def test_timeout_is_not_retried_to_avoid_double_typing():
+    class Slow(RecordingTextTypist):
+        def type_text(self, text):
+            super().type_text(text)
+            raise RuntimeError("Timeout was reached")
+
+    typist = Slow()
+    assert execute(_plan(), typist, FakeBackend(current=0)) == FAILED
+    assert typist.calls == [("backspace", 3), ("type", "abc")]  # без повтора
 
 
 def test_any_backend_exception_is_failed_not_raised():
@@ -226,3 +237,119 @@ def test_manual_fix_in_password_field_does_not_report_text(real):
 def test_status_reports_layout_alphabet(real):
     ctrl, *_ = make_ctrl(real, group=RU)
     assert ctrl.status()["layout"] == "ru"
+
+
+# --- второе ревью: правила на настоящих словарях ---------------------------------------
+
+@pytest.mark.parametrize("word", [
+    "ямб", "изб", "ромб", "ухаб", "горб", "судеб", "мелю", "мылю", "жарю", "парю", "пилю",
+    "делю", "колю", "мирю", "роню",
+])
+def test_punct_rule_leaves_real_word_endings(real, word):
+    ctrl, _b, _t, corrected = make_ctrl(real, group=RU)
+    type_word(ctrl, real[0], word + " ", RU)
+    assert corrected == [], corrected
+
+
+@pytest.mark.parametrize("word,expected", [("пирогб", "пирог,"), ("домю", "дом."),
+                                           ("рубю", "руб."), ("улю", "ул.")])
+def test_punct_rule_still_fixes(real, word, expected):
+    ctrl, _b, _t, corrected = make_ctrl(real, group=RU)
+    type_word(ctrl, real[0], word + " ", RU)
+    assert corrected and corrected[0][1] == expected
+
+
+@pytest.mark.parametrize("word", ["wtf", "brb", "cfg", "dst", "ctx", "ptr", "xkb"])
+def test_three_letter_latin_not_flipped_by_trigrams(real, word):
+    ctrl, _b, _t, corrected = make_ctrl(real, group=US)
+    type_word(ctrl, real[0], word + " ", US)
+    assert corrected == [], corrected
+
+
+@pytest.mark.parametrize("word", ["IDs", "DJs", "CDs", "TVs", "PCs"])
+def test_two_capitals_skips_plural_abbreviations(real, word):
+    ctrl, _b, _t, corrected = make_ctrl(real, group=US)
+    type_word(ctrl, real[0], word + " ", US)
+    assert corrected == [], corrected
+
+
+# --- второе ревью: ввод, жесты, конфликты ---------------------------------------------
+
+def test_touchpad_tap_counts_as_click():
+    assert kc.is_pointer_button(kc.BTN_TOUCH)
+    from wayswitch.keys import classify
+    assert classify("Touchpad", {kc.BTN_TOUCH}) == "pointer"
+
+
+def test_scroll_breaks_tap_gesture(real):
+    cfg = Config()
+    cfg.gesture.manual = "tap_key"
+    ctrl, _b, typist, corrected = make_ctrl(real, group=US, config=cfg)
+    type_word(ctrl, real[0], "ghbdtn", US)
+    ctrl.on_key(kc.KEY_LEFTCTRL, 1, 1)
+    ctrl.on_scroll()  # Ctrl+колесо — масштаб, а не жест
+    ctrl.on_key(kc.KEY_LEFTCTRL, 0, 1)
+    assert corrected == []
+
+
+def test_tap_key_respects_phrase_timeout(real):
+    now = {"t": 100.0}
+    cfg = Config()
+    cfg.gesture.manual = "tap_key"
+    ctrl, _b, _t, corrected = make_ctrl(real, group=US, config=cfg, clock=lambda: now["t"])
+    type_word(ctrl, real[0], "ghbdtn", US)
+    now["t"] += 3600
+    ctrl.on_key(kc.KEY_LEFTCTRL, 1, 1)
+    ctrl.on_key(kc.KEY_LEFTCTRL, 0, 1)
+    assert corrected == []  # через час старое слово не переворачиваем
+
+
+def test_own_escape_key_resets_buffer(real):
+    cfg = Config()
+    cfg.gesture.manual = "tap_key"
+    cfg.gesture.tap_key = "esc"
+    ctrl, *_ = make_ctrl(real, group=US, config=cfg)
+    type_word(ctrl, real[0], "ghbdtn", US)
+    ctrl.on_key(kc.KEY_ESC, 1, 1)
+    ctrl.on_key(kc.KEY_ESC, 0, 1)
+    assert ctrl.buffer.is_empty()
+
+
+@pytest.mark.parametrize("gesture", [
+    {"manual": "double_shift", "selection_key": "leftshift"},
+    {"manual": "pause_key", "selection_key": "pause"},
+    {"manual": "tap_key", "tap_key": "f8", "selection_key": "f8"},
+    {"manual": "double_shift", "selection_key": "f9", "pause_hotkey": "f9"},
+    {"manual": "tap_key", "tap_key": "f9", "pause_hotkey": "f9"},
+])
+def test_key_conflicts_rejected(gesture):
+    from wayswitch import config as cfgmod
+
+    cfg = cfgmod.Config()
+    for key, value in gesture.items():
+        setattr(cfg.gesture, key, value)
+    with pytest.raises(cfgmod.ConfigError):
+        cfgmod._validate(cfg)
+
+
+def test_retyped_word_is_not_undone(real):
+    """Стёрли исправленное «привет» и набрали его заново — это не откат."""
+    ctrl, _b, _t, corrected = make_ctrl(real, group=US)
+    km = real[0]
+    type_word(ctrl, km, "ghbdtn ", US)
+    assert corrected[-1][1] == "привет"
+    type_word(ctrl, km, "мир привет ", RU)
+    ctrl.manual_word()  # это ручной переворот нового слова, а не откат
+    assert ctrl.stats["undo"] == 0
+    assert "ghbdtn" not in ctrl.detector.exceptions
+
+
+def test_multiline_selection_is_refused(real):
+    class Sel(FakeBackend):
+        def get_selection(self):
+            return "ghbdtn\nvbh"
+
+    km, models = real
+    det = Detector(km, models, set(), SENSITIVITY["normal"])
+    ctrl = Controller(Config(), km, det, Sel(current=US), RecordingTypist())
+    assert not ctrl.fix_selection()

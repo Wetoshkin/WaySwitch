@@ -205,3 +205,26 @@ def test_compositor_backend_explains_missing_config(tmp_path):
 def test_json_roundtrip_of_sway_reply():
     # Ответ sway — JSON; парсер не должен спотыкаться о юникод в описаниях.
     assert json.loads(json.dumps({"xkb_layout_names": ["Русская"]}, ensure_ascii=False))
+
+
+# --- экран блокировки ------------------------------------------------------------------
+
+def test_locker_processes_detected():
+    from wayswitch.session import locker_running
+
+    assert locker_running(["bash\n", "swaylock\n"])
+    assert locker_running(["hyprlock"])
+    assert locker_running(["kscreenlocker_g"])
+    assert not locker_running(["firefox", "sway", "Hyprland"])
+
+
+def test_process_names_reads_own_comm(tmp_path):
+    import os
+
+    from wayswitch.session import process_names
+
+    (tmp_path / "123").mkdir()
+    (tmp_path / "123" / "comm").write_text("swaylock\n", encoding="utf-8")
+    (tmp_path / "self").mkdir()
+    uid = os.stat(tmp_path / "123").st_uid
+    assert process_names(str(tmp_path), uid=uid) == ["swaylock\n"]

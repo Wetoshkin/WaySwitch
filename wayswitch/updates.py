@@ -77,8 +77,10 @@ def pick_release(releases: list[dict], current: str) -> Release | None:
             continue
         if not is_newer(tag, current):
             continue
-        release = Release(tag.lstrip("vV"), str(item.get("html_url") or RELEASES_URL),
-                          str(item.get("body") or "")[:2000])
+        url = str(item.get("html_url") or "")
+        if not url.startswith(f"https://github.com/{REPO}/"):
+            url = RELEASES_URL  # ссылку открываем в браузере — только свою
+        release = Release(tag.lstrip("vV"), url, str(item.get("body") or "")[:2000])
         if best is None or parsed > best[0]:
             best = (parsed, release)
     return best[1] if best else None
@@ -102,7 +104,9 @@ def save_cache(data: dict, path: Path | None = None) -> None:
     path = path or cache_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        tmp = path.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, path)
     except OSError:
         pass  # кэш — оптимизация, без него просто спросим ещё раз
 
@@ -153,6 +157,14 @@ def check(current: str, *, force: bool = False, now: float | None = None,
         release = fetch(current)
     except UpdateError:
         # Сети нет — не запоминаем «проверено»: спросим при следующем запуске.
+        # Явную проверку (кнопка «Проверить») об ошибке надо известить.
+        if force:
+            raise
+        # Уже известную новую версию не забываем из-за пропавшей сети.
+        cached = cache.get("latest")
+        if isinstance(cached, dict) and is_newer(str(cached.get("version", "")), current):
+            return Release(str(cached["version"]), str(cached.get("url") or RELEASES_URL),
+                           str(cached.get("notes") or ""))
         return None
     entry = {"checked_at": now}
     if "notified" in cache:

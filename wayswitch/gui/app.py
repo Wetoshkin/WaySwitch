@@ -79,6 +79,7 @@ def main(argv: list[str] | None = None) -> int:
             self._main = None
             self._onboarding = None
             self._stopping = False
+            self._activated_once = False
             self._was_running = False
             self.proxy = DaemonProxy(self._on_status, self._on_corrected)
             self.tray = StatusNotifier({
@@ -116,8 +117,13 @@ def main(argv: list[str] | None = None) -> int:
             GLib.timeout_add_seconds(UPDATE_FIRST_DELAY_SEC, self._periodic_update)
 
         def do_activate(self):
-            if not tray_only or self._main is not None:
-                self.show_window()
+            # Процесс значка (--tray) при своём старте окно не показывает. Все
+            # следующие активации — это щелчок по WaySwitch в меню приложений
+            # (второй экземпляр передаёт activate сюда): окно нужно открыть.
+            if tray_only and not self._activated_once:
+                self._activated_once = True
+                return
+            self.show_window()
 
         # --- окна ----------------------------------------------------------------
 
@@ -199,7 +205,10 @@ def main(argv: list[str] | None = None) -> int:
         # --- демон ---------------------------------------------------------------
 
         def _on_status(self, status):
-            if status is None and self._was_running and not self._stopping:
+            if status is None and self._was_running and not self._stopping \
+                    and autostart.is_service_enabled():
+                # Выключенный человеком автозапуск («disable --now») и выход из
+                # сеанса — не авария, уведомлять не о чем.
                 self._notify_stopped()
             self._was_running = status is not None
             self.tray.update(status, self.update.version if self.update else None)
@@ -252,6 +261,7 @@ def main(argv: list[str] | None = None) -> int:
                 return
 
             def finished(result):
+                self.update_error = isinstance(result, Exception)
                 if not isinstance(result, Exception):
                     self.update = result
                     self._update_checked = True
@@ -273,6 +283,8 @@ def main(argv: list[str] | None = None) -> int:
             self.send_notification("update", note)
 
         def update_text(self, checked: bool = False) -> str:
+            if getattr(self, "update_error", False):
+                return "Не удалось проверить: нет связи с GitHub"
             return update_text(self.update, checked or self._update_checked)
 
         def open_release(self):

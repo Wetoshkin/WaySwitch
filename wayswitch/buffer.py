@@ -74,6 +74,14 @@ class InputBuffer:
 
     # --- сброс ----------------------------------------------------------------
 
+    def expire(self, now: float) -> bool:
+        """Сбросить фразу, если с последнего нажатия прошло больше phrase_timeout."""
+        if self._keys and self._last_time is not None \
+                and now - self._last_time > self.phrase_timeout:
+            self._keys.clear()
+            return True
+        return False
+
     def is_empty(self) -> bool:
         return not self._keys
 

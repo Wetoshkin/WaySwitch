@@ -68,6 +68,9 @@ BTN_LEFT = 0x110
 BTN_RIGHT = 0x111
 BTN_MIDDLE = 0x112
 BTN_TASK = 0x117
+BTN_TOUCH = 0x14a
+REL_HWHEEL, REL_WHEEL, REL_WHEEL_HI_RES, REL_HWHEEL_HI_RES = 6, 8, 11, 12
+WHEEL_AXES = frozenset({REL_HWHEEL, REL_WHEEL, REL_WHEEL_HI_RES, REL_HWHEEL_HI_RES})
 
 # Наборы клавиш, которыми оперирует буфер и контроллер.
 SHIFT_KEYS = frozenset({KEY_LEFTSHIFT, KEY_RIGHTSHIFT})
@@ -85,6 +88,8 @@ ALT_KEYS = frozenset({KEY_LEFTALT, KEY_RIGHTALT})
 META_KEYS = frozenset({KEY_LEFTMETA, KEY_RIGHTMETA})
 COMMAND_MODIFIERS = CTRL_KEYS | ALT_KEYS | META_KEYS
 MODIFIER_KEYS = SHIFT_KEYS | COMMAND_MODIFIERS
+# Клавиши-«замки»: каретку не двигают и текст не печатают.
+LOCK_KEYS = frozenset({KEY_CAPSLOCK, KEY_NUMLOCK, KEY_SCROLLLOCK, KEY_PAUSE})
 DIGIT_KEYS = frozenset(range(KEY_1, KEY_0 + 1))
 # Клавиши, которые входят в слово помимо букв: цифры, дефис, равно, слеш
 # (в RU-раскладке слеш набирает "." / "," и нужен для раннего срабатывания
@@ -105,8 +110,14 @@ RESET_KEYS = frozenset(
 
 
 def is_pointer_button(code: int) -> bool:
-    """Кнопка мыши/тачпада: BTN_LEFT..BTN_TASK."""
-    return BTN_LEFT <= code <= BTN_TASK
+    """Кнопка мыши/тачпада или касание: BTN_LEFT..BTN_TASK, BTN_TOUCH.
+
+    Тап по тачпаду и касание сенсорного экрана приходят в evdev как
+    BTN_TOUCH — щелчок из них делает уже композитор. Каретка могла уехать,
+    поэтому касание тоже сбрасывает набранное слово (лучше не исправить, чем
+    стереть текст в другом месте).
+    """
+    return BTN_LEFT <= code <= BTN_TASK or code == BTN_TOUCH
 
 
 # Имена клавиш для конфига и разбора системного хоткея.

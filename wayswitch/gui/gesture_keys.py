@@ -8,7 +8,14 @@
 
 from __future__ import annotations
 
-from wayswitch.keycodes import GESTURE_KEY_NAMES, KEY_BACKSPACE, KEY_ESC, key_name
+from wayswitch.keycodes import (
+    GESTURE_KEY_NAMES,
+    KEY_BACKSPACE,
+    KEY_ENTER,
+    KEY_ESC,
+    KEY_KPENTER,
+    key_name,
+)
 
 _SIDES = {
     "leftctrl": "Левый Ctrl", "rightctrl": "Правый Ctrl",
@@ -47,6 +54,7 @@ def capture(evdev_code: int) -> tuple[str, str]:
 
     ("cancel", "") — Esc, закрыть без изменений;
     ("clear", "") — Backspace, жест «Нажатие клавиши» выключается;
+    ("done", "") — Enter, как кнопка «Готово» (без мыши);
     ("key", имя) — подходящая клавиша;
     ("reject", подсказка) — буква, цифра или иная неподходящая клавиша.
     """
@@ -54,6 +62,8 @@ def capture(evdev_code: int) -> tuple[str, str]:
         return "cancel", ""
     if evdev_code == KEY_BACKSPACE:
         return "clear", ""
+    if evdev_code in (KEY_ENTER, KEY_KPENTER):
+        return "done", ""
     name = key_name(evdev_code)
     if is_allowed(name):
         return "key", name

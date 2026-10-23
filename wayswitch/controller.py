@@ -36,6 +36,12 @@ log = logging.getLogger("wayswitch")
 
 _UNSET = object()  # «кэш ещё не заполнялся»: None значило бы «файла нет»
 RELEASE_WAIT = 0.3  # сколько ждать отпускания физических клавиш перед печатью
+SELECTION_RELEASE_WAIT = 2.0  # «Исправить выделенное» с сочетания: ждать отпускания
+SELECTION_MAX = 300  # больше — это уже не опечатка во фразе
+
+
+def _clip(text: str, limit: int = 40) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 SPACE = KeyPress(kc.KEY_SPACE)
 
 
@@ -54,6 +60,10 @@ class LastFix:
     target_keys: list[KeyPress]
     group_before: int
     time: float
+    # Где в буфере кончалось исправленное слово (без хвостовых пробелов).
+    # Человек мог стереть его и набрать то же слово заново — это уже не
+    # «откатить исправление», а новое слово.
+    end: int = -1
 
 
 class Controller:
@@ -235,6 +245,8 @@ class Controller:
                 self.buffer.note_press(code, device_id)
                 if code not in self._gesture_keys:
                     self._abort_requested = True
+            elif value == 2 and code not in self._gesture_keys:
+                self._abort_requested = True  # зажатая клавиша печатает и сейчас
             elif value == 0:
                 self.buffer.note_release(code, device_id)
             if gesture:
@@ -244,10 +256,7 @@ class Controller:
                 and not (self.paused or self.locked):
             # Своя клавиша «Исправить выделенное» (gesture.selection_key):
             # одиночное нажатие, как у жеста последнего слова. В буфер не идёт.
-            if value == 1:
-                self.buffer.note_press(code, device_id)
-            elif value == 0:
-                self.buffer.note_release(code, device_id)
+            self._note_own_key(code, value, device_id)
             if selection_tap:
                 self.schedule(self.fix_selection)
             return
@@ -258,10 +267,7 @@ class Controller:
             # стало бы нечего. Но зажатой её учитываем: иначе Ctrl+V при жесте
             # на левом Ctrl лёг бы в буфер буквой «v», а Shift-жест терял бы
             # регистр заглавных.
-            if value == 1:
-                self.buffer.note_press(code, device_id)
-            elif value == 0:
-                self.buffer.note_release(code, device_id)
+            self._note_own_key(code, value, device_id)
             if gesture:
                 self._dispatch_gesture(gesture)
             return
@@ -292,7 +298,31 @@ class Controller:
         elif event.kind == "letter":
             self._on_letter(event.keys, device_id, code)
 
+    def _note_own_key(self, code: int, value: int, device_id: int) -> None:
+        """Своя клавиша жеста: в буфер не идёт, но зажатой учитывается.
+
+        Если это клавиша, которая сама по себе сдвигает каретку или уводит
+        фокус (Esc, Insert, F-клавиши, Menu), набранное слово больше не на
+        экране под курсором — буфер сбрасываем, как сделал бы feed().
+        Модификаторы и «замки» (CapsLock, ScrollLock, NumLock, Pause) каретку
+        не двигают.
+        """
+        if value == 1:
+            self.buffer.note_press(code, device_id)
+            if code not in kc.MODIFIER_KEYS and code not in kc.LOCK_KEYS:
+                self.buffer.reset()
+                self.context.clear()
+        elif value == 0:
+            self.buffer.note_release(code, device_id)
+
     def _dispatch_gesture(self, gesture: str) -> None:
+        try:
+            self._dispatch_gesture_unsafe(gesture)
+        except Exception as exc:  # noqa: BLE001 — бэкенд/D-Bus: не ронять чтение клавиатуры
+            log.error("ручное исправление не выполнено: %s", exc)
+            self.busy = False
+
+    def _dispatch_gesture_unsafe(self, gesture: str) -> None:
         if self._pending:
             # Фикс уже запланирован, но ещё не исполнен (третий тап пришёл
             # раньше idle): жест обработаем после него, на обновлённом буфере.
@@ -310,6 +340,14 @@ class Controller:
         self.context.clear()
         # Клик посреди тапа жеста — не жест: иначе Ctrl+клик переворачивал бы слово.
         self.gesture.reset()
+        if self._selection_gesture is not None:
+            self._selection_gesture.reset()
+
+    def on_scroll(self) -> None:
+        """Колесо мыши: слово не трогаем, но тап-жест разрываем (Ctrl+колесо — масштаб)."""
+        self.gesture.reset()
+        if self._selection_gesture is not None:
+            self._selection_gesture.reset()
 
     def on_layout_changed(self, index: int, external: bool) -> None:
         if external:
@@ -397,8 +435,7 @@ class Controller:
         if self.probe is not None:
             self.probe.poke()  # пусть свежий снимок фокуса будет уже к делу
         if self._edit_guard_active():
-            log.debug("слово %r: только что была правка текста, пропускаю",
-                      self.detector.decode(keys, current))
+            log.debug("слово пропущено: только что была правка текста")
             self.context.append(None)
             return
         blocked = self._focus_blocks()
@@ -496,6 +533,9 @@ class Controller:
         if groups is None:
             return False
         current, other = groups
+        # Без feed() (жест «Нажатие клавиши», вызов по D-Bus) таймаут фразы
+        # иначе не проверяется: через час простоя перевернулось бы старое слово.
+        self.buffer.expire(self.clock())
         word, tail = self.buffer.last_word_with_tail()
         if not word:
             if not self.dry_run:
@@ -517,6 +557,7 @@ class Controller:
                     return
                 self._last_fix = None
                 self.stats["undo"] += 1
+                self._emit_status()
                 letters = "".join(c for c in original if c.isalpha() or c in "-'").lower()
                 if letters:
                     self.detector.exceptions.add(letters)
@@ -542,6 +583,8 @@ class Controller:
         while end > 0 and phrase[end - 1] == SPACE:
             end -= 1
         n = len(last.target_keys)
+        if last.end >= 0 and end != last.end:
+            return None
         if n and end >= n and phrase[end - n:end] == last.target_keys:
             return list(last.target_keys)
         return None
@@ -566,6 +609,12 @@ class Controller:
         if not text:
             log.info("исправить выделенное: ничего не выделено")
             return False
+        if "\n" in text or "\r" in text or len(text) > SELECTION_MAX:
+            # Перевод строки ушёл бы клавишей Enter — в мессенджере это
+            # «отправить» посреди текста. Длинный текст печатался бы минутами.
+            log.info("исправить выделенное: выделено больше одной строки или "
+                     "больше %d символов", SELECTION_MAX)
+            return False
         groups = self._groups()
         if groups is None:
             return False
@@ -573,19 +622,24 @@ class Controller:
         if converted is None:
             return False
         new_text, target = converted
+        # Каждый символ должен быть в целевой раскладке: и uinput, и
+        # расширение GNOME печатают клавишами этой раскладки, а символ без
+        # клавиши (эмодзи, «—») пропал бы молча — выделение уже заменено.
+        keys = keys_for_typing(new_text, target, self.keymap, self.buffer.caps)
+        if keys is None:
+            log.warning("исправить выделенное: есть символы, которые не напечатать")
+            return False
         steps: list = [ReleaseModifiers(), SwitchLayout(target)]
-        if isinstance(self.typist, TextTypist):
-            steps.append(Type(new_text, []))
-        else:
-            keys = keys_for_typing(new_text, target, self.keymap, self.buffer.caps)
-            if keys is None:
-                log.warning("исправить выделенное: есть символы, которые не напечатать")
-                return False
-            steps.append(Type(new_text, keys))
+        steps.append(Type(new_text, [] if isinstance(self.typist, TextTypist) else keys))
         if self.dry_run:
             log.info("[dry-run] выделенное → %d символов", len(new_text))
             return False
         secret = self._password_focus()
+        # Вызов с системного сочетания (Ctrl+Alt+…) приходит, пока клавиши
+        # ещё зажаты: буквы превратились бы в команды. Ждём отпускания всех.
+        if not self._wait_all_released(SELECTION_RELEASE_WAIT):
+            log.info("исправить выделенное: клавиши сочетания не отпущены")
+            return False
         self.busy = True
         try:
             # Прерывать нечего: стирающих шагов нет, а наполовину набранная
@@ -604,8 +658,18 @@ class Controller:
         self.stats["manual"] += 1
         self._last_fix = None
         if self.on_corrected and not secret:
-            self.on_corrected(text, new_text, True)
+            # Наружу — только начало: сигнал видят все программы сеанса.
+            self.on_corrected(_clip(text), _clip(new_text), True)
         self._emit_status()
+        return True
+
+    def _wait_all_released(self, timeout: float) -> bool:
+        deadline = time.monotonic() + timeout
+        while self.buffer.held_physical():
+            if time.monotonic() > deadline:
+                return False
+            self.pump()
+            self.sleep(0.01)
         return True
 
     def manual_phrase(self) -> bool:
@@ -788,7 +852,8 @@ class Controller:
                 self._last_fix = None
         else:
             self.stats["corrections"] += 1
-            self._last_fix = LastFix(list(keys), word_keys, group_before, self.clock())
+            self._last_fix = LastFix(list(keys), word_keys, group_before, self.clock(),
+                                     end=len(self.buffer.phrase()) - tail)
         if self.on_corrected and not secret:
             # Из поля пароля текст наружу (D-Bus, окно) не отдаём.
             self.on_corrected(original, text.rstrip(), manual)

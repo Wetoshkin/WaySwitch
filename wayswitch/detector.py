@@ -39,6 +39,10 @@ PUNCT_FROM_OTHER = ",."
 # часты («дую» → «ду.», «сталью» → «сталь.»), а сокращения с точкой
 # («руб.», «ул.», «г.») кончаются согласной.
 _NOT_BEFORE_DOT = frozenset("аеёиоуыэюяьъй")
+# Сокращения, после которых точка ставится всегда.
+ABBREVIATIONS = frozenset({"руб", "коп", "ул", "г", "гг", "др", "стр", "см", "тыс", "млн",
+                           "млрд", "т", "пр", "проч", "д", "кв", "обл", "р", "ед", "шт",
+                           "мин", "сек", "мес", "англ", "рус", "напр", "доп", "тел"})
 
 # Частицы. По правилам «-то», «-либо», «-нибудь», «-ка», «-таки» пишутся через
 # дефис, «бы», «же», «ли» — раздельно. Но «-ка», «-то», «бы», «же» совпадают с
@@ -124,6 +128,18 @@ class LanguageModel:
 
     def is_word(self, word: str) -> bool:
         return word.lower() in self.words
+
+    @cached_property
+    def endings(self) -> frozenset[str]:
+        """Обычные окончания языка: две последние буквы хотя бы трёх слов словаря.
+
+        Порог отсекает случайные слова («кгб», «люб»), иначе «пирогб» и
+        «сделаюб» не исправлялись бы.
+        """
+        from collections import Counter
+
+        counts = Counter(w[-2:] for w in self.words if len(w) >= 3)
+        return frozenset(e for e, n in counts.items() if n >= 3)
 
     @cached_property
     def _sorted_words(self) -> list[str]:
@@ -276,9 +292,19 @@ class Detector:
         full = self.keymap.decode(keys, current_group).lower()
         if not stem or any(c not in letters for c in stem):
             return None
+        if model.is_word(full):
+            return None
+        if mark == "." and stem in ABBREVIATIONS:
+            return mark  # «рубю» → «руб.», «улю» → «ул.»
         if mark == "." and stem[-1] in _NOT_BEFORE_DOT:
             return None
-        if not model.is_word(stem) or model.is_word(full):
+        if not model.is_word(stem) or len(stem) < 3:
+            return None  # «изб» → «из,» — двухбуквенная основа слишком случайна
+        # Последние две буквы — частое окончание настоящих слов («ромб»,
+        # «горб», «мелю», «парю»): тогда это слово, которого просто нет в
+        # словаре, а не знак из другой раскладки. «пирогб» («гб») и
+        # «сделаюб» («юб») так не кончается ни одно слово.
+        if full[-2:] in model.endings:
             return None
         return mark
 
@@ -330,6 +356,8 @@ class Detector:
             return None
         if not (text[0].isupper() and text[1].isupper() and text[2:].islower()):
             return None
+        if len(text) < 4:
+            return None  # «IDs», «PCs», «TVs» — сокращение во множественном числе
         fixed = text[0] + text[1:].lower()
         if not self.models[lang].is_word(fixed.lower()):
             return None
@@ -435,6 +463,10 @@ class Detector:
         # 6–7. N-граммы.
         if not b.valid:
             return keep("b-invalid")
+        if len(b.core) <= 3:
+            # Три буквы триграммам не по силам: «cfg», «wtf», «xkb» выглядели
+            # бы русскими словами. Короткое слово — только по словарю (выше).
+            return keep("short-ngram")
         b.score = self.models[b.lang].score(b.core)
         a.score = self.models[a.lang].score(a.core) if a.valid else None
         margin = sens.margin * (2.0 if context == (a.lang, a.lang) else 1.0)

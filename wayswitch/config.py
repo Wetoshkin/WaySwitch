@@ -199,11 +199,21 @@ def _validate(cfg: Config) -> None:
         raise ConfigError(
             f"tap_key: недопустимая клавиша жеста {ge.tap_key!r}, "
             f"можно: leftctrl, rightctrl, scrolllock, pause, f1…f12 и подобные")
-    if ge.selection_key:
-        if ge.selection_key.lower() not in GESTURE_KEY_NAMES:
+    sel, tap, pause = (ge.selection_key.lower(), ge.tap_key.lower(),
+                       ge.pause_hotkey.lower())
+    if sel:
+        if sel not in GESTURE_KEY_NAMES:
             raise ConfigError(f"selection_key: недопустимая клавиша {ge.selection_key!r}")
-        if ge.manual == "tap_key" and ge.selection_key.lower() == ge.tap_key.lower():
+        if ge.manual == "tap_key" and sel == tap:
             raise ConfigError("selection_key совпадает с клавишей жеста tap_key")
+        if ge.manual == "double_shift" and sel in ("leftshift", "rightshift"):
+            raise ConfigError("selection_key: Shift уже занят жестом «двойной Shift»")
+        if ge.manual == "pause_key" and sel == "pause":
+            raise ConfigError("selection_key: Pause уже занята жестом «клавиша Pause»")
+        if pause and sel == pause:
+            raise ConfigError("selection_key совпадает с клавишей паузы")
+    if pause and ge.manual == "tap_key" and tap == pause:
+        raise ConfigError("tap_key совпадает с клавишей паузы")
     if ge.pause_hotkey and ge.pause_hotkey.lower() not in KEY_NAMES:
         raise ConfigError(f"pause_hotkey: неизвестная клавиша {ge.pause_hotkey!r}")
     if not 0 <= t.settle_ms <= 2000:
