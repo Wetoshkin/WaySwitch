@@ -117,8 +117,15 @@ def run_checks() -> list[Check]:
 
     if desktop == GNOME:
         def gnome_tools():
-            from wayswitch.backends.gnome_shell import shell_extension_present
-            return shell_extension_present(), ""
+            from wayswitch.backends.gnome_shell import extension_version, shell_extension_present
+            if not shell_extension_present():
+                return False, "расширение не запущено"
+            version = extension_version()
+            if version is not None and version < 2:
+                # Shell держит загруженной старую копию до перелогина.
+                return False, ("работает старая версия расширения — выйдите из сеанса "
+                               "и войдите снова")
+            return True, ""
         # На GNOME 46+ без расширения автоисправления нет: IBus меняет движок,
         # но не раскладку компоузитора. Поэтому проверка обязательная.
         checks.append(_check("Расширение GNOME Shell", gnome_tools,
@@ -214,14 +221,20 @@ def run_checks() -> list[Check]:
             specs = read_sources()
         elif desktop == SWAY:
             from wayswitch.backends import sway
-            names, _i = sway.keyboard_state(
-                sway.SwayIpc(sway.find_socket() or "").request(sway.GET_INPUTS))
+            path = sway.find_socket()
+            if path is None:
+                return False, "sway не отвечает (сокет не найден)"
+            names, _i = sway.keyboard_state(sway.SwayIpc(path).request(sway.GET_INPUTS))
             specs = sway.specs_from_names(names)
         elif desktop == HYPRLAND:
             from wayswitch.backends import hyprland, xkbnames
-            ipc = hyprland.HyprIpc(hyprland.find_dir() or "")
+            directory = hyprland.find_dir()
+            if directory is None:
+                return False, "Hyprland не отвечает (сокет не найден)"
+            ipc = hyprland.HyprIpc(directory)
             specs = xkbnames.parse_layout_list(
-                ipc.json("getoption input:kb_layout").get("str", ""))
+                hyprland._clean(ipc.json("getoption input:kb_layout").get("str", "")),
+                hyprland._clean(ipc.json("getoption input:kb_variant").get("str", "")))
         else:
             from wayswitch.backends import compositor
             specs, _o, _w = compositor.read_xkb()
@@ -275,6 +288,23 @@ def run_checks() -> list[Check]:
         return bool(found), found[0] if found else ""
     checks.append(_check("systemd user-сервис", unit,
                          "sudo packaging/install.sh", required=False))
+
+    def service_running():
+        import subprocess
+        try:
+            out = subprocess.run(["systemctl", "--user", "is-active", "wayswitch"],
+                                 capture_output=True, text=True, timeout=5).stdout.strip()
+        except (OSError, subprocess.SubprocessError) as exc:
+            return False, f"systemctl недоступен ({exc})"
+        return out == "active", out
+    # Sway, Hyprland без uwsm и сеансы на labwc/Wayfire не поднимают
+    # graphical-session.target — включённая служба там сама не стартует.
+    hint = ("systemctl --user start wayswitch; для автозапуска добавьте в конфиг "
+            + ("exec-once = wayswitch run" if desktop == HYPRLAND else "exec wayswitch run")
+            if desktop in (SWAY, HYPRLAND) else
+            "systemctl --user enable --now wayswitch; журнал: journalctl --user -u wayswitch")
+    checks.append(_check("Служба WaySwitch работает", service_running, hint,
+                         required=False, key="service"))
 
     if desktop == GNOME:
         def tools():

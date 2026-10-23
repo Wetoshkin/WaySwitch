@@ -795,6 +795,7 @@ class Controller:
             log.error("исправление отменено: бэкенд %s ошибается насчёт раскладки "
                       "(включите расширение GNOME Shell)", getattr(self.backend, "name", "?"))
             return False
+        switch = switch or bool(getattr(self.backend, "always_switch", False))
         plan = plan_fix(len(keys) + tail, text, target_group, self.keymap, self.buffer.caps,
                         switch=switch)
         if plan is None:

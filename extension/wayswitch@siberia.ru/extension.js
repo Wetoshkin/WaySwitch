@@ -1,7 +1,9 @@
 // Расширение WaySwitch: отдаёт демону индекс текущей раскладки, переключает её
-// синхронно, печатает произвольные keysym-ы через виртуальное устройство
-// Clutter (независимо от раскладки, поэтому демону не нужно ждать смены) и
-// отдаёт выделенный текст для «Исправить выделенное».
+// синхронно, печатает keysym-ы через виртуальное устройство Clutter и отдаёт
+// выделенный текст для «Исправить выделенное». Keysym печатается, только
+// если он есть в текущей раскладке (mutter ищет keycode в активной группе),
+// поэтому демон сначала переключает раскладку и проверяет, что каждый символ
+// в ней есть.
 //
 // Печатать, стирать и читать выделение может только сам демон WaySwitch
 // (владелец имени ru.siberia.WaySwitch на сессионной шине): иначе любое
@@ -101,6 +103,21 @@ export default class WaySwitchExtension extends Extension {
     // Методы с суффиксом Async получают invocation: по нему видно, кто зовёт.
 
     _allowed(invocation) {
+        // watch_name отвечает асинхронно: демон мог занять имя и сразу
+        // позвать нас, а _daemon ещё не заполнен — спрашиваем шину сами.
+        // Пока демон не запущен, имя может занять любой процесс без песочницы,
+        // но такому процессу и так доступен uinput — нового он не получает.
+        if (!this._daemon) {
+            try {
+                const reply = Gio.DBus.session.call_sync('org.freedesktop.DBus',
+                    '/org/freedesktop/DBus', 'org.freedesktop.DBus', 'GetNameOwner',
+                    new GLib.Variant('(s)', [DAEMON_NAME]), null,
+                    Gio.DBusCallFlags.NONE, 500, null);
+                this._daemon = reply.deepUnpack()[0];
+            } catch (e) {
+                this._daemon = null;
+            }
+        }
         if (this._daemon && invocation.get_sender() === this._daemon)
             return true;
         invocation.return_dbus_error('org.freedesktop.DBus.Error.AccessDenied',

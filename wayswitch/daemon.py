@@ -12,7 +12,7 @@ from wayswitch import a11y as cfgmod_a11y
 from wayswitch import config as cfgmod
 from wayswitch.actuator import UInputTypist
 from wayswitch.backends.base import BackendError
-from wayswitch.backends.desktop import session_summary
+from wayswitch.backends.desktop import detect_desktop, session_summary
 from wayswitch.backends.select import choose_backend
 from wayswitch.controller import Controller
 from wayswitch.dbus_service import DaemonService
@@ -23,6 +23,10 @@ from wayswitch.session import SessionGuard
 from wayswitch.sound import ensure_and_play
 
 log = logging.getLogger("wayswitch")
+
+STARTUP_ATTEMPTS = 12
+STARTUP_DELAY = 5
+RESTART = 75  # не в RestartPreventExitStatus: systemd перезапустит службу
 
 
 def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
@@ -36,14 +40,22 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     except OSError as e:
         log.error("не открыть /dev/uinput: %s (правило udev? см. wayswitch doctor)", e)
         return 1
-    try:
-        backend = choose_backend(config.backend.prefer, typist, config.typing.settle_ms,
-                                 track_hotkey=config.backend.track_hotkey)
-    except BackendError as e:
-        # Перезапуск не поможет: среда та же. Код 4 — в RestartPreventExitStatus.
-        log.error("%s. Подробности: wayswitch doctor", e)
-        typist.close()
-        return 4
+    # При входе служба может стартовать раньше, чем KWin опубликовал раскладки
+    # или Shell включил расширение: даём среде минуту, прежде чем сдаться.
+    backend = None
+    for attempt in range(STARTUP_ATTEMPTS):
+        try:
+            backend = choose_backend(config.backend.prefer, typist, config.typing.settle_ms,
+                                     track_hotkey=config.backend.track_hotkey)
+            break
+        except BackendError as e:
+            if attempt == STARTUP_ATTEMPTS - 1:
+                # Перезапуск не поможет: среда та же. Код 4 — в RestartPreventExitStatus.
+                log.error("%s. Подробности: wayswitch doctor", e)
+                typist.close()
+                return 4
+            log.info("бэкенд пока недоступен (%s), повтор через %d с", e, STARTUP_DELAY)
+            time.sleep(STARTUP_DELAY)
     log.info("среда: %s", session_summary())
     log.info("бэкенд раскладки: %s, источники: %s", backend.name,
              [s.xkb_id for s in backend.layouts()])
@@ -104,6 +116,24 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         nonlocal exit_code
         exit_code = code
         loop.quit()
+
+    def restart(reason: str) -> None:
+        """Выйти с кодом RESTART: systemd (Restart=on-failure) поднимет службу
+        заново, и она выберет бэкенд и раскладки с нуля."""
+        log.info("перезапуск: %s", reason)
+        on_fatal(RESTART)
+
+    # Список раскладок поменялся — индексы сдвинулись, keymap устарел.
+    backend.on_layouts_changed = lambda: restart("список раскладок изменился")
+    if backend.name in ("ibus", "hotkey") and detect_desktop() == "gnome":
+        # Стартовали раньше расширения GNOME Shell: когда оно появится —
+        # перейти на него (без него на GNOME 46+ автоисправления нет).
+        from gi.repository import Gio
+
+        from wayswitch.backends.gnome_shell import BUS_NAME as SHELL_NAME
+
+        Gio.bus_watch_name(Gio.BusType.SESSION, SHELL_NAME, Gio.BusNameWatcherFlags.NONE,
+                           lambda *_: restart("появилось расширение GNOME Shell"), None)
 
     service: DaemonService | None = None
     # Сведения о фокусе (приложение, поле пароля) нужны только автоисправлению

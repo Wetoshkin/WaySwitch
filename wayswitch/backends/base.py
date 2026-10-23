@@ -15,6 +15,16 @@ class BackendError(RuntimeError):
 class LayoutBackend(ABC):
     name = "abstract"
     supports_auto = False  # можно ли доверять current() для автоисправления
+    # Переключать раскладку перед каждой печатью, даже «на ту же»: в Sway и
+    # Hyprland у каждого устройства своя группа, и наша виртуальная
+    # клавиатура могла остаться в старой.
+    always_switch = False
+    # Колбэк «список раскладок изменился» — демон перезапускается.
+    on_layouts_changed = None
+
+    def layouts_changed(self) -> None:
+        if self.on_layouts_changed is not None:
+            self.on_layouts_changed()
 
     @abstractmethod
     def layouts(self) -> list[LayoutSpec]: ...

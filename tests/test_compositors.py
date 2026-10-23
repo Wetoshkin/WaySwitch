@@ -183,7 +183,7 @@ def test_wayfire_ini(tmp_path):
 
 def test_compositor_backend_switches_with_toggle(tmp_path):
     env = {"XDG_CONFIG_HOME": str(tmp_path), "XKB_DEFAULT_LAYOUT": "us,ru",
-           "XKB_DEFAULT_OPTIONS": "grp:alt_shift_toggle"}
+           "XKB_DEFAULT_OPTIONS": "grp:alt_shift_toggle", "XDG_RUNTIME_DIR": str(tmp_path)}
     typist = RecordingTypist()
     backend = compositor.CompositorBackend(typist, settle_ms=0, env=env)
     assert backend.supports_auto is False  # счётчику автоисправление не доверяем
@@ -228,3 +228,18 @@ def test_process_names_reads_own_comm(tmp_path):
     (tmp_path / "self").mkdir()
     uid = os.stat(tmp_path / "123").st_uid
     assert process_names(str(tmp_path), uid=uid) == ["swaylock\n"]
+
+
+def test_compositor_toggle_any_order_and_side(tmp_path):
+    env = {"XDG_CONFIG_HOME": str(tmp_path), "XKB_DEFAULT_LAYOUT": "us,ru",
+           "XKB_DEFAULT_OPTIONS": "grp:alt_shift_toggle", "XDG_RUNTIME_DIR": str(tmp_path)}
+    backend = compositor.CompositorBackend(RecordingTypist(), settle_ms=0, env=env)
+    # Shift, затем правый Alt — XKB переключает и так.
+    backend.observe_physical(kc.KEY_LEFTSHIFT, 1)
+    backend.observe_physical(kc.KEY_RIGHTALT, 1)
+    backend.observe_physical(kc.KEY_RIGHTALT, 0)
+    backend.observe_physical(kc.KEY_LEFTSHIFT, 0)
+    assert backend.current() == 1
+    # Перезапуск службы посреди сеанса: счётчик не сбрасывается в 0.
+    again = compositor.CompositorBackend(RecordingTypist(), settle_ms=0, env=env)
+    assert again.current() == 1

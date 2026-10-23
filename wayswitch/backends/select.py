@@ -17,6 +17,7 @@ import logging
 
 from wayswitch.backends.base import BackendError, LayoutBackend
 from wayswitch.backends.desktop import (
+    CINNAMON,
     COMPOSITOR_DESKTOPS,
     HYPRLAND,
     KDE,
@@ -35,6 +36,9 @@ BACKEND_ORDERS = {
     SWAY: ["sway"],
     HYPRLAND: ["hyprland"],
     **{d: ["compositor", "hotkey"] for d in COMPOSITOR_DESKTOPS},
+    # Cinnamon на Wayland — свой композитор (muffin), не labwc/Wayfire:
+    # раскладки и сочетание — из gsettings, как в GNOME. Поддержка экспериментальная.
+    CINNAMON: ["hotkey", "compositor"],
 }
 
 
