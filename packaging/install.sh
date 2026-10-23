@@ -103,9 +103,22 @@ else
     echo "   gsettings не найден — настройте toolkit-accessibility вручную"
 fi
 
-echo "== Ярлык"
-install -m 644 "$SRC/packaging/ru.siberia.WaySwitch.desktop" /usr/local/share/applications/ 2>/dev/null \
-    || { mkdir -p /usr/local/share/applications; install -m 644 "$SRC/packaging/ru.siberia.WaySwitch.desktop" /usr/local/share/applications/; }
+echo "== Значок и ярлык"
+ICON_DIR=/usr/local/share/icons/hicolor/scalable/apps
+mkdir -p "$ICON_DIR" /usr/local/share/applications
+install -m 644 "$SRC/packaging/icons/ru.siberia.WaySwitch.svg" "$ICON_DIR/ru.siberia.WaySwitch.svg"
+# Имя записи совпадает с APP_ID окна (ru.siberia.WaySwitch.Settings): иначе
+# GNOME не связывает запущенное окно с ярлыком и рисует заглушку вместо значка.
+install -m 644 "$SRC/packaging/ru.siberia.WaySwitch.Settings.desktop" \
+    /usr/local/share/applications/ru.siberia.WaySwitch.Settings.desktop
+# Старое имя (до 2.0) — убрать, иначе в списке приложений две записи.
+rm -f /usr/local/share/applications/ru.siberia.WaySwitch.desktop
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -f -t /usr/local/share/icons/hicolor >/dev/null 2>&1 || true
+fi
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database /usr/local/share/applications >/dev/null 2>&1 || true
+fi
 
 echo "== systemd user-сервис для $SUDO_USER"
 UNIT_DIR="$USER_HOME/.config/systemd/user"

@@ -69,8 +69,13 @@ cp -r "$ROOT"/extension/wayswitch@siberia.ru/. "$EXT_DIR/"
 
 # --- .desktop ---------------------------------------------------------
 APPS_DIR="$STAGE/usr/share/applications"
+ICONS_DIR="$STAGE/usr/share/icons/hicolor/scalable/apps"
 mkdir -p "$APPS_DIR"
-cp "$ROOT/packaging/ru.siberia.WaySwitch.desktop" "$APPS_DIR/ru.siberia.WaySwitch.desktop"
+mkdir -p "$ICONS_DIR"
+cp "$ROOT/packaging/ru.siberia.WaySwitch.Settings.desktop" \
+   "$APPS_DIR/ru.siberia.WaySwitch.Settings.desktop"
+cp "$ROOT/packaging/icons/ru.siberia.WaySwitch.svg" \
+   "$ICONS_DIR/ru.siberia.WaySwitch.svg"
 
 # --- документация и лицензии ----------------------------------------------
 DOC_DIR="$STAGE/usr/share/doc/wayswitch"

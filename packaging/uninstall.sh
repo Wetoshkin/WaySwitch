@@ -13,10 +13,13 @@ rm -f "$USER_HOME/.config/systemd/user/wayswitch.service"
 rm -f "$USER_HOME/.config/systemd/user/graphical-session.target.wants/wayswitch.service"
 rm -f "$USER_HOME/.config/systemd/user/default.target.wants/wayswitch.service"  # юнит старых версий
 rm -f "$USER_HOME/.config/autostart/ru.siberia.WaySwitch.desktop"
+rm -f "$USER_HOME/.config/autostart/ru.siberia.WaySwitch.Settings.desktop"
 rm -rf "$USER_HOME/.local/share/gnome-shell/extensions/wayswitch@siberia.ru"
 rm -rf /usr/local/lib/wayswitch /usr/local/bin/wayswitch /usr/local/bin/wayswitch-gui
 rm -f /etc/udev/rules.d/60-wayswitch.rules /etc/modules-load.d/wayswitch.conf
 rm -f /usr/local/share/applications/ru.siberia.WaySwitch.desktop
+rm -f /usr/local/share/applications/ru.siberia.WaySwitch.Settings.desktop
+rm -f /usr/local/share/icons/hicolor/scalable/apps/ru.siberia.WaySwitch.svg
 sudo -u "$SUDO_USER" env XDG_RUNTIME_DIR="/run/user/$USER_UID" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$USER_UID/bus" systemctl --user daemon-reload 2>/dev/null || true
 udevadm control --reload-rules || true
 echo "WaySwitch удалён."
