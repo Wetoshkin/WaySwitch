@@ -19,3 +19,12 @@ dist/
 .pytest_cache/
 .ruff_cache/
 .claude/
+
+# Лендинг wayswitch.wetoshkin.ru — публикуется на свой сервер, в репозиторий не попадает.
+/site/
+# Фото экрана из переписки, не часть проекта.
+/screen/
+# Архивы макетов дизайна.
+/WaySwitch*.zip
+# Скриншоты проверки в браузере.
+/.playwright-mcp/
