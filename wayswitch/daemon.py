@@ -8,6 +8,7 @@ from pathlib import Path
 
 from wayswitch import config as cfgmod
 from wayswitch.actuator import UInputTypist
+from wayswitch.backends.desktop import session_summary
 from wayswitch.backends.select import choose_backend
 from wayswitch.controller import Controller
 from wayswitch.dbus_service import DaemonService
@@ -31,9 +32,15 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         log.error("не открыть /dev/uinput: %s (правило udev? см. wayswitch doctor)", e)
         return 1
     backend = choose_backend(config.backend.prefer, typist, config.typing.settle_ms)
+    log.info("среда: %s", session_summary())
     log.info("бэкенд раскладки: %s, источники: %s", backend.name,
              [s.xkb_id for s in backend.layouts()])
-    if backend.name == "shell" and config.backend.shell_typing == "uinput":
+    if backend.name == "kde":
+        # В KDE расширения нет: печатаем сканкодами через uinput. Раскладку
+        # переключает KWin, паузу после переключения ждёт wait_applied.
+        log.info("печать символов: uinput (бэкенд kde)")
+        typist_for_controller = typist
+    elif backend.name == "shell" and config.backend.shell_typing == "uinput":
         # Печать сканкодами через uinput, хотя раскладку переключает расширение:
         # обход того, что виртуальное устройство Mutter теряет последнюю клавишу
         # серии (пробел после исправленного слова). Сканкоды требуют уже

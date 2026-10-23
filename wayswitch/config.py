@@ -11,11 +11,11 @@ import tomllib
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
-from wayswitch.keycodes import KEY_NAMES
+from wayswitch.keycodes import GESTURE_KEY_NAMES, KEY_NAMES
 
 SENSITIVITY_NAMES = ("conservative", "normal", "aggressive")
 MANUAL_MODES = ("double_shift", "tap_key", "pause_key", "none")
-BACKEND_PREFS = ("auto", "shell", "ibus", "hotkey")
+BACKEND_PREFS = ("auto", "shell", "kde", "ibus", "hotkey")
 # Чем печатать символы при shell-бэкенде: клавишами расширения (keysym-ы, не
 # зависят от раскладки) или сканерами через uinput (как настоящая клавиатура).
 SHELL_TYPING = ("extension", "uinput")
@@ -31,6 +31,13 @@ class General:
     sensitivity: str = "normal"
     phrase_timeout_sec: float = 8.0
     undo_window_sec: float = 5.0
+    # Пауза автоисправления после Backspace/стрелок/Delete и после ручной смены
+    # раскладки, секунды. 0 — не замирать.
+    edit_guard_sec: float = 1.0
+    # «пирогб» → «пирог,»: последняя буква — знак из другой раскладки.
+    punct_fix: bool = True
+    # «чтото» → «что-то», «кембы» → «кем бы».
+    particles_fix: bool = True
 
 
 @dataclass
@@ -112,10 +119,16 @@ def _validate(cfg: Config) -> None:
         raise ConfigError("phrase_timeout_sec: 1..300")
     if not 0.0 <= g.undo_window_sec <= 60.0:
         raise ConfigError("undo_window_sec: 0..60")
+    if not 0.0 <= g.edit_guard_sec <= 10.0:
+        raise ConfigError("edit_guard_sec: 0..10")
     if ge.manual not in MANUAL_MODES:
         raise ConfigError(f"manual: допустимо {MANUAL_MODES}")
-    if ge.tap_key.lower() not in KEY_NAMES:
-        raise ConfigError(f"tap_key: неизвестная клавиша {ge.tap_key!r}")
+    if ge.tap_key.lower() not in GESTURE_KEY_NAMES:
+        # Не только «неизвестная»: буква или цифра сломали бы жест — он бы
+        # срабатывал на каждой набранной букве.
+        raise ConfigError(
+            f"tap_key: недопустимая клавиша жеста {ge.tap_key!r}, "
+            f"можно: leftctrl, rightctrl, scrolllock, pause, f1…f12 и подобные")
     if ge.pause_hotkey and ge.pause_hotkey.lower() not in KEY_NAMES:
         raise ConfigError(f"pause_hotkey: неизвестная клавиша {ge.pause_hotkey!r}")
     if not 0 <= t.settle_ms <= 2000:

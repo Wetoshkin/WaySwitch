@@ -1,4 +1,9 @@
-"""Проверка окружения перед первым запуском: что есть, чего не хватает, как починить."""
+"""Проверка окружения перед первым запуском: что есть, чего не хватает, как починить.
+
+Проверки зависят от среды: в GNOME раскладку отдаёт наше расширение Shell, в
+KDE — D-Bus KWin, в прочих средах прочитать её неоткуда (только ручной жест).
+Поддерживается только Wayland.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +11,8 @@ import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+
+from wayswitch.backends.desktop import DESKTOP_NAMES, GNOME, KDE, detect_desktop, is_wayland
 
 
 @dataclass
@@ -47,59 +54,78 @@ def uinput_status() -> tuple[bool, str]:
 
 def run_checks() -> list[Check]:
     checks = []
+    desktop = detect_desktop()
 
     def session():
-        t = os.environ.get("XDG_SESSION_TYPE", "")
-        d = os.environ.get("XDG_CURRENT_DESKTOP", "")
-        return t == "wayland" and "gnome" in d.lower(), f"{t or '?'} / {d or '?'}"
-    checks.append(_check("Сессия GNOME на Wayland", session,
-                         "нужна графическая сессия GNOME Wayland"))
+        wayland = is_wayland()
+        return wayland, DESKTOP_NAMES[desktop]
+    checks.append(_check("Сессия Wayland", session,
+                         "WaySwitch работает только на Wayland; в X11 раскладку "
+                         "не прочитать и не переключить"))
+
+    if desktop == GNOME:
+        def gnome_tools():
+            from wayswitch.backends.gnome_shell import shell_extension_present
+            return shell_extension_present(), ""
+        checks.append(_check("Расширение GNOME Shell", gnome_tools,
+                             "необязательно: gnome-extensions enable wayswitch@siberia.ru",
+                             required=False))
+
+        def ibus():
+            import gi
+            gi.require_version("IBus", "1.0")
+            from gi.repository import IBus
+            bus = IBus.Bus()
+            if not bus.is_connected():
+                return False, "IBus не отвечает"
+            desc = bus.get_global_engine()
+            return True, f"текущий движок {desc.get_name() if desc else '?'}"
+        checks.append(_check("IBus (страховочный бэкенд)", ibus,
+                             "нужен только без расширения Shell", required=False))
+
+    if desktop == KDE:
+        def kde_service():
+            from wayswitch.backends.kde_plasma import kde_available
+            return kde_available(), "org.kde.keyboard"
+        checks.append(_check("KWin отдаёт раскладки (org.kde.keyboard)", kde_service,
+                             "нужен KDE Plasma с двумя и более раскладками"))
 
     def modules():
         import evdev  # noqa: F401
         import gi
         gi.require_version("Gtk", "4.0")
         gi.require_version("Adw", "1")
-        gi.require_version("IBus", "1.0")
-        from gi.repository import Adw, Gtk, IBus  # noqa: F401
+        from gi.repository import Adw, Gtk  # noqa: F401
         return True, ""
-    checks.append(_check("Python-модули evdev, Gtk4, Adw, IBus", modules,
+    checks.append(_check("Python-модули evdev, Gtk4, Adw", modules,
                          "apt install python3-evdev python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 "
-                         "gir1.2-ibus-1.0"))
+                         "(dnf: python3-evdev python3-gobject gtk4 libadwaita, "
+                         "pacman: python-evdev python-gobject gtk4 libadwaita)"))
 
     def xkb():
         from wayswitch.keymap import XkbKeymap
         return XkbKeymap.available(), ""
-    checks.append(_check("libxkbcommon", xkb, "apt install libxkbcommon0"))
+    checks.append(_check("libxkbcommon", xkb,
+                         "apt install libxkbcommon0 / dnf install libxkbcommon / "
+                         "pacman -S libxkbcommon"))
 
     def sources():
-        from wayswitch.backends.gnome_common import read_sources
+        """Две раскладки: ru и латинская — по данным среды."""
         from wayswitch.keymap import XkbKeymap
-        specs = read_sources()
+        if desktop == KDE:
+            from wayswitch.backends.kde_plasma import KdePlasmaBackend
+            specs = KdePlasmaBackend().layouts()
+        elif desktop == GNOME:
+            from wayswitch.backends.gnome_common import read_sources
+            specs = read_sources()
+        else:
+            return False, "раскладку в этой среде прочитать неоткуда"
         km = XkbKeymap.from_names(specs, [])
         alphabets = sorted(km.alphabet(g) for g in range(km.num_groups))
         return alphabets == ["latin", "ru"], ", ".join(s.xkb_id for s in specs)
     checks.append(_check("Две раскладки: русская и латинская", sources,
-                         "Настройки → Клавиатура → Источники ввода: оставьте ru и en"))
-
-    def ibus():
-        import gi
-        gi.require_version("IBus", "1.0")
-        from gi.repository import IBus
-        bus = IBus.Bus()
-        if not bus.is_connected():
-            return False, "IBus не отвечает"
-        desc = bus.get_global_engine()
-        return True, f"текущий движок {desc.get_name() if desc else '?'}"
-    checks.append(_check("IBus (состояние раскладки)", ibus,
-                         "запустите ibus-daemon или установите расширение WaySwitch"))
-
-    def shell():
-        from wayswitch.backends.gnome_shell import shell_extension_present
-        return shell_extension_present(), ""
-    checks.append(_check("Расширение GNOME Shell", shell,
-                         "необязательно: gnome-extensions enable wayswitch@siberia.ru",
-                         required=False))
+                         "оставьте в системе ровно две раскладки: ru и en/us",
+                         required=desktop in (GNOME, KDE)))
 
     def uinput():
         return uinput_status()
@@ -137,13 +163,13 @@ def run_checks() -> list[Check]:
         found = [str(c) for c in candidates if c.exists()]
         return bool(found), found[0] if found else ""
     checks.append(_check("systemd user-сервис", unit,
-                         "sudo apt install ./wayswitch_*.deb или sudo packaging/install.sh",
-                         required=False))
+                         "sudo packaging/install.sh", required=False))
 
-    def tools():
-        return shutil.which("gnome-extensions") is not None, ""
-    checks.append(_check("gnome-extensions", tools, "нужно только для расширения",
-                         required=False))
+    if desktop == GNOME:
+        def tools():
+            return shutil.which("gnome-extensions") is not None, ""
+        checks.append(_check("gnome-extensions", tools, "нужно только для расширения",
+                             required=False))
     return checks
 
 

@@ -29,6 +29,14 @@ TECH_MARKERS = ("://", "@", "--", ".com", ".ru", ".org", ".net", ".io", ".dev")
 PATH_MARKERS = ("/", "\\", "~")
 TECH_WORDS = {"http", "https", "ftp", "www", "ssh", "git", "sudo", "apt", "dnf"}
 
+# Знаки, которые в чужой раскладке оказываются буквой: в русской запятая живёт
+# на клавише «б», точка — на «ю». «пирогб» → «пирог,», «рубю» → «руб.».
+PUNCT_FROM_OTHER = ",.;:?!"
+
+# Частицы: по правилам русского языка одни пишутся через дефис, другие — раздельно.
+PARTICLES_HYPHEN = ("то", "ка", "либо", "нибудь", "таки")
+PARTICLES_SPACE = ("бы", "же", "ли")
+
 
 @dataclass(frozen=True)
 class Sensitivity:
@@ -168,6 +176,52 @@ class Detector:
             return None
         b = self.decode(keys, other_group)
         return b if b.lower() in URL_SCHEMES else None
+
+    def punct_fix(self, keys, current_group: int, other_group: int) -> str | None:
+        """Знак препинания набран буквой из другой раскладки.
+
+        «пирогб» → «пирог,». Чиним только когда без последней буквы получается
+        известное слово, а с ней — неизвестное: иначе «гриб» стал бы «гри,».
+        """
+        if len(keys) < 3:
+            return None
+        lang = self.lang_of_group(current_group)
+        if lang is None or lang not in self.models:
+            return None
+        last = keys[-1]
+        if last.shift:  # со Shift в другой раскладке знак был бы другим
+            return None
+        mark = self.keymap.decode([last], other_group)
+        if mark not in PUNCT_FROM_OTHER:
+            return None
+        letters = LETTERS[lang]
+        model = self.models[lang]
+        stem = self.keymap.decode(keys[:-1], current_group).lower()
+        full = self.keymap.decode(keys, current_group).lower()
+        if not stem or any(c not in letters for c in stem):
+            return None
+        if not model.is_word(stem) or model.is_word(full):
+            return None
+        return mark
+
+    def particles_fix(self, keys, current_group: int) -> str | None:
+        """Слипшиеся частицы: «чтото» → «что-то», «кембы» → «кем бы»."""
+        lang = self.lang_of_group(current_group)
+        if lang is None or lang not in self.models:
+            return None
+        letters = LETTERS[lang]
+        model = self.models[lang]
+        text = self.decode(keys, current_group).lower()
+        if len(text) < 5 or any(c not in letters for c in text) or model.is_word(text):
+            return None
+        pairs = [(p, "-") for p in PARTICLES_HYPHEN] + [(p, " ") for p in PARTICLES_SPACE]
+        for particle, sep in pairs:
+            if not text.endswith(particle):
+                continue
+            stem = text[: -len(particle)]
+            if len(stem) >= 2 and model.is_word(stem):
+                return f"{stem}{sep}{particle}"
+        return None
 
     def decide(self, keys, current_group: int, other_group: int,
                context: tuple[str | None, str | None] = (None, None)) -> Decision:

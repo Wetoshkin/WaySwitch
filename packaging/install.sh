@@ -38,6 +38,17 @@ else
     echo "Неизвестный пакетный менеджер: поставьте python3-evdev, PyGObject, GTK4, libadwaita, IBus вручную."
 fi
 
+# Абсолютный путь к системному Python: если в PATH первым стоит venv или
+# pyenv, `python3` окажется без PyGObject и обёртки упадут с «No module named gi».
+PY=/usr/bin/python3
+if [ ! -x "$PY" ]; then
+    PY="$(command -v python3 || true)"
+fi
+if [ -z "$PY" ]; then
+    echo "Не найден python3" >&2
+    exit 1
+fi
+
 echo "== Код → $LIB"
 rm -rf "$LIB"
 mkdir -p "$LIB"
@@ -46,12 +57,12 @@ find "$LIB" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
 cat > "$BIN/wayswitch" <<EOF
 #!/bin/sh
 export PYTHONPATH="$LIB\${PYTHONPATH:+:\$PYTHONPATH}"
-exec python3 -m wayswitch "\$@"
+exec $PY -m wayswitch "\$@"
 EOF
 cat > "$BIN/wayswitch-gui" <<EOF
 #!/bin/sh
 export PYTHONPATH="$LIB\${PYTHONPATH:+:\$PYTHONPATH}"
-exec python3 -c "from wayswitch.gui.app import main; raise SystemExit(main())" "\$@"
+exec $PY -c "from wayswitch.gui.app import main; raise SystemExit(main())" "\$@"
 EOF
 chmod +x "$BIN/wayswitch" "$BIN/wayswitch-gui"
 
@@ -68,6 +79,18 @@ fi
 udevadm control --reload-rules || true
 udevadm trigger || true
 
+# Среда определяет, чем переключается раскладка: расширение нужно только GNOME.
+DESKTOP="$(sudo -u "$SUDO_USER" env -i XDG_CURRENT_DESKTOP="${XDG_CURRENT_DESKTOP:-}"     sh -c 'echo "$XDG_CURRENT_DESKTOP"' 2>/dev/null || true)"
+if [ -z "$DESKTOP" ]; then
+    DESKTOP="$(su - "$SUDO_USER" -c 'echo "$XDG_CURRENT_DESKTOP"' 2>/dev/null || true)"
+fi
+case "$(echo "$DESKTOP" | tr "[:upper:]" "[:lower:]")" in
+    *kde*|*plasma*) DE=kde ;;
+    *gnome*)        DE=gnome ;;
+    *)              DE=other ;;
+esac
+echo "== Среда: ${DESKTOP:-неизвестна} (режим $DE)"
+
 echo "== Ярлык"
 install -m 644 "$SRC/packaging/ru.siberia.WaySwitch.desktop" /usr/local/share/applications/ 2>/dev/null \
     || { mkdir -p /usr/local/share/applications; install -m 644 "$SRC/packaging/ru.siberia.WaySwitch.desktop" /usr/local/share/applications/; }
@@ -80,18 +103,29 @@ sudo -u "$SUDO_USER" mkdir -p "$UNIT_DIR"
 install -o "$SUDO_USER" -g "$USER_GID" -m 644 "$SRC/packaging/wayswitch.service" "$UNIT_DIR/wayswitch.service"
 sudo -u "$SUDO_USER" env XDG_RUNTIME_DIR="/run/user/$USER_UID" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$USER_UID/bus" systemctl --user daemon-reload 2>/dev/null || true
 
-echo "== Расширение GNOME Shell"
-EXT_DIR="$USER_HOME/.local/share/gnome-shell/extensions/wayswitch@siberia.ru"
-sudo -u "$SUDO_USER" mkdir -p "$EXT_DIR"
-cp -r "$SRC"/extension/wayswitch@siberia.ru/* "$EXT_DIR/"
-chown -R "$SUDO_USER:$USER_GID" "$EXT_DIR"
+if [ "$DE" = "gnome" ]; then
+    echo "== Расширение GNOME Shell"
+    EXT_DIR="$USER_HOME/.local/share/gnome-shell/extensions/wayswitch@siberia.ru"
+    sudo -u "$SUDO_USER" mkdir -p "$EXT_DIR"
+    cp -r "$SRC"/extension/wayswitch@siberia.ru/* "$EXT_DIR/"
+    chown -R "$SUDO_USER:$USER_GID" "$EXT_DIR"
+else
+    echo "== Расширение GNOME Shell не нужно (среда $DE)"
+fi
 
 cat <<EOF
 
 Готово. Дальше от имени пользователя $SUDO_USER:
   1. Перелогиньтесь (правила udev применяются к новому сеансу).
-  2. wayswitch doctor
+  2. wayswitch doctor — покажет, что нашлось в среде $DESKTOP.
   3. systemctl --user enable --now wayswitch
-  4. Необязательно: gnome-extensions enable wayswitch@siberia.ru
-  5. wayswitch-gui — настройки и трей.
+  4. wayswitch-gui — настройки и трей.
+$(if [ "$DE" = "gnome" ]; then
+    echo "     В GNOME включите расширение: gnome-extensions enable wayswitch@siberia.ru"
+  elif [ "$DE" = "kde" ]; then
+    echo "     В KDE раскладку переключает сам KWin (org.kde.keyboard), расширение не нужно."
+  else
+    echo "     В этой среде раскладку прочитать неоткуда: авторежим выключен, работает"
+    echo "     только ручной жест (он переключает раскладку системным хоткеем)."
+  fi)
 EOF

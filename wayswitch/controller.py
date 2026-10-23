@@ -73,6 +73,10 @@ class Controller:
         self._pending = 0  # отложенных (запланированных, но ещё не исполненных) фиксов
         self._pending_gesture: str | None = None  # жест, пришедший во время фикса
         self._last_fix: LastFix | None = None
+        # Время последней правки текста руками и последней ручной смены
+        # раскладки: в это окно автоисправление не вмешивается.
+        self._last_edit_at: float | None = None
+        self._last_external_layout_at: float | None = None
         self.stats = {"corrections": 0, "manual": 0, "undo": 0}
         self._pause_key = kc.KEY_NAMES.get(config.gesture.pause_hotkey.lower()) \
             if config.gesture.pause_hotkey else None
@@ -147,6 +151,8 @@ class Controller:
 
     def on_key(self, code: int, value: int, device_id: int) -> None:
         now = self.clock()
+        if value == 1 and code in kc.EDIT_KEYS:
+            self._last_edit_at = now
         # Жест прокручиваем всегда, в том числе во время фикса: иначе третий
         # Shift-тап, пришедший при busy, не будет учтён, и на его отпускании
         # счётчик снова даст «word» — лишний переворот раскладки.
@@ -223,6 +229,7 @@ class Controller:
         if external:
             self.buffer.reset()
             self.context.clear()
+            self._last_external_layout_at = self.clock()
         self._emit_status()
 
     def on_resync(self, device_id: int, held) -> None:
@@ -249,11 +256,44 @@ class Controller:
         (читает context[-1]/context[-2]) — дополняем слева None."""
         return (None,) * (2 - len(self.context)) + tuple(self.context)
 
+    def _edit_guard_active(self) -> bool:
+        """Только что правили текст руками — не лезем с автозаменой."""
+        window = self.config.general.edit_guard_sec
+        if window <= 0:
+            return False
+        now = self.clock()
+        for stamp in (self._last_edit_at, self._last_external_layout_at):
+            if stamp is not None and now - stamp < window:
+                return True
+        return False
+
     def _on_word(self, keys: list[KeyPress], device_id: int, code: int) -> None:
         groups = self._groups()
         if groups is None:
             return
         current, other = groups
+        if self._edit_guard_active():
+            log.debug("слово %r: только что была правка текста, пропускаю",
+                      self.detector.decode(keys, current))
+            self.context.append(None)
+            return
+        punct = self.detector.punct_fix(keys, current, other) \
+            if self.config.general.punct_fix else None
+        if punct:
+            # Переписываем слово целиком в ТОЙ ЖЕ раскладке: _schedule_fix сверяет
+            # снимок с буфером, и «только последняя буква» не совпала бы.
+            stem = self.detector.decode(keys[:-1], current)
+            self._schedule_fix(keys, 1, current, f"{stem}{punct} ", manual=False,
+                               reason="punct", group_before=current, switch=False,
+                               trigger=(device_id, code))
+            return
+        particles = self.detector.particles_fix(keys, current) \
+            if self.config.general.particles_fix else None
+        if particles:
+            self._schedule_fix(keys, 1, current, particles + " ", manual=False,
+                               reason="particles", group_before=current, switch=False,
+                               trigger=(device_id, code))
+            return
         decision = self.detector.decide(keys, current, other, self._context_tuple())
         log.debug("слово %r → %s (%s)", decision.a.text, decision.action, decision.reason)
         if decision.action == "fix":
@@ -274,6 +314,8 @@ class Controller:
         if groups is None:
             return
         current, other = groups
+        if self._edit_guard_active():
+            return
         target = self.detector.early_url_target(keys, current, other)
         if target:
             self._schedule_fix(keys, 0, other, target, manual=False, reason="url-early",
