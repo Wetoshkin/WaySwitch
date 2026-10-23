@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import logging
 import signal
+import threading
 from pathlib import Path
 
+from wayswitch import a11y as cfgmod_a11y
 from wayswitch import config as cfgmod
 from wayswitch.actuator import UInputTypist
 from wayswitch.backends.desktop import session_summary
@@ -16,6 +18,7 @@ from wayswitch.detector import SENSITIVITY, Detector, LanguageModel
 from wayswitch.keymap import XkbKeymap
 from wayswitch.keys import DeviceWatcher
 from wayswitch.session import SessionGuard
+from wayswitch.sound import ensure_and_play
 
 log = logging.getLogger("wayswitch")
 
@@ -94,11 +97,25 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         loop.quit()
 
     service: DaemonService | None = None
+    # Сведения о фокусе (приложение, поле пароля) нужны только автоисправлению
+    # и только там, где есть at-spi: в Gnome/KDE он поднимается в сессии.
+    probe = cfgmod_a11y.make_probe(enabled=config.general.auto_correct)
+
+    def _corrected(old: str, new: str, manual: bool) -> None:
+        """Событие исправления: наружу в D-Bus, при желании — со звуком."""
+        if service is not None:
+            service.emit_corrected(old, new, manual)
+        if config.general.sound_on_fix and not manual:
+            # Сигнал в отдельном потоке: плеер не должен задерживать ввод.
+            threading.Thread(
+                target=ensure_and_play, args=(cfgmod.config_dir(),), daemon=True).start()
     controller = Controller(
         config, keymap, detector, backend, typist_for_controller, pump=pump, dry_run=dry_run,
-        on_corrected=lambda o, f, m: service and service.emit_corrected(o, f, m),
+        on_corrected=lambda o, f, m: _corrected(o, f, m),
         on_status=lambda s: service and service.emit_status(s),
         persist_exception=cfgmod.add_exception,
+        probe=probe,
+        apps_provider=cfgmod.load_apps,
         # Исполнение фикса — вне диспатча evdev-источника: он не реентрантен, и
         # пока его колбэк не вернулся, события той же клавиатуры (отпускание
         # клавиш, прерывающее нажатие) не доставляются. См. Controller.__init__.
@@ -129,7 +146,11 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
 
     def reload() -> None:
         try:
-            controller.reload_config(cfgmod.load(config_path))
+            new_config = cfgmod.load(config_path)
+            controller.reload_config(new_config)
+            # Автоисправление включили или выключили — приводим опрос
+            # доступности в соответствие: выключено, значит и опрашивать нечего.
+            controller.set_probe(cfgmod_a11y.make_probe(new_config.general.auto_correct))
             detector.exceptions.clear()
             detector.exceptions.update(cfgmod.load_exceptions())
             log.info("конфиг перечитан")

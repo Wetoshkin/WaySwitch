@@ -12,6 +12,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from wayswitch import a11y as focus
 from wayswitch import keycodes as kc
 from wayswitch.actuator import DONE, execute, keys_for_typing, plan_fix
 from wayswitch.buffer import InputBuffer, KeyPress
@@ -39,6 +40,8 @@ class Controller:
                  on_corrected: Callable[[str, str, bool], None] | None = None,
                  on_status: Callable[[dict], None] | None = None,
                  persist_exception: Callable[[str], None] | None = None,
+                 probe=None,
+                 apps_provider: Callable[[], list[str]] = lambda: [],
                  sleep: Callable[[float], None] = time.sleep,
                  schedule: Callable[[Callable[[], None]], None] = lambda fn: fn()):
         """`schedule(fn)` — отложить исполнение вне диспатча источника событий;
@@ -60,10 +63,17 @@ class Controller:
         self.on_corrected = on_corrected
         self.on_status = on_status
         self.persist_exception = persist_exception
+        # Сведения о фокусе (приложение, поле пароля) — из at-spi, через снимок
+        # в отдельном потоке: в пути ввода опрашивать доступность нельзя.
+        self.probe = probe
+        # Список исключённых приложений читается при каждом решении, поэтому
+        # правка apps.txt подхватывается без перезапуска демона.
+        self._apps_provider = apps_provider
         self.sleep = sleep
         self.schedule = schedule
 
-        self.buffer = InputBuffer(keymap, config.general.phrase_timeout_sec)
+        self.buffer = InputBuffer(keymap, config.general.phrase_timeout_sec,
+                                  terminators=self._terminator_keys(config))
         self._rebuild_gesture(config)
         self.context: deque[str | None] = deque(maxlen=2)  # языки двух последних слов
         self.paused = False
@@ -83,6 +93,16 @@ class Controller:
 
     # --- конфигурация / статус ---------------------------------------------------
 
+    @staticmethod
+    def _terminator_keys(config: Config) -> set[int]:
+        """Клавиши, завершающие слово помимо пробела (по настройкам)."""
+        keys: set[int] = set()
+        if config.general.fix_on_tab:
+            keys.add(kc.KEY_TAB)
+        if config.general.fix_on_enter:
+            keys.add(kc.KEY_ENTER)
+        return keys
+
     def _rebuild_gesture(self, config: Config) -> None:
         """Жест по настройке: двойной Shift или одиночный тап своей клавиши."""
         if config.gesture.manual == "tap_key":
@@ -101,6 +121,7 @@ class Controller:
         self.config = config
         self._rebuild_gesture(config)
         self.buffer.phrase_timeout = config.general.phrase_timeout_sec
+        self.buffer.set_terminators(self._terminator_keys(config))
         self.detector.sensitivity = SENSITIVITY[config.general.sensitivity]
         self._pause_key = kc.KEY_NAMES.get(config.gesture.pause_hotkey.lower()) \
             if config.gesture.pause_hotkey else None
@@ -256,6 +277,20 @@ class Controller:
         (читает context[-1]/context[-2]) — дополняем слева None."""
         return (None,) * (2 - len(self.context)) + tuple(self.context)
 
+    def set_probe(self, probe) -> None:
+        """Подменить источник сведений о фокусе (после смены настроек)."""
+        old, self.probe = self.probe, probe
+        close = getattr(old, "close", None)
+        if close is not None:
+            close()
+
+    def _focus_blocks(self) -> str | None:
+        """Почему сейчас нельзя трогать текст: поле пароля или исключённая программа."""
+        if self.probe is None:
+            return None
+        return focus.skip_reason(self.probe, self._apps_provider(),
+                                 self.config.general.skip_password_fields, self.clock())
+
     def _edit_guard_active(self) -> bool:
         """Только что правили текст руками — не лезем с автозаменой."""
         window = self.config.general.edit_guard_sec
@@ -272,9 +307,19 @@ class Controller:
         if groups is None:
             return
         current, other = groups
+        if self.probe is not None:
+            self.probe.poke()  # пусть свежий снимок фокуса будет уже к делу
         if self._edit_guard_active():
             log.debug("слово %r: только что была правка текста, пропускаю",
                       self.detector.decode(keys, current))
+            self.context.append(None)
+            return
+        blocked = self._focus_blocks()
+        if blocked:
+            # Человек печатает в поле пароля или в исключённой программе:
+            # молчим, но слово запоминаем как «не наше».
+            log.debug("слово %r: пропуск, %s",
+                      self.detector.decode(keys, current), blocked)
             self.context.append(None)
             return
         punct = self.detector.punct_fix(keys, current, other) \
@@ -314,7 +359,11 @@ class Controller:
         if groups is None:
             return
         current, other = groups
+        if self.probe is not None:
+            self.probe.poke()
         if self._edit_guard_active():
+            return
+        if self._focus_blocks():
             return
         target = self.detector.early_url_target(keys, current, other)
         if target:
