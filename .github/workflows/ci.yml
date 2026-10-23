@@ -36,3 +36,44 @@ jobs:
         with:
           name: wayswitch-deb
           path: dist/*.deb
+
+  rpm:
+    needs: test
+    runs-on: ubuntu-latest
+    container: fedora:41
+    steps:
+      - uses: actions/checkout@v4
+      - name: Сборка .rpm
+        run: dnf install -y rpm-build python3 && bash tools/build_rpm.sh
+      - name: Установка собранного пакета
+        run: dnf install -y ./dist/*.noarch.rpm
+      - name: Смок-проверка
+        run: |
+          wayswitch version
+          test -f /usr/lib/systemd/user/wayswitch.service
+          python3 -c "import sys; sys.path.insert(0, '/usr/lib/wayswitch'); import wayswitch.gui.app, wayswitch.daemon"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wayswitch-rpm
+          path: dist/*.rpm
+
+  arch:
+    needs: test
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Сборка по PKGBUILD из исходников ветки
+        run: |
+          pacman -Syu --noconfirm base-devel sudo
+          useradd -m b
+          ver=$(grep -m1 '^pkgver=' packaging/arch/PKGBUILD | cut -d= -f2)
+          mkdir -p /pkg /tmp/src
+          cp packaging/arch/* /pkg/
+          cp -r . "/tmp/src/WaySwitch-$ver"
+          tar -C /tmp/src -czf "/pkg/wayswitch-$ver.tar.gz" "WaySwitch-$ver"
+          sed -i "s|^source=.*|source=(\"wayswitch-$ver.tar.gz\")|" /pkg/PKGBUILD
+          chown -R b /pkg
+          su b -c "cd /pkg && makepkg --nodeps"
+          pacman -U --noconfirm /pkg/wayswitch-*.pkg.tar.zst
+          wayswitch version

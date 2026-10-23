@@ -1,0 +1,15 @@
+post_install() {
+    udevadm control --reload-rules >/dev/null 2>&1 || true
+    udevadm trigger --subsystem-match=input --subsystem-match=misc >/dev/null 2>&1 || true
+    modprobe uinput >/dev/null 2>&1 || true
+    echo "WaySwitch установлен. Выйдите из сеанса и войдите снова, затем откройте"
+    echo "WaySwitch из меню приложений (в GNOME: gnome-extensions enable wayswitch@siberia.ru)."
+}
+
+post_upgrade() {
+    udevadm control --reload-rules >/dev/null 2>&1 || true
+}
+
+post_remove() {
+    udevadm control --reload-rules >/dev/null 2>&1 || true
+}

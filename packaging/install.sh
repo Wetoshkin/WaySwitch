@@ -176,6 +176,11 @@ if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database /usr/local/share/applications >/dev/null 2>&1 || true
 fi
 
+echo "== Виджет для лотка KDE Plasma"
+rm -rf /usr/local/share/plasma/plasmoids/ru.siberia.wayswitch
+mkdir -p /usr/local/share/plasma/plasmoids
+cp -r "$SRC/packaging/kde/ru.siberia.wayswitch" /usr/local/share/plasma/plasmoids/
+
 echo "== systemd user-сервис для $SUDO_USER"
 UNIT_DIR="$USER_HOME/.config/systemd/user"
 sudo -u "$SUDO_USER" mkdir -p "$UNIT_DIR"
@@ -228,7 +233,7 @@ cat <<EOF
 $(if [ "$DE" = "kde" ]; then
     echo "  В KDE раскладку переключает сам KWin (org.kde.keyboard), расширение не нужно."
   elif [ "$DE" = "other" ]; then
-    echo "  В этой среде раскладку прочитать неоткуда: автоисправление выключено,"
-    echo "  работает только ручной жест."
+    echo "  Sway, Hyprland, Xfce, MATE, Budgie, LXQt: раскладки берутся из настроек"
+    echo "  композитора — что именно нужно, покажет wayswitch doctor."
   fi)
 EOF

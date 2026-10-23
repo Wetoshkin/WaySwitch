@@ -24,6 +24,8 @@ jobs:
           grep -q "^version = \"${tag}\"" pyproject.toml \
             || { echo "тег v${tag} не совпадает с version в pyproject.toml"; exit 1; }
           bash tools/build_deb.sh
+      - name: Сборка .rpm
+        run: sudo apt-get install -y rpm && bash tools/build_rpm.sh
       - name: Публикация релиза
         env:
           GH_TOKEN: ${{ github.token }}
@@ -32,6 +34,6 @@ jobs:
           # только тем, у кого уже стоит предрелиз.
           pre=""
           case "$GITHUB_REF_NAME" in *a[0-9]*|*b[0-9]*|*rc[0-9]*) pre="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" dist/*.deb $pre \
+          gh release create "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm $pre \
             --generate-notes \
             --title "WaySwitch $GITHUB_REF_NAME"

@@ -1,12 +1,14 @@
 <p align="center">
-  <img src="packaging/icons/ru.siberia.WaySwitch.svg" width="112" height="112" alt="">
+  <img src=".github/assets/banner-ru.png" alt="WaySwitch — исправляет слова, набранные не в той раскладке" width="100%">
 </p>
 
-<h1 align="center">WaySwitch</h1>
-
 <p align="center">
-  Исправляет слова, набранные не в той раскладке, — на Wayland, в GNOME и KDE Plasma.<br>
-  <code>ghbdtn</code> + пробел → «привет», раскладка переключается сама.
+  <a href="https://github.com/Wetoshkin/WaySwitch/releases"><img src="https://img.shields.io/github/v/release/Wetoshkin/WaySwitch?include_prereleases&style=flat-square&color=c67139&label=%D1%80%D0%B5%D0%BB%D0%B8%D0%B7" alt="Релиз"></a>
+  <a href="https://github.com/Wetoshkin/WaySwitch/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Wetoshkin/WaySwitch/ci.yml?style=flat-square&label=%D1%82%D0%B5%D1%81%D1%82%D1%8B" alt="Тесты"></a>
+  <img src="https://img.shields.io/badge/GNOME-46–51-7a8a5e?style=flat-square" alt="GNOME 46–51">
+  <img src="https://img.shields.io/badge/KDE_Plasma-6-3daee9?style=flat-square" alt="KDE Plasma 6">
+  <img src="https://img.shields.io/badge/Wayland-✓-7a8a5e?style=flat-square" alt="Wayland">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4a4540?style=flat-square" alt="MIT"></a>
 </p>
 
 <p align="center">
@@ -14,165 +16,315 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Wetoshkin/WaySwitch/releases"><img alt="Релиз" src="https://img.shields.io/github/v/release/Wetoshkin/WaySwitch?include_prereleases&label=%D1%80%D0%B5%D0%BB%D0%B8%D0%B7"></a>
-  <a href="https://github.com/Wetoshkin/WaySwitch/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Wetoshkin/WaySwitch/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="Wayland" src="https://img.shields.io/badge/Wayland-GNOME%2046%E2%80%9351%20%C2%B7%20KDE%20Plasma%206-c46a32">
-  <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-7a8a5e"></a>
+  <a href="#установка">Установка</a> ·
+  <a href="#первые-шаги">Первые шаги</a> ·
+  <a href="#жесты">Жесты</a> ·
+  <a href="#настройка">Настройка</a> ·
+  <a href="#обновление">Обновление</a> ·
+  <a href="#если-что-то-не-работает">Если не работает</a>
 </p>
+
+**Современная замена Punto Switcher и Caramba Switcher для Linux на Wayland.**
+
+WaySwitch чинит слово, набранное не в той раскладке (`ghbdtn` вместо
+«привет»), сразу же, на пробеле — без горячих клавиш и без переключения
+раскладки вручную. Работает под Wayland в GNOME, KDE Plasma, Sway, Hyprland,
+а также в Xfce, MATE, Cinnamon, Budgie и LXQt — там, где обычные утилиты
+такого рода не могут ни слушать клавиатуру, ни печатать за пользователя.
 
 <p align="center">
-  <img src="docs/screenshots/main-light.png" width="420" alt="Главное окно WaySwitch">
-  &nbsp;
-  <img src="docs/screenshots/main-dark.png" width="420" alt="Главное окно в тёмной теме">
+  <img src=".github/assets/how-ru.png" alt="Набираете ghbdtn, нажимаете пробел — получаете «привет»" width="100%">
 </p>
 
----
+## Возможности
 
-На X11 такие программы давно есть (Punto Switcher, Caramba Switcher, xneur).
-На Wayland композитор намеренно не даёт программам ни слушать чужую
-клавиатуру, ни подделывать ввод, поэтому привычные утилиты там не работают.
-WaySwitch работает уровнем ниже: читает клавиатуру из `/dev/input` (evdev) и
-печатает через виртуальную клавиатуру ядра (uinput). Раскладку переключает
-своё расширение GNOME Shell или KWin в KDE. Клавиатуру демон не захватывает:
-если он зависнет, ввод продолжит работать.
+- **Исправление на пробеле.** Набрали `ghbdtn ` — само становится
+  `привет `, раскладка переключается вместе со словом. Цифры, пути, адреса,
+  `camelCase` и аббревиатуры не трогаются.
+- **Адреса сразу.** Начали URL не в той раскладке — `реезыЖ..` — WaySwitch
+  узнаёт схему и чинит её, не дожидаясь пробела.
+- **Ручное исправление.** Двойной Shift чинит последнее слово, тройной —
+  всю фразу. Вместо Shift можно выбрать одну клавишу: правый Ctrl,
+  ScrollLock, F-клавишу.
+- **Исправить выделенное.** Выделите фразу, набранную не в той раскладке, и
+  нажмите свою клавишу — фраза станет правильной.
+- **Отмена с запоминанием.** Тот же жест сразу после автоисправления
+  возвращает слово и больше его не трогает.
+- **Мелкие опечатки.** `пирогб` → «пирог,», `чтото` → «что-то»,
+  `кембы` → «кем бы», `ПРивет` → «Привет».
+- **Исключения.** Слова и программы, где ничего не исправлять (терминал,
+  мессенджер, IDE). Поля паролей пропускаются.
 
-## Что умеет
+<p align="center">
+  <img src="docs/screenshots/main-dark.png" width="400" alt="Главное окно WaySwitch">
+  &nbsp;
+  <img src="docs/screenshots/prefs-light.png" width="400" alt="Параметры WaySwitch">
+</p>
 
-| | |
+## <img src=".github/assets/sec-install.png" width="28" align="top"> Установка
+
+**Что нужно:** сеанс Wayland (не X11) и две раскладки — русская и латинская.
+Подходит почти любой современный дистрибутив: Ubuntu, Debian, Fedora,
+openSUSE, Arch, CachyOS, EndeavourOS, Manjaro и другие.
+
+### Одной командой
+
+1. Откройте терминал: нажмите <kbd>Super</kbd> (клавиша с логотипом) и
+   наберите «Терминал». В KDE он называется **Konsole**. В Sway и Hyprland
+   откройте свой терминал привычным сочетанием.
+2. Скопируйте команду ниже, вставьте её в терминал сочетанием
+   <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> (обычное
+   <kbd>Ctrl</kbd>+<kbd>V</kbd> в терминале не работает) и нажмите
+   <kbd>Enter</kbd>:
+
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/get.sh | sh
+   ```
+
+3. Скрипт определит ваш дистрибутив, напишет, что собирается сделать, и
+   спросит подтверждение — нажмите <kbd>Enter</kbd>. Потом он попросит
+   пароль от вашей учётной записи. Пока вы его вводите, на экране ничего не
+   появляется — так и должно быть.
+4. **Выйдите из системы и войдите снова.** WaySwitch запустится сам, а при
+   первом открытии окна проверит систему и подскажет, если чего-то не хватает.
+
+> [!NOTE]
+> Без вашего подтверждения скрипт ничего не устанавливает. Посмотреть, что
+> внутри, можно здесь: [packaging/get.sh](packaging/get.sh).
+
+<details>
+<summary><b>Что скрипт сделает в моём дистрибутиве</b></summary>
+
+| Дистрибутив | Что произойдёт |
 |---|---|
-| **Автоисправление на пробеле** | `ghbdtn` → «привет», `руддщ` → `hello`. Словарь на 48 тыс. слов и символьные триграммы; цифры, пути, URL, camelCase и аббревиатуры не трогаются |
-| **Ручное исправление** | двойной Shift — последнее слово, тройной — вся фраза. Вместо двойного Shift можно выбрать одну клавишу (правый Ctrl, ScrollLock, F-клавиша…) или Pause |
-| **Исправить выделенное** | выделите фразу, набранную не в той раскладке, — и одной клавишей получите её в правильной. Клавиша — любая на выбор, или сочетание системы на команду `wayswitch fix-selection` |
-| **Отмена с обучением** | тот же жест в течение 5 с после автоисправления возвращает слово и запоминает его: больше WaySwitch его не тронет |
-| **Мелкие опечатки** | `пирогб` → «пирог,» (запятая из другой раскладки), `чтото` → «что-то», `кембы` → «кем бы», `сонатуБаха` → «сонату Баха», `ПРивет` → «Привет» |
-| **Исключения** | слова и программы, где ничего не исправлять (Telegram, терминал, IDE). Поля паролей пропускаются |
-| **Пауза после правки** | секунду после Backspace, стрелок и ручной смены раскладки автоисправление не вмешивается |
-| **Значок в панели** | состояние, пауза, «исправить последнее слово», «исправить выделенное» |
-| **Сообщает о новых версиях** | раз в сутки спрашивает GitHub; отключается |
+| Ubuntu 24.04+, Kubuntu, Debian 13, KDE neon, Zorin OS 18 и другие на базе Debian | скачает `.deb` из последнего релиза и установит через `apt` |
+| Fedora 41+ (Workstation и KDE) | установит `.rpm` через `dnf` |
+| Fedora Silverblue, Kinoite, Bazzite и другие atomic-системы | добавит `.rpm` через `rpm-ostree`; после этого нужно перезагрузиться |
+| openSUSE Tumbleweed и Slowroll | установит `.rpm` через `zypper` |
+| Arch, CachyOS, EndeavourOS, Manjaro | поставит пакет из AUR через `paru` или `yay`, если он там есть; иначе соберёт из исходников |
+| Остальные | установит из исходников через `packaging/install.sh` |
 
-Ничего не отправляется в сеть, кроме анонимного запроса «какая последняя
-версия» (и его можно выключить). Исправленные слова не пишутся в журнал.
+Во всех случаях скрипт включает автозапуск (`systemctl --user enable
+wayswitch`), а в GNOME — расширение WaySwitch.
 
-## Установка
+</details>
 
-Нужно: **Wayland** (не X11), **GNOME 46–51** или **KDE Plasma 6**, ровно две
-раскладки — русская и английская. Проверить: «Параметры → О системе» —
-оконная система Wayland.
+<details>
+<summary><b>Установить вручную, без скрипта</b></summary>
 
-<details open>
-<summary><b>Arch, CachyOS, Manjaro, Fedora — из исходников</b></summary>
+Скачайте пакет со страницы
+[Releases](https://github.com/Wetoshkin/WaySwitch/releases) — файл окажется
+в папке «Загрузки». Затем выполните команду для своего дистрибутива.
+
+**Ubuntu, Debian и производные** — файл `wayswitch_…_all.deb`:
 
 ```bash
+sudo apt install "$(xdg-user-dir DOWNLOAD)"/wayswitch_*.deb
+```
+
+**Fedora** — файл `wayswitch-….noarch.rpm`:
+
+```bash
+sudo dnf install "$(xdg-user-dir DOWNLOAD)"/wayswitch-*.rpm
+```
+
+**Fedora Silverblue, Kinoite, Bazzite** — тот же `.rpm`, затем перезагрузка:
+
+```bash
+sudo rpm-ostree install "$(xdg-user-dir DOWNLOAD)"/wayswitch-*.rpm
+systemctl reboot
+```
+
+**openSUSE** — тот же `.rpm`:
+
+```bash
+sudo zypper install --allow-unsigned-rpm "$(xdg-user-dir DOWNLOAD)"/wayswitch-*.rpm
+```
+
+**Arch, CachyOS, EndeavourOS, Manjaro** — пакет из [PKGBUILD](packaging/arch/PKGBUILD)
+или из исходников:
+
+```bash
+sudo pacman -S --needed git
 git clone https://github.com/Wetoshkin/WaySwitch.git
 cd WaySwitch
 sudo packaging/install.sh
 ```
 
-Скрипт ставит зависимости (`pacman`/`dnf`/`apt`), копирует программу в
-`/usr/local`, кладёт правило udev, службу systemd и расширение GNOME Shell
-(и сразу включает его). После этого **выйдите из сеанса и войдите снова**.
+После установки включите автозапуск и перелогиньтесь:
+
+```bash
+systemctl --user enable wayswitch
+gnome-extensions enable wayswitch@siberia.ru   # только в GNOME
+```
 
 </details>
 
 <details>
-<summary><b>Ubuntu, Debian — пакет .deb</b></summary>
+<summary><b>Если установка не получилась</b></summary>
 
-```bash
-url=$(curl -s "https://api.github.com/repos/Wetoshkin/WaySwitch/releases?per_page=1" | grep -o 'https://[^"]*\.deb' | head -1)
-wget "$url"
-sudo apt install ./wayswitch_*.deb
-gnome-extensions enable wayswitch@siberia.ru
-```
+**«curl: команда не найдена».** Установите curl и повторите:
+`sudo apt install curl` (Ubuntu, Debian), `sudo dnf install curl`
+(Fedora), `sudo zypper install curl` (openSUSE), `sudo pacman -S curl`
+(Arch и производные).
 
-Затем **выйдите из сеанса и войдите снова**.
+**«Сеанс не Wayland».** Выйдите из системы. На экране входа в KDE выберите
+внизу слева «Plasma (Wayland)», в GNOME — значок шестерёнки и «GNOME» (не
+«GNOME on Xorg»). Войдите и запустите команду снова.
+
+**Слова не исправляются после установки.** Проверьте три вещи: вы вышли из
+системы и вошли снова; раскладок ровно две — русская и латинская (GNOME:
+«Параметры → Клавиатура → Источники ввода», KDE: «Параметры системы →
+Клавиатура → Раскладки», Sway и Hyprland: `xkb_layout` / `kb_layout` в
+конфиге); `wayswitch doctor` не показывает `✗`.
 
 </details>
 
-После входа откройте **WaySwitch** из меню приложений. Первый запуск
-проверит систему, подскажет, что исправить, и включит службу.
+<details>
+<summary><b>Удаление</b></summary>
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/get.sh | sh -s -- --uninstall
+```
+
+Скрипт сам определит, как WaySwitch был установлен. Настройки остаются в
+`~/.config/wayswitch` на случай переустановки; стереть их:
+`rm -rf ~/.config/wayswitch`.
+
+</details>
+
+## <img src=".github/assets/sec-start.png" width="28" align="top"> Первые шаги
+
+Откройте любое текстовое поле, переключитесь на английскую раскладку,
+наберите `ghbdtn` и нажмите пробел — слово станет «привет», раскладка
+переключится на русскую. В окне WaySwitch для этого есть поле «Проверка».
+
+При первом запуске окно проверит систему и покажет, что осталось сделать:
 
 <p align="center">
   <img src="docs/screenshots/onboarding-light.png" width="360" alt="Первый запуск: проверка системы">
-  &nbsp;
-  <img src="docs/screenshots/prefs-light.png" width="380" alt="Параметры">
 </p>
 
+## <img src=".github/assets/sec-gestures.png" width="28" align="top"> Жесты
+
+| Жест | Действие |
+|---|---|
+| <kbd>Shift</kbd> <kbd>Shift</kbd> | исправить последнее слово; при пустом буфере — переключить раскладку |
+| <kbd>Shift</kbd> <kbd>Shift</kbd> <kbd>Shift</kbd> | исправить всю фразу |
+| <kbd>Shift</kbd> <kbd>Shift</kbd> сразу после автоисправления | откатить слово и запомнить его как исключение |
+| своя клавиша (Параметры → Вручную) | исправить выделенный текст |
+
+Нажатия — подряд, второе в пределах 0,4 с. Вместо двойного Shift можно
+выбрать одну клавишу. Жесты не работают, пока экран заблокирован или
+WaySwitch на паузе. Посмотреть все жесты в окне — <kbd>Ctrl</kbd>+<kbd>?</kbd>.
+
+## <img src=".github/assets/sec-settings.png" width="28" align="top"> Настройка
+
+Всё настраивается мышью, файл конфигурации править не нужно. Изменения
+применяются сразу.
+
+**GNOME, Xfce, MATE, Cinnamon, Budgie, LXQt, KDE.** Откройте «WaySwitch» из
+меню приложений (в Xfce, LXQt и MATE он есть и в центре настроек). В окне —
+состояние, поле для проверки и последние исправления; параметры — в меню
+<kbd>☰</kbd> или <kbd>Ctrl</kbd>+<kbd>,</kbd>. Значок в панели показывает
+состояние и даёт поставить паузу.
+
+**Sway и Hyprland.** Индикатор — модуль Waybar, управление — команды на
+горячих клавишах, параметры — окно `wayswitch gui`. Готовые фрагменты
+конфигов копируются в окне: «Параметры → Система → Панель».
+
 <details>
-<summary>Впервые в терминале? Пара подсказок</summary>
+<summary><b>Фрагменты для Waybar, Hyprland и Sway</b></summary>
 
-- Терминал открывается так: клавиша Super (с логотипом), набрать «Терминал».
-- Вставить текст в терминал — **Ctrl+Shift+V**.
-- `sudo` спросит пароль вашей учётной записи; пока вы его набираете, на
-  экране ничего не появляется — это нормально.
-- Две раскладки добавляются в «Параметры → Клавиатура → Источники ввода».
+`~/.config/waybar/config.jsonc` — добавьте `"custom/wayswitch"` в `modules-right`:
 
-</details>
-
-## Обновление
-
-**Как узнать о новой версии.** WaySwitch раз в сутки спрашивает GitHub,
-вышла ли новая версия. Если вышла — в окне появится полоса «Вышла версия …»,
-в меню значка — пункт с номером версии, и один раз придёт системное
-уведомление. Выключается в «Параметры → Система → Сообщать о новых версиях».
-Ещё способ — подписаться на релизы на GitHub: **Watch → Custom → Releases**.
-
-**Как обновиться:**
-
-```bash
-# из исходников (Arch, CachyOS, Fedora)
-cd WaySwitch && git pull && sudo packaging/install.sh
-
-# .deb — скачать новый пакет и поставить поверх
-sudo apt install ./wayswitch_<версия>_all.deb
+```jsonc
+"custom/wayswitch": {
+  "exec": "wayswitch waybar",
+  "return-type": "json",
+  "on-click": "wayswitch toggle",
+  "on-click-middle": "wayswitch fix",
+  "on-click-right": "wayswitch gui"
+}
 ```
 
-Настройки и исключения при обновлении сохраняются. Если обновилось
-расширение GNOME Shell, выйдите из сеанса и войдите снова: Shell держит
-загруженную старую копию до перелогина.
+`~/.config/waybar/style.css`:
 
-## Использование
+```css
+#custom-wayswitch        { padding: 0 10px; border-radius: 7px; }
+#custom-wayswitch.fixed  { background: #c46a32; color: #fff; }
+#custom-wayswitch.undone { background: rgba(143,160,115,.3); }
+#custom-wayswitch.paused { opacity: .5; }
+#custom-wayswitch.off    { color: #ff7b63; }
+```
 
-Наберите в любом поле `ghbdtn` и пробел — получится «привет». То же можно
-проверить прямо в окне WaySwitch, в поле «Попробуйте здесь».
+`~/.config/hypr/hyprland.conf`:
 
-| Что сделать | Как |
-|---|---|
-| Исправить последнее слово вручную | двойной Shift (или своя клавиша из Параметров) |
-| Исправить всю фразу | тройной Shift |
-| Отменить автоисправление и запомнить слово | тот же жест в течение 5 с |
-| Исправить выделенный текст | своя клавиша (Параметры → Вручную), пункт в меню значка или `wayswitch fix-selection` на сочетание системы |
-| Пауза | переключатель в окне, Ctrl+P, меню значка, `wayswitch pause` |
-| Параметры / Жесты и клавиши | Ctrl+, / Ctrl+? |
+```ini
+input {
+    kb_layout = us,ru
+}
+bind = SUPER SHIFT, W, exec, wayswitch toggle
+bind = SUPER, grave,   exec, wayswitch fix
+windowrule = float, class:^(ru\.siberia\.WaySwitch\.Settings)$
+windowrule = size 640 740, class:^(ru\.siberia\.WaySwitch\.Settings)$
+```
 
-<details>
-<summary>Команды терминала</summary>
+`~/.config/sway/config`:
 
-| Команда | Что делает |
-|---|---|
-| `wayswitch doctor` | проверка системы: что работает, чего не хватает, как исправить |
-| `wayswitch status` | состояние службы |
-| `wayswitch pause` / `resume` | пауза / продолжить |
-| `wayswitch fix` | исправить последнее слово |
-| `wayswitch fix-selection` | исправить выделенный текст |
-| `wayswitch dry-run` | служба в режиме наблюдения: решения пишутся в журнал, на экране ничего не меняется |
-| `wayswitch devices` | устройства ввода |
-| `wayswitch-gui [--tray]` | окно; `--tray` — только значок в панели |
-| `journalctl --user -u wayswitch -n 50` | журнал службы |
+```
+input type:keyboard {
+    xkb_layout us,ru
+}
+bindsym $mod+Shift+w exec wayswitch toggle
+bindsym $mod+grave   exec wayswitch fix
+for_window [app_id="ru.siberia.WaySwitch.Settings"] floating enable, resize set 640 740
+```
+
+Если сеанс запускается без systemd (не через uwsm или аналог), добавьте
+автозапуск в конфиг: `exec-once = wayswitch run` (Hyprland) или
+`exec wayswitch run` (Sway).
 
 </details>
 
 <details>
-<summary>Файл настроек</summary>
+<summary><b>Xfce, MATE, Budgie, LXQt: раскладки композитора</b></summary>
 
-Всё настраивается в окне, но можно и руками:
-`~/.config/wayswitch/config.toml` (служба перечитывает его сама).
+В Wayland эти окружения работают поверх композитора labwc или Wayfire,
+и раскладки задаются в его настройках. WaySwitch читает их оттуда и
+переключает тем же сочетанием клавиш:
+
+```ini
+# ~/.config/labwc/environment
+XKB_DEFAULT_LAYOUT=us,ru
+XKB_DEFAULT_OPTIONS=grp:alt_shift_toggle
+```
+
+```ini
+# ~/.config/wayfire.ini
+[input]
+xkb_layout = us,ru
+xkb_options = grp:alt_shift_toggle
+```
+
+Композитор не сообщает, какая раскладка сейчас включена, поэтому WaySwitch
+считает нажатия сочетания. Если менять раскладку только клавиатурой, этому
+можно доверять: «Параметры → Система → Исправлять автоматически по
+счётчику». Без этого работают ручной жест и «Исправить выделенное».
+
+</details>
+
+<details>
+<summary><b>Файл конфигурации</b></summary>
+
+`~/.config/wayswitch/config.toml` (служба перечитывает его сама):
 
 ```toml
 [general]
 auto_correct = true           # исправлять на пробеле
 sensitivity = "normal"        # conservative | normal | aggressive
 undo_window_sec = 5.0         # время на отмену жестом, с
-edit_guard_sec = 1.0          # пауза после Backspace/стрелок/ручной смены раскладки, с
+edit_guard_sec = 1.0          # пауза после Backspace, стрелок и ручной смены раскладки, с
 punct_fix = true              # «пирогб» → «пирог,»
 particles_fix = true          # «чтото» → «что-то», «кембы» → «кем бы»
 split_words_fix = true        # «сонатуБаха» → «сонату Баха»
@@ -191,75 +343,150 @@ settle_ms = 120               # ожидание после смены раск�
 key_delay_ms = 0              # задержка между символами, мс
 
 [backend]
-prefer = "auto"               # auto | shell | kde | ibus | hotkey
+prefer = "auto"               # auto | shell | kde | sway | hyprland | compositor | ibus | hotkey
+track_hotkey = false          # labwc/Wayfire: автоисправление по счётчику раскладки
 ```
 
 Слова-исключения — `~/.config/wayswitch/exceptions.txt`, программы —
-`~/.config/wayswitch/apps.txt` (по одной в строке, сравнение по части имени
-без учёта регистра: `telegram` подойдёт и для `TelegramDesktop`).
+`~/.config/wayswitch/apps.txt` (по одной в строке; `telegram` подойдёт и для
+`TelegramDesktop`).
 
 </details>
 
-## Если что-то не работает
+## Обновление
 
-1. `wayswitch doctor` — покажет, чего не хватает, и как это исправить.
-2. В окне WaySwitch: меню → «О WaySwitch» → «Устранение неполадок» —
-   сведения, которые удобно приложить к issue.
-3. Частые случаи:
-   - **Пропадает пробел после исправленного слова** — Параметры → Система →
-     Дополнительно → увеличьте «Ожидание после смены раскладки» до 150–200 мс.
-   - **Раскладка не переключается в GNOME** — включено ли расширение
-     (`gnome-extensions enable wayswitch@siberia.ru`) и был ли перелогин.
-   - **«Нет доступа к клавиатуре»** — перелогиньтесь: права на устройства
-     ввода выдаются новому сеансу.
-4. Не помогло — [заведите issue](https://github.com/Wetoshkin/WaySwitch/issues)
-   и приложите вывод `wayswitch doctor` и `journalctl --user -u wayswitch -n 100`.
+**Как узнать о новой версии.** Раз в сутки WaySwitch спрашивает GitHub,
+вышла ли новая версия. Если вышла — в окне появится полоса «Вышла версия …»,
+в меню значка — пункт с номером версии, и один раз придёт уведомление.
+Выключается в «Параметры → Система». Ещё способ — подписаться на релизы:
+**Watch → Custom → Releases** вверху этой страницы.
 
-## Что важно знать
-
-- **Доступ к клавиатуре.** Правило udev даёт программам вашего сеанса чтение
-  событий клавиатуры — иначе WaySwitch не увидел бы набор. Это та же цена,
-  что у любого переключателя раскладки на Wayland: доверяйте только
-  программам, которые ставите сами. WaySwitch не пишет набранный текст ни в
-  файлы, ни в журнал и не отправляет его в сеть.
-- **Мост доступности (at-spi).** Чтобы знать, в какой программе вы печатаете
-  и не поле ли это пароля, установщик включает `toolkit-accessibility`
-  (прежнее значение возвращает `uninstall.sh`). Не хотите — ставьте с
-  `--no-a11y`: всё остальное работает, только исключения по программам и
-  защита паролей — нет.
-- **Где проверено.** CachyOS, GNOME 51, Wayland — работает. KDE Plasma 6
-  покрыт тестами, но живьём пока не проверялся. В Sway, Hyprland и других
-  средах раскладку прочитать нечем — автоисправление там недоступно.
-- **Расширение GNOME Shell** печатает только по запросу самого WaySwitch:
-  другие программы на шине им воспользоваться не могут.
-
-## Удаление
+**Как обновиться** — та же команда, что и для установки:
 
 ```bash
-sudo packaging/uninstall.sh      # если ставили из исходников
-sudo apt remove wayswitch        # если ставили .deb
+curl -fsSL https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/get.sh | sh
 ```
 
-Настройки в `~/.config/wayswitch` остаются; удалить их: `rm -rf ~/.config/wayswitch`.
+Настройки и исключения сохраняются. После обновления выйдите из сеанса и
+войдите снова — так подхватится и новая версия расширения GNOME Shell.
 
-## Как это устроено
+## <img src=".github/assets/sec-help.png" width="28" align="top"> Если что-то не работает
 
-```
-/dev/input (evdev) → буфер слова → детектор (словарь + триграммы + правила)
-      → план: переключить раскладку → стереть слово → напечатать
-      → расширение GNOME Shell / KWin + uinput
-```
+| Команда | Что покажет |
+|---|---|
+| `wayswitch doctor` | что работает, чего не хватает и как это исправить |
+| `journalctl --user -u wayswitch -n 50` | последние строки журнала |
+| `wayswitch dry-run` | решения детектора, без изменений на экране |
 
-Решение «исправить или оставить» принимается по двум гипотезам: что набрано
-в текущей раскладке и что получилось бы в другой. Раскладки строятся из
-настоящих раскладок системы через libxkbcommon, а не зашиты в код. На
-отложенной части словаря: полнота 96,5 % (ru) и 96,8 % (en), ложные
-срабатывания 0,07 %.
+**Слово исправилось, а не должно было.** Сразу нажмите
+<kbd>Shift</kbd> <kbd>Shift</kbd> — слово вернётся и больше не будет
+исправляться. Если мешает целая программа, добавьте её в исключения.
 
-Подробности — в [спецификации](docs/superpowers/specs/2026-09-23-wayswitch-v2-design.md),
-карта модулей — в [CLAUDE.md](CLAUDE.md).
+**Пропадает пробел после исправленного слова.** «Параметры → Система →
+Дополнительно» — увеличьте «Ожидание после смены раскладки» до 150–200 мс.
 
-## Разработка
+**В GNOME нет значка в верхней панели.** Включите расширение AppIndicator
+в приложении «Расширения».
+
+Не помогло — [заведите issue](https://github.com/Wetoshkin/WaySwitch/issues/new)
+и приложите вывод трёх команд из таблицы. Удобнее всего — из окна:
+меню → «О WaySwitch» → «Устранение неполадок».
+
+> [!IMPORTANT]
+> WaySwitch не исправляет в полях пароля, если программа сообщает, что это
+> поле пароля. Так делают не все программы. Перед вводом пароля в необычном
+> поле поставьте WaySwitch на паузу — в панели, <kbd>Ctrl</kbd>+<kbd>P</kbd>
+> в окне или командой `wayswitch pause`.
+
+<details>
+<summary><b>Все команды</b></summary>
+
+| Команда | Действие |
+|---|---|
+| `wayswitch doctor` | проверка системы |
+| `wayswitch status [--json]` | состояние |
+| `wayswitch pause` / `resume` / `toggle` | пауза, продолжить, переключить |
+| `wayswitch fix` | исправить последнее слово |
+| `wayswitch fix-selection` | исправить выделенный текст |
+| `wayswitch waybar` | поток JSON для модуля Waybar |
+| `wayswitch gui` | открыть окно |
+| `wayswitch dry-run` | служба в режиме наблюдения |
+| `wayswitch devices` | устройства ввода |
+| `wayswitch run [--verbose] [--config PATH]` | запустить службу вручную |
+| `wayswitch-gui [--tray]` | окно; `--tray` — только значок в панели |
+
+</details>
+
+## <img src=".github/assets/sec-how.png" width="28" align="top"> Как это устроено
+
+<details>
+<summary><b>evdev, uinput, словарь и триграммы</b></summary>
+
+1. `evdev` слушает клавиатуры напрямую по `/dev/input/event*`, без захвата
+   устройства и без прав root: правило udev с тегом `uaccess` выдаёт доступ
+   пользователю активного сеанса.
+2. Буфер копит коды клавиш текущего слова и фразы, отдельно отслеживает
+   Shift и CapsLock.
+3. На пробеле детектор декодирует нажатия в текущей и альтернативной
+   раскладке по таблицам `libxkbcommon`, построенным из настоящих раскладок
+   пользователя.
+4. Решение принимается по словарю и модели символьных триграмм, со
+   стоп-правилами для цифр, смешанных алфавитов, camelCase, путей и URL.
+5. Исправление: переключение раскладки, Backspace и перепечатка. Раскладку
+   переключает композитор: в GNOME — расширение WaySwitch, в KDE — D-Bus
+   KWin, в Sway и Hyprland — их IPC, в средах на labwc и Wayfire — сочетание
+   клавиш XKB. Первый Backspace — точка невозврата: начатое исправление
+   всегда доводится до конца, слово не пропадает.
+
+Демон никогда не захватывает клавиатуру — если он зависнет, клавиатура
+продолжит работать как обычно. На отложенной части словаря: полнота 96,5 %
+(ru) и 96,8 % (en), ложные срабатывания 0,07 %.
+
+</details>
+
+## Частые вопросы
+
+**Это безопасно?** WaySwitch читает нажатия клавиш, иначе он не смог бы
+исправлять слова. Набранный текст он никуда не пишет и не отправляет;
+исправленные слова не попадают даже в журнал. В сеть уходит только
+анонимный запрос «какая последняя версия» (и его можно выключить). Код
+открыт — его можно проверить.
+
+**Работает ли в X11?** Нет. WaySwitch сделан для Wayland; для X11 есть
+другие утилиты.
+
+**Почему нет Flatpak или Snap?** Программе нужен прямой доступ к
+`/dev/input`, а песочница его не даёт.
+
+**Будут ли другие языки?** Сейчас — русский и английский. Третьи языки
+запланированы как подключаемые словари.
+
+## Статус и ограничения
+
+WaySwitch v2 — **альфа**. Проверено на CachyOS, GNOME 51. KDE Plasma 6,
+Sway, Hyprland и среды на labwc/Wayfire покрыты тестами, но живьём пока не
+проверялись — будем рады отчётам.
+
+- Поля с автодополнением (например, адресная строка браузера) могут вести
+  себя неожиданно при перепечатке.
+- Правило udev `uaccess` даёт чтение событий клавиатуры любой программе
+  текущего пользователя — это цена схемы на `evdev`.
+- «Исправить выделенное» пока работает в GNOME (через расширение).
+- В средах на labwc/Wayfire композитор не сообщает текущую раскладку —
+  автоисправление там по счётчику и по желанию.
+
+<details>
+<summary><b>Планы</b></summary>
+
+- Модуль «Исправление раскладки» в Параметрах системы KDE и виджет в лотке.
+- «Исправить выделенное» в KDE, Sway и Hyprland.
+- Третьи языки как подключаемый пакет словаря и триграмм.
+- Привилегированный помощник вместо широкого правила `uaccess`.
+- Пакет в AUR (готовый [PKGBUILD](packaging/arch/PKGBUILD) уже в репозитории).
+
+</details>
+
+## <img src=".github/assets/sec-dev.png" width="28" align="top"> Разработка
 
 ```bash
 pip install pytest ruff
@@ -267,15 +494,22 @@ python -m pytest -q
 python -m ruff check .
 ```
 
+| Задача | Команда |
+|---|---|
+| пересобрать словари | `python tools/build_data.py` |
+| собрать `.deb` | `bash tools/build_deb.sh` |
+| собрать `.rpm` | `bash tools/build_rpm.sh` |
+| собрать пакет Arch | `cd packaging/arch && makepkg -si` |
+
 Логика (детектор, буфер, контроллер, исполнитель) не импортирует GTK и
-evdev на уровне модуля и тестируется где угодно, включая Windows.
-Окно — GTK4/libadwaita; его тексты и модели тоже покрыты тестами без
-дисплея. Живой прогон правил без окон: `PYTHONPATH=. python3 tools/live_rules.py`.
-Пакет: `bash tools/build_deb.sh`; релиз — по тегу `vX.Y.Z`, совпадающему с
-версией в `pyproject.toml`.
+evdev на уровне модуля и тестируется где угодно, включая Windows. Карта
+модулей — в [CLAUDE.md](CLAUDE.md), итоги последнего ревью —
+[docs/review-pr1.md](docs/review-pr1.md). Релиз выпускается по тегу `vX.Y.Z`,
+совпадающему с версией в `pyproject.toml`.
 
-## Лицензия
+## Лицензии
 
-Код — [MIT](LICENSE). Словари в `wayswitch/data` собраны из
-[FrequencyWords](https://github.com/hermitdave/FrequencyWords)
-(OpenSubtitles) — CC-BY-SA 4.0, см. `wayswitch/data/LICENSE`.
+Код — MIT ([`LICENSE`](LICENSE)). Словарные данные и триграммы
+(`wayswitch/data/*.gz`) собраны из проекта
+[FrequencyWords](https://github.com/hermitdave/FrequencyWords) и
+распространяются по CC-BY-SA 4.0 — см. `wayswitch/data/LICENSE`.
