@@ -301,14 +301,76 @@ def test_enter_ends_word_when_enabled():
     assert event is not None and event.kind == "word"
 
 
-def test_controller_sets_terminators_from_config():
+def test_tab_enter_terminators_are_disabled():
+    """fix_on_tab/fix_on_enter читаются (старые конфиги), но ничего не включают:
+    к моменту фикса Tab уже выбрал автодополнение, Enter отправил сообщение."""
     config = Config()
     config.general.fix_on_tab = True
+    config.general.fix_on_enter = True
     env = make_env(config=config)
-    assert kc.KEY_TAB in env["ctrl"].buffer._terminators
-    config2 = Config()
-    config2.general.fix_on_tab = False
-    config2.general.fix_on_enter = True
-    env["ctrl"].reload_config(config2)
-    assert kc.KEY_TAB not in env["ctrl"].buffer._terminators
-    assert kc.KEY_ENTER in env["ctrl"].buffer._terminators
+    assert env["ctrl"].buffer._terminators == frozenset()
+
+
+# --- обход дерева доступности ---------------------------------------------------------
+
+class DictTree:
+    """Дерево доступности в памяти: узел -> (дети, состояние, роль, имя)."""
+
+    def __init__(self, nodes):
+        self.nodes = nodes
+
+    def children(self, node):
+        return self.nodes[node].get("kids", [])
+
+    def state(self, node):
+        bits = 0
+        for bit in self.nodes[node].get("state", ()):
+            bits |= 1 << bit
+        return [bits]
+
+    def role(self, node):
+        return self.nodes[node].get("role", "")
+
+    def app_name(self, node):
+        return self.nodes[node].get("name", "")
+
+    def app_of(self, node):
+        return self.nodes[node].get("app")
+
+
+def test_find_focus_goes_straight_to_active_window():
+    """Десятки «шумных» приложений не съедают бюджет обхода: ищем в активном окне."""
+    from wayswitch import a11y
+
+    nodes = {"root": {"kids": [f"noise{i}" for i in range(30)] + ["firefox"]}}
+    for i in range(30):
+        nodes[f"noise{i}"] = {"name": f"app{i}", "kids": [f"w{i}"]}
+        nodes[f"w{i}"] = {"kids": [f"w{i}c{j}" for j in range(20)]}
+        for j in range(20):
+            nodes[f"w{i}c{j}"] = {}
+    nodes["firefox"] = {"name": "Firefox", "kids": ["ffwin"]}
+    chain = [f"ff{d}" for d in range(11)]
+    nodes["ffwin"] = {"state": (a11y.ACTIVE,), "kids": [chain[0]]}
+    for a, b in zip(chain, chain[1:], strict=False):
+        nodes[a] = {"kids": [b]}
+    nodes[chain[-1]] = {"state": (a11y.FOCUSED,), "role": "password text"}
+    assert a11y.find_focus(DictTree(nodes), "root") == ("Firefox", True)
+
+
+def test_find_focus_skips_shell():
+    from wayswitch import a11y
+
+    nodes = {"root": {"kids": ["shell", "term"]},
+             "shell": {"name": "gnome-shell", "kids": ["sw"]},
+             "sw": {"state": (a11y.ACTIVE, a11y.FOCUSED)},
+             "term": {"name": "Ptyxis", "kids": ["tw"]},
+             "tw": {"state": (a11y.ACTIVE,), "kids": ["entry"]},
+             "entry": {"state": (a11y.FOCUSED,), "role": "terminal"}}
+    assert a11y.find_focus(DictTree(nodes), "root") == ("Ptyxis", False)
+
+
+def test_idle_stop_leaves_stale_snapshot():
+    """Поток уснул — снимок «старый», а не свежее «ограничений нет»."""
+    from wayswitch import a11y
+
+    assert a11y.FocusSnapshot().age(1000.0) > a11y.MAX_AGE_SEC

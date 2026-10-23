@@ -24,18 +24,22 @@ log = logging.getLogger("wayswitch")
 
 
 _UNSET = object()  # «кэш ещё не заполнялся»: None значило бы «файла нет»
-
-
-def cfgmod_apps_stamp() -> float | None:
-    """Время изменения apps.txt (None — файла нет)."""
-    path = apps_path()
-    return path.stat().st_mtime if path.exists() else None
 RELEASE_WAIT = 0.3  # сколько ждать отпускания физических клавиш перед печатью
+SPACE = KeyPress(kc.KEY_SPACE)
+
+
+def apps_stamp() -> int | None:
+    """Время изменения apps.txt в наносекундах (None — файла нет)."""
+    path = apps_path()
+    return path.stat().st_mtime_ns if path.exists() else None
 
 
 @dataclass
 class LastFix:
     original_keys: list[KeyPress]
+    # Что напечатано вместо слова, без хвостовых пробелов. У правил частиц и
+    # слипшихся слов внутри бывает пробел («кем бы») — поэтому откат ищет эти
+    # клавиши в хвосте фразы, а не сравнивает с последним словом.
     target_keys: list[KeyPress]
     group_before: int
     time: float
@@ -107,13 +111,15 @@ class Controller:
 
     @staticmethod
     def _terminator_keys(config: Config) -> set[int]:
-        """Клавиши, завершающие слово помимо пробела (по настройкам)."""
-        keys: set[int] = set()
-        if config.general.fix_on_tab:
-            keys.add(kc.KEY_TAB)
-        if config.general.fix_on_enter:
-            keys.add(kc.KEY_ENTER)
-        return keys
+        """Клавиши, завершающие слово помимо пробела.
+
+        Tab и Enter (fix_on_tab / fix_on_enter) отключены: к моменту фикса
+        Tab уже выбрал автодополнение, а Enter отправил сообщение, и
+        Backspace-ы стёрли бы не то. Ключи остаются в конфиге, чтобы старые
+        config.toml читались, но ничего не включают.
+        """
+        del config
+        return set()
 
     def _rebuild_gesture(self, config: Config) -> None:
         """Жест по настройке: двойной Shift или одиночный тап своей клавиши."""
@@ -132,6 +138,7 @@ class Controller:
     def reload_config(self, config: Config) -> None:
         self.config = config
         self._rebuild_gesture(config)
+        self._apps_stamp = _UNSET  # Reload — перечитать и список программ
         self.buffer.phrase_timeout = config.general.phrase_timeout_sec
         self.buffer.set_terminators(self._terminator_keys(config))
         self.detector.sensitivity = SENSITIVITY[config.general.sensitivity]
@@ -147,12 +154,23 @@ class Controller:
             "busy": self.busy,
             "backend": getattr(self.backend, "name", "?"),
             "layout_index": self.backend.current(),
+            "layout": self._layout_alphabet(),
             "auto_correct": self.config.general.auto_correct,
             "corrections_total": self.stats["corrections"],
             "manual_total": self.stats["manual"],
             "undo_total": self.stats["undo"],
             "dry_run": self.dry_run,
         }
+
+    def _layout_alphabet(self) -> str | None:
+        """«ru» / «latin» для текущей раскладки — окну, чтобы писать её словами."""
+        current = self.backend.current()
+        if current is None:
+            return None
+        try:
+            return self.keymap.alphabet(current)
+        except (IndexError, ValueError):
+            return None
 
     def _emit_status(self) -> None:
         if self.on_status:
@@ -208,7 +226,13 @@ class Controller:
                 and not (self.paused or self.locked):
             # Клавишу жеста целиком не отдаём буферу: она не модификатор (Ctrl,
             # ScrollLock), и feed() сбросил бы набранное слово — переворачивать
-            # стало бы нечего. Обрабатываем только само событие жеста.
+            # стало бы нечего. Но зажатой её учитываем: иначе Ctrl+V при жесте
+            # на левом Ctrl лёг бы в буфер буквой «v», а Shift-жест терял бы
+            # регистр заглавных.
+            if value == 1:
+                self.buffer.note_press(code, device_id)
+            elif value == 0:
+                self.buffer.note_release(code, device_id)
             if gesture:
                 self._dispatch_gesture(gesture)
             return
@@ -290,16 +314,27 @@ class Controller:
         return (None,) * (2 - len(self.context)) + tuple(self.context)
 
     def set_probe(self, probe) -> None:
-        """Подменить источник сведений о фокусе (после смены настроек)."""
+        """Подменить источник сведений о фокусе (после смены настроек).
+
+        Старую пробу закрываем без ожидания потока: Reload приходит и посреди
+        исправления (через pump), ждать там секунду нельзя.
+        """
         old, self.probe = self.probe, probe
         close = getattr(old, "close", None)
         if close is not None:
             close()
 
+    def _password_focus(self) -> bool:
+        """Свежий снимок говорит: курсор в поле пароля."""
+        if self.probe is None:
+            return False
+        snap = self.probe.snapshot()
+        return snap.password and snap.age(self.clock()) <= focus.MAX_AGE_SEC
+
     def _apps(self) -> list[str]:
         """Исключённые приложения с кэшем по времени изменения файла."""
         try:
-            stamp = cfgmod_apps_stamp()
+            stamp = apps_stamp()
         except OSError:
             return self._apps_cache
         if stamp != self._apps_stamp:
@@ -340,9 +375,16 @@ class Controller:
         blocked = self._focus_blocks()
         if blocked:
             # Человек печатает в поле пароля или в исключённой программе:
-            # молчим, но слово запоминаем как «не наше».
-            log.debug("слово %r: пропуск, %s",
-                      self.detector.decode(keys, current), blocked)
+            # молчим, но слово запоминаем как «не наше». Само слово в журнал
+            # не пишем — это может быть пароль.
+            log.debug("слово пропущено: %s", blocked)
+            self.context.append(None)
+            return
+        word = "".join(c for c in self.detector.decode(keys, current).lower()
+                       if c.isalpha() or c in "-'")
+        if word and word in self.detector.exceptions:
+            # Исключение действует на все правила, а не только на смену
+            # раскладки: откат «расклад-ка» добавил «раскладка» в исключения.
             self.context.append(None)
             return
         punct = self.detector.punct_fix(keys, current, other) \
@@ -367,6 +409,13 @@ class Controller:
         if particles:
             self._schedule_fix(keys, 1, current, particles + " ", manual=False,
                                reason="particles", group_before=current, switch=False,
+                               trigger=(device_id, code))
+            return
+        capitals = self.detector.two_capitals_fix(keys, current) \
+            if self.config.general.two_capitals_fix and not self.buffer.caps else None
+        if capitals:
+            self._schedule_fix(keys, 1, current, capitals + " ", manual=False,
+                               reason="capitals", group_before=current, switch=False,
                                trigger=(device_id, code))
             return
         decision = self.detector.decide(keys, current, other, self._context_tuple())
@@ -430,9 +479,8 @@ class Controller:
             self._emit_status()
             return True
         last = self._last_fix
-        undo = (last is not None and self.clock() - last.time <= self.config.general.undo_window_sec
-                and word == last.target_keys)
-        if undo:
+        undo_keys = self._undo_span(last)
+        if undo_keys is not None:
             original = self.keymap.decode(last.original_keys, last.group_before)
 
             def done(ok: bool) -> None:
@@ -446,13 +494,28 @@ class Controller:
                     if self.persist_exception:
                         self.persist_exception(letters)
 
-            self._schedule_fix(word, tail, last.group_before, original + " " * tail,
-                               manual=True, reason="undo", group_before=current, done=done)
+            self._schedule_fix(undo_keys, tail, last.group_before, original + " " * tail,
+                               manual=True, reason="undo", group_before=current, done=done,
+                               span=True)
             return True
         text = self.keymap.decode(word, other)
         self._schedule_fix(word, tail, other, text + " " * tail, manual=True,
                            reason="manual", group_before=current)
         return True
+
+    def _undo_span(self, last: LastFix | None) -> list[KeyPress] | None:
+        """Клавиши последнего автоисправления в хвосте буфера — если его ещё
+        можно откатить (окно не истекло, после него ничего не набрано)."""
+        if last is None or self.clock() - last.time > self.config.general.undo_window_sec:
+            return None
+        phrase = self.buffer.phrase()
+        end = len(phrase)
+        while end > 0 and phrase[end - 1] == SPACE:
+            end -= 1
+        n = len(last.target_keys)
+        if n and end >= n and phrase[end - n:end] == last.target_keys:
+            return list(last.target_keys)
+        return None
 
     def manual_phrase(self) -> bool:
         if not self._manual_allowed():
@@ -473,7 +536,8 @@ class Controller:
                       *, manual: bool, reason: str, group_before: int,
                       whole_phrase: bool = False, switch: bool = True,
                       trigger: tuple[int, int] | None = None,
-                      done: Callable[[bool], None] | None = None) -> None:
+                      done: Callable[[bool], None] | None = None,
+                      span: bool = False) -> None:
         """Отложить _apply_fix через self.schedule.
 
         Решение принято по снимку буфера; к моменту исполнения пользователь
@@ -493,6 +557,11 @@ class Controller:
                     return
                 if whole_phrase:
                     unchanged = self.buffer.phrase() == snapshot
+                elif span:
+                    # Откат исправления с пробелом внутри («кем бы»): сверяем
+                    # хвост фразы целиком, а не последнее слово.
+                    expected = snapshot + [SPACE] * tail
+                    unchanged = self.buffer.phrase()[-len(expected):] == expected
                 else:
                     unchanged = self.buffer.last_word_with_tail() == (snapshot, tail)
                 if not unchanged:
@@ -500,7 +569,8 @@ class Controller:
                     return
                 ok = self._apply_fix(snapshot, tail, target_group, text, manual=manual,
                                      reason=reason, group_before=group_before,
-                                     whole_phrase=whole_phrase, switch=switch, trigger=trigger)
+                                     whole_phrase=whole_phrase, switch=switch, trigger=trigger,
+                                     span=span)
             finally:
                 if done is not None:
                     done(ok)
@@ -562,7 +632,7 @@ class Controller:
     def _apply_fix(self, keys: list[KeyPress], tail: int, target_group: int, text: str,
                    *, manual: bool, reason: str, group_before: int,
                    whole_phrase: bool = False, switch: bool = True,
-                   trigger: tuple[int, int] | None = None) -> bool:
+                   trigger: tuple[int, int] | None = None, span: bool = False) -> bool:
         # Бэкенд может ошибаться насчёт текущей раскладки (IBus на GNOME 46+).
         # Проверяем ДО плана: после Backspace-ов откатывать уже нечего.
         verify = getattr(self.backend, "verify_layout", None)
@@ -579,6 +649,7 @@ class Controller:
         if self.dry_run:
             log.info("[dry-run] %s: %r → %r", reason, original, text)
             return False
+        secret = self._password_focus()
         self.busy = True
         self._abort_requested = False
         started = self.clock()
@@ -588,7 +659,10 @@ class Controller:
                 return False
             result = execute(plan, self.typist, self.backend, abort=self._abort,
                              key_delay=self.config.typing.key_delay_ms / 1000.0,
-                             sleep=self.sleep)
+                             sleep=self.sleep, restore_group=group_before if switch else None)
+        except Exception as exc:  # noqa: BLE001 — execute сам ловит, это страховка
+            log.error("исправление %s: ошибка %s", reason, exc)
+            result = "failed"
         finally:
             self.busy = False
         if result != DONE:
@@ -602,14 +676,18 @@ class Controller:
             self._pending_gesture = None
             self._emit_status()
             return False
-        # text печатаем через %r как есть: пробел в конце — часть исправления,
-        # и по логу видно, ушёл ли он (rstrip() это скрывал).
-        log.info("%s: %r → %r за %.0f мс", reason, original, text,
-                 (self.clock() - started) * 1000)
+        # Сам текст — только в отладочный журнал: в обычном журнале (journald
+        # хранит его неделями) исправленным словам делать нечего. text — через
+        # %r как есть: по нему видно, ушёл ли пробел в конце.
+        log.info("%s: исправлено за %.0f мс", reason, (self.clock() - started) * 1000)
+        if not secret:
+            log.debug("%s: %r → %r", reason, original, text)
         new_keys = [KeyPress(code, shift) for code, shift in
                     keys_for_typing(text, target_group, self.keymap, False) or []]
         if whole_phrase:
             self.buffer.replace_all(new_keys)
+        elif span:
+            self.buffer.replace_tail(len(keys) + tail, new_keys)
         else:
             self.buffer.replace_last_word(new_keys[: len(new_keys) - tail] if tail else new_keys)
         word_keys = new_keys[: len(new_keys) - tail] if tail else new_keys
@@ -620,7 +698,8 @@ class Controller:
         else:
             self.stats["corrections"] += 1
             self._last_fix = LastFix(list(keys), word_keys, group_before, self.clock())
-        if self.on_corrected:
+        if self.on_corrected and not secret:
+            # Из поля пароля текст наружу (D-Bus, окно) не отдаём.
             self.on_corrected(original, text.rstrip(), manual)
         self._emit_status()
         return True

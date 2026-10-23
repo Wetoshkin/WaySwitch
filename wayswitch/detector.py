@@ -32,12 +32,55 @@ PATH_MARKERS = ("/", "\\", "~")
 TECH_WORDS = {"http", "https", "ftp", "www", "ssh", "git", "sudo", "apt", "dnf"}
 
 # Знаки, которые в чужой раскладке оказываются буквой: в русской запятая живёт
-# на клавише «б», точка — на «ю». «пирогб» → «пирог,», «рубю» → «руб.».
-PUNCT_FROM_OTHER = ",.;:?!"
+# на клавише «б», точка — на «ю». «пирогб» → «пирог,», «улю» → «ул.».
+# «;» (клавиша «ж») не берём: «стаж», «морж», «метраж» стали бы «ста;».
+PUNCT_FROM_OTHER = ",."
+# Перед «ю»-точкой — только согласная: окончания «-ую», «-ью», «-аю» слишком
+# часты («дую» → «ду.», «сталью» → «сталь.»), а сокращения с точкой
+# («руб.», «ул.», «г.») кончаются согласной.
+_NOT_BEFORE_DOT = frozenset("аеёиоуыэюяьъй")
 
-# Частицы: по правилам русского языка одни пишутся через дефис, другие — раздельно.
-PARTICLES_HYPHEN = ("то", "ка", "либо", "нибудь", "таки")
-PARTICLES_SPACE = ("бы", "же", "ли")
+# Частицы. По правилам «-то», «-либо», «-нибудь», «-ка», «-таки» пишутся через
+# дефис, «бы», «же», «ли» — раздельно. Но «-ка», «-то», «бы», «же» совпадают с
+# окончаниями обычных слов («раскладка», «нетто», «колбы», «строже»), а в
+# словаре нет многих словоформ. Поэтому у каждой частицы — свой закрытый
+# список основ, после которых она точно частица.
+_PRONOUNS = ("что", "кто", "где", "куда", "откуда", "как", "когда", "какой", "какая",
+             "какое", "какие", "каких", "каким", "какую", "чей", "чья", "чьё", "чьи",
+             "почему", "зачем", "отчего", "сколько", "чего", "чему", "чем", "кого", "кому",
+             "кем", "ком", "чём")
+_PERSONAL = ("я", "ты", "он", "она", "оно", "мы", "вы", "они")
+PARTICLE_STEMS = {
+    "то": frozenset(_PRONOUNS),
+    "либо": frozenset(_PRONOUNS),
+    "нибудь": frozenset(_PRONOUNS),
+    "ка": frozenset(("давай", "давайте", "дай", "дайте", "смотри", "смотрите", "ну",
+                     "иди", "идите", "скажи", "скажите", "глянь", "погоди", "подожди",
+                     "посмотри", "покажи", "попробуй", "принеси", "сходи", "налей",
+                     "расскажи", "подумай", "постой", "пойди", "напиши", "позвони")),
+    "таки": frozenset(("всё", "все", "так", "опять", "наконец", "довольно", "есть")),
+    "же": frozenset(_PRONOUNS + _PERSONAL + (
+        "тот", "та", "те", "так", "там", "тут", "туда", "сюда", "здесь", "сейчас", "тогда",
+        "всё", "все", "это", "этот", "эта", "эти", "такой", "такая", "такое", "такие",
+        "сразу", "опять", "ведь", "нет", "да", "его", "её", "их", "ему", "ей", "им",
+        "меня", "тебя", "нас", "вас")),
+}
+# «бы» и «ли» — после местоимений и глаголов: прошедшее время на «-л(а/о/и)»,
+# у «ли» ещё настоящее время. «столбы», «колбы», «вербы» не подходят: основа
+# короткая или не глагольная.
+_BY_WORDS = frozenset(_PRONOUNS + _PERSONAL + (
+    "был", "была", "было", "были", "мог", "могла", "могли", "смог", "если", "хотя",
+    "тогда", "лучше", "хорошо", "можно", "нужно", "надо"))
+_BY_VERB_ENDINGS = ("ал", "ял", "ел", "ил", "ыл", "ул", "ла", "ло", "ли")
+_LI_VERB_ENDINGS = ("ешь", "ишь", "ете", "ите", "ет", "ит", "ут", "ют", "ат", "ят", "ть",
+                    "ся", "сь")
+_LI_WORDS = frozenset(("то", "есть", "был", "была", "было", "были", "так", "верно",
+                       "можно", "нужно", "надо", "много", "мало", "скоро", "давно"))
+# Первые части составных названий со строчной: «мегаФон», «сберБанк».
+BRAND_PREFIXES = frozenset((
+    "мега", "сбер", "авто", "мото", "фото", "видео", "теле", "радио", "супер", "мини",
+    "макси", "евро", "гига", "кило", "нано", "вело", "аэро", "агро", "био", "эко", "инфо",
+    "медиа", "пром", "газ", "тех", "спец", "рос", "мос", "яндекс", "вкус"))
 
 
 @dataclass(frozen=True)
@@ -217,7 +260,9 @@ class Detector:
         if len(keys) < 3:
             return None
         lang = self.lang_of_group(current_group)
-        if lang is None or lang not in self.models:
+        # Только из русской раскладки: в английской хвостовой «/» (точка в
+        # русской) — это почти всегда путь в терминале: «build/», «docs/».
+        if lang != "ru" or lang not in self.models:
             return None
         last = keys[-1]
         if last.shift:  # со Shift в другой раскладке знак был бы другим
@@ -231,28 +276,64 @@ class Detector:
         full = self.keymap.decode(keys, current_group).lower()
         if not stem or any(c not in letters for c in stem):
             return None
+        if mark == "." and stem[-1] in _NOT_BEFORE_DOT:
+            return None
         if not model.is_word(stem) or model.is_word(full):
             return None
         return mark
 
     def particles_fix(self, keys, current_group: int) -> str | None:
-        """Слипшиеся частицы: «чтото» → «что-то», «кембы» → «кем бы»."""
+        """Слипшиеся частицы: «чтото» → «что-то», «кембы» → «кем бы».
+
+        Срабатывает, только если слова целиком нет в словаре, а основа — из
+        списка тех, после которых частица точно частица (PARTICLE_STEMS,
+        _BY_*, _LI_*): иначе «раскладка» стала бы «расклад-ка».
+        """
         lang = self.lang_of_group(current_group)
-        if lang is None or lang not in self.models:
+        if lang != "ru" or lang not in self.models:
             return None
         letters = LETTERS[lang]
         model = self.models[lang]
         text = self.decode(keys, current_group).lower()
-        if len(text) < 5 or any(c not in letters for c in text) or model.is_word(text):
+        if len(text) < 4 or any(c not in letters for c in text) or model.is_word(text):
             return None
-        pairs = [(p, "-") for p in PARTICLES_HYPHEN] + [(p, " ") for p in PARTICLES_SPACE]
-        for particle, sep in pairs:
-            if not text.endswith(particle):
-                continue
+        for particle, stems in PARTICLE_STEMS.items():
             stem = text[: -len(particle)]
-            if len(stem) >= 2 and model.is_word(stem):
+            if text.endswith(particle) and stem in stems:
+                sep = " " if particle == "же" else "-"
                 return f"{stem}{sep}{particle}"
+        if text.endswith("бы"):
+            stem = text[:-2]
+            if stem in _BY_WORDS or (len(stem) >= 5 and stem.endswith(_BY_VERB_ENDINGS)
+                                     and model.is_word(stem)):
+                return f"{stem} бы"
+        if text.endswith("ли"):
+            stem = text[:-2]
+            if stem in _LI_WORDS or (len(stem) >= 4 and stem.endswith(_LI_VERB_ENDINGS)
+                                     and model.is_word(stem)):
+                return f"{stem} ли"
         return None
+
+    def two_capitals_fix(self, keys, current_group: int) -> str | None:
+        """Две заглавные в начале: «ПРивет» → «Привет», «HEllo» → «Hello».
+
+        Shift отпустили на букву позже. Чиним, только если дальше все буквы
+        строчные (не аббревиатура «ООО», не «iPhone») и слово с одной
+        заглавной есть в словаре.
+        """
+        lang = self.lang_of_group(current_group)
+        if lang is None or lang not in self.models:
+            return None
+        text = self.decode(keys, current_group)
+        letters = LETTERS[lang]
+        if len(text) < 3 or any(c.lower() not in letters for c in text):
+            return None
+        if not (text[0].isupper() and text[1].isupper() and text[2:].islower()):
+            return None
+        fixed = text[0] + text[1:].lower()
+        if not self.models[lang].is_word(fixed.lower()):
+            return None
+        return fixed
 
     def split_words_fix(self, keys, current_group: int) -> str | None:
         """Слипшиеся слова: «сонатуБаха» → «сонату Баха».
@@ -263,7 +344,9 @@ class Detector:
         превратился бы в «Way Switch».
         """
         lang = self.lang_of_group(current_group)
-        if lang is None or lang not in self.models:
+        # Только русский: в английском «useState», «getName», «forEach» — это
+        # camelCase в коде, а не потерянный пробел.
+        if lang != "ru" or lang not in self.models:
             return None
         letters = LETTERS[lang]
         model = self.models[lang]
@@ -284,7 +367,12 @@ class Detector:
         left, right = text[:cut], text[cut:]
         if len(left) < 3 or len(right) < 3:
             return None
+        if left.lower() in BRAND_PREFIXES:
+            return None  # «мегаФон», «сберБанк» — названия, а не потерянный пробел
         if not model.looks_like_word(left.lower()) or not model.looks_like_word(right.lower()):
+            return None
+        # Хотя бы одна половина — словарное слово, а не только «похожа на слово».
+        if not (model.is_word(left.lower()) or model.is_word(right.lower())):
             return None
         return f"{left} {right}"
 
