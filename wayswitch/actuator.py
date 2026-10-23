@@ -75,15 +75,21 @@ def keys_for_typing(text: str, group: int, keymap: Keymap,
 
 def plan_fix(delete_count: int, target_text: str, target_group: int, keymap: Keymap,
              caps_on: bool, switch: bool = True) -> Plan | None:
-    """План: отпустить модификаторы, стереть, (переключить), набрать текст в target_group."""
+    """План: отпустить модификаторы, (переключить раскладку), стереть, набрать.
+
+    Переключение — ДО Backspace-ов: если бэкенд не смог сменить раскладку
+    (IBus на GNOME 46+ меняет движок, но не раскладку компоузитора), execute
+    вернёт FAILED, и слово останется на экране целым. В обратном порядке текст
+    был бы уже стёрт без возможности его вернуть.
+    """
     keys = keys_for_typing(target_text, target_group, keymap, caps_on)
     if keys is None:
         return None
     steps: list = [ReleaseModifiers()]
-    if delete_count > 0:
-        steps.append(Backspace(delete_count))
     if switch:
         steps.append(SwitchLayout(target_group))
+    if delete_count > 0:
+        steps.append(Backspace(delete_count))
     if target_text:
         steps.append(Type(target_text, keys))
     return Plan(steps)

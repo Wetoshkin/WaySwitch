@@ -93,7 +93,10 @@ class GnomeIbusBackend(LayoutBackend):
             time.sleep(0.001)
         # Сигнал пришёл от ibus-daemon; Shell применяет раскладку чуть позже.
         time.sleep(self._settle)
-        return True
+        # ...и на GNOME 46+ может не применить вовсе: движок IBus меняется, а
+        # источник ввода компоузитора остаётся прежним. Тогда честно говорим
+        # «не применилось»: execute вернёт FAILED до Backspace-ов и текст цел.
+        return self.verify_layout()
 
     def on_change(self, cb: Callable[[int, bool], None]) -> None:
         self._callbacks.append(cb)
