@@ -47,3 +47,43 @@ class ShiftGesture:
             self._last_press = None
             self._broken = True
         return None
+
+
+class TapKeyGesture:
+    """Одиночный тап своей клавиши: перевернуть последнее слово.
+
+    Как в Punto Switcher, только на выбранной клавише (по умолчанию левый Ctrl):
+    нажали и отпустили, не нажимая между этим ничего другого. Любая другая
+    клавиша (Ctrl+C) или клик мыши разрывает жест - иначе сокращения и
+    Ctrl+колесо переворачивали бы слово без спроса. Окно - время удержания:
+    зажатая клавиша жестом не считается.
+    """
+
+    def __init__(self, keys: frozenset[int] = frozenset({kc.KEY_LEFTCTRL}),
+                 window: float = 0.5):
+        self.keys = keys
+        self.window = window
+        self._pressed_at: float | None = None
+        self._broken = False
+
+    def reset(self) -> None:
+        """Забыть начатый тап — например, если во время него был клик мышью."""
+        self._pressed_at = None
+        self._broken = False
+
+    def on_key(self, code: int, value: int, now: float) -> str | None:
+        if code in self.keys:
+            if value == 1:
+                self._pressed_at = now
+                self._broken = False
+            elif value == 0:
+                pressed = self._pressed_at
+                pressed_broken = self._broken
+                self._pressed_at = None
+                self._broken = False
+                if pressed is not None and not pressed_broken and now - pressed <= self.window:
+                    return "word"
+            return None
+        if value == 1:
+            self._broken = True  # Ctrl+C, Ctrl+V и прочие сочетания - не жест
+        return None

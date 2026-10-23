@@ -14,7 +14,7 @@ from pathlib import Path
 from wayswitch.keycodes import KEY_NAMES
 
 SENSITIVITY_NAMES = ("conservative", "normal", "aggressive")
-MANUAL_MODES = ("double_shift", "pause_key", "none")
+MANUAL_MODES = ("double_shift", "tap_key", "pause_key", "none")
 BACKEND_PREFS = ("auto", "shell", "ibus", "hotkey")
 # Чем печатать символы при shell-бэкенде: клавишами расширения (keysym-ы, не
 # зависят от раскладки) или сканерами через uinput (как настоящая клавиатура).
@@ -36,6 +36,9 @@ class General:
 @dataclass
 class Gesture:
     manual: str = "double_shift"
+    # Клавиша для жеста manual = "tap_key": одиночный тап переворачивает
+    # последнее слово (по умолчанию левый Ctrl, как в Punto Switcher).
+    tap_key: str = "leftctrl"
     pause_hotkey: str = ""
 
 
@@ -111,6 +114,8 @@ def _validate(cfg: Config) -> None:
         raise ConfigError("undo_window_sec: 0..60")
     if ge.manual not in MANUAL_MODES:
         raise ConfigError(f"manual: допустимо {MANUAL_MODES}")
+    if ge.tap_key.lower() not in KEY_NAMES:
+        raise ConfigError(f"tap_key: неизвестная клавиша {ge.tap_key!r}")
     if ge.pause_hotkey and ge.pause_hotkey.lower() not in KEY_NAMES:
         raise ConfigError(f"pause_hotkey: неизвестная клавиша {ge.pause_hotkey!r}")
     if not 0 <= t.settle_ms <= 2000:

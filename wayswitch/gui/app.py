@@ -10,7 +10,11 @@ from wayswitch.gui import autostart
 from wayswitch.gui.daemon_proxy import DaemonProxy
 from wayswitch.gui.tray import StatusNotifier
 
-APP_ID = "ru.siberia.WaySwitch"
+# Своё имя, отдельное от демона (ru.siberia.WaySwitch): с общим GApplication
+# пытается зарегистрироваться на уже занятом имени, не находит там org.gtk.Actions
+# и падает с «Failed to register», не показав окна. С отдельным именем окно
+# открывается, а демон остаётся доступен через DaemonProxy.
+APP_ID = "ru.siberia.WaySwitch.Settings"
 
 
 def layout_label(index) -> str:
@@ -138,9 +142,18 @@ def main(argv: list[str] | None = None) -> int:
             g2 = Adw.PreferencesGroup(title="Ручное исправление")
             self.cb_manual = Adw.ComboRow(title="Жест")
             self.cb_manual.set_model(Gtk.StringList.new(
-                ["Двойной Shift (тройной — фраза)", "Клавиша Pause", "Выключено"]))
+                ["Двойной Shift (тройной — фраза)", "Одиночный тап клавиши",
+                 "Клавиша Pause", "Выключено"]))
             self.cb_manual.set_selected(cfgmod.MANUAL_MODES.index(self.cfg.gesture.manual))
+            self.cb_manual.connect("notify::selected",
+                                   lambda *_: self._update_tap_key_sensitivity())
             g2.add(self.cb_manual)
+            self.er_tap = Adw.EntryRow(title="Клавиша для тапа")
+            self.er_tap.set_text(self.cfg.gesture.tap_key)
+            self.er_tap.set_tooltip_text(
+                "Название клавиши: leftctrl, rightctrl, scrolllock, pause, f13…")
+            self._update_tap_key_sensitivity()
+            g2.add(self.er_tap)
             self.sp_undo = Adw.SpinRow.new_with_range(0, 60, 1)
             self.sp_undo.set_title("Окно отката, с")
             self.sp_undo.set_subtitle("Жест в это время возвращает слово и учит исключение")
@@ -173,11 +186,21 @@ def main(argv: list[str] | None = None) -> int:
             page.add(gs)
             return page
 
+        def _update_tap_key_sensitivity(self):
+            # Поле клавиши имеет смысл только в режиме одиночного тапа.
+            active = cfgmod.MANUAL_MODES[self.cb_manual.get_selected()] == "tap_key"
+            self.er_tap.set_sensitive(active)
+
         def _save(self):
             c = self.cfg
             c.general.auto_correct = self.sw_auto.get_active()
             c.general.sensitivity = cfgmod.SENSITIVITY_NAMES[self.cb_sens.get_selected()]
             c.gesture.manual = cfgmod.MANUAL_MODES[self.cb_manual.get_selected()]
+            # Неизвестное имя клавиши не сохраняем: иначе демон отвергнет конфиг
+            # целиком. Поле показывает, что реально записалось.
+            tap_key = (self.er_tap.get_text() or "").strip().lower()
+            c.gesture.tap_key = tap_key if tap_key in cfgmod.KEY_NAMES else "leftctrl"
+            self.er_tap.set_text(c.gesture.tap_key)
             c.general.undo_window_sec = float(self.sp_undo.get_value())
             c.typing.settle_ms = int(self.sp_settle.get_value())
             c.typing.key_delay_ms = int(self.sp_delay.get_value())

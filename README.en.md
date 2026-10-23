@@ -216,6 +216,7 @@ project's repository with the output of those three commands.
 | Gesture | Effect |
 |---|---|
 | Double Shift (second tap within 0.4 s) | fix the last word; with an empty buffer, just switches the layout |
+| Single tap of your own key (`tap_key`, left Ctrl by default) | the same: flip the last word, or undo an autocorrect. Chords (Ctrl+C) and mouse clicks during the tap are not gestures |
 | Triple Shift (a third tap right after the double) | fix the whole phrase, in whichever layout the double Shift picked |
 | Double Shift within `undo_window_sec` after an autocorrect | undo the word and remember it as an exception |
 
@@ -252,8 +253,9 @@ phrase_timeout_sec = 8.0      # gap between words after which the phrase for tri
 undo_window_sec = 5.0         # how many seconds after a fix a double Shift still undoes it (0..60)
 
 [gesture]
-manual = "double_shift"       # double_shift | pause_key | none
-pause_hotkey = ""             # pause key, e.g. "scroll_lock" (empty — not assigned)
+manual = "double_shift"       # double_shift | tap_key | pause_key | none
+tap_key = "leftctrl"          # key for tap_key: leftctrl, rightctrl, scrolllock, pause, f13…
+pause_hotkey = ""             # pause toggle key, e.g. "scroll_lock" (empty — not assigned)
 
 [typing]
 settle_ms = 120               # pause after the layout switch before typing, ms (0..2000)

@@ -17,7 +17,7 @@ from wayswitch.actuator import DONE, execute, keys_for_typing, plan_fix
 from wayswitch.buffer import InputBuffer, KeyPress
 from wayswitch.config import Config
 from wayswitch.detector import SENSITIVITY, Detector
-from wayswitch.gesture import ShiftGesture
+from wayswitch.gesture import ShiftGesture, TapKeyGesture
 
 log = logging.getLogger("wayswitch")
 RELEASE_WAIT = 0.3  # сколько ждать отпускания физических клавиш перед печатью
@@ -64,7 +64,7 @@ class Controller:
         self.schedule = schedule
 
         self.buffer = InputBuffer(keymap, config.general.phrase_timeout_sec)
-        self.gesture = ShiftGesture()
+        self._rebuild_gesture(config)
         self.context: deque[str | None] = deque(maxlen=2)  # языки двух последних слов
         self.paused = False
         self.locked = False
@@ -79,8 +79,23 @@ class Controller:
 
     # --- конфигурация / статус ---------------------------------------------------
 
+    def _rebuild_gesture(self, config: Config) -> None:
+        """Жест по настройке: двойной Shift или одиночный тап своей клавиши."""
+        if config.gesture.manual == "tap_key":
+            # Неизвестное имя клавиши сюда не дойдёт (ловит валидация конфига),
+            # но запасной вариант на случай правки конфига в обход неё.
+            code = kc.KEY_NAMES.get(config.gesture.tap_key.lower(), kc.KEY_LEFTCTRL)
+            self.gesture = TapKeyGesture(frozenset({code}))
+            self._gesture_keys = self.gesture.keys
+        else:
+            # Shift-жест остаётся объектом и при выключенных жестах: on_key зовёт
+            # его только для double_shift, но reset() из клика должен работать.
+            self.gesture = ShiftGesture()
+            self._gesture_keys = kc.SHIFT_KEYS
+
     def reload_config(self, config: Config) -> None:
         self.config = config
+        self._rebuild_gesture(config)
         self.buffer.phrase_timeout = config.general.phrase_timeout_sec
         self.detector.sensitivity = SENSITIVITY[config.general.sensitivity]
         self._pause_key = kc.KEY_NAMES.get(config.gesture.pause_hotkey.lower()) \
@@ -136,19 +151,27 @@ class Controller:
         # Shift-тап, пришедший при busy, не будет учтён, и на его отпускании
         # счётчик снова даст «word» — лишний переворот раскладки.
         gesture = self.gesture.on_key(code, value, now) \
-            if self.config.gesture.manual == "double_shift" else None
+            if self.config.gesture.manual in ("double_shift", "tap_key") else None
         if self.busy:
             # Физический ввод во время перепечатки — прервать; зажатые клавиши
             # учесть. Shift-тап не прерывает: он короткий и сам по себе ничего
             # не печатает, а тройной Shift во время фикса второго — штатный жест.
             if value == 1:
                 self.buffer.note_press(code, device_id)
-                if code not in kc.SHIFT_KEYS:
+                if code not in self._gesture_keys:
                     self._abort_requested = True
             elif value == 0:
                 self.buffer.note_release(code, device_id)
             if gesture:
                 self._pending_gesture = gesture
+            return
+        if self.config.gesture.manual == "tap_key" and code in self._gesture_keys \
+                and not (self.paused or self.locked):
+            # Клавишу жеста целиком не отдаём буферу: она не модификатор (Ctrl,
+            # ScrollLock), и feed() сбросил бы набранное слово — переворачивать
+            # стало бы нечего. Обрабатываем только само событие жеста.
+            if gesture:
+                self._dispatch_gesture(gesture)
             return
         event = self.buffer.feed(code, value, device_id, now)
         if value == 1 and self._pause_key is not None and code == self._pause_key:
@@ -161,14 +184,7 @@ class Controller:
         if value == 1 and self.config.gesture.manual == "pause_key" and code == kc.KEY_PAUSE:
             gesture = "word"
         if gesture:
-            if self._pending:
-                # Фикс уже запланирован, но ещё не исполнен (третий тап пришёл
-                # раньше idle): жест обработаем после него, на обновлённом буфере.
-                self._pending_gesture = gesture
-            elif gesture == "word":
-                self.manual_word()
-            else:
-                self.manual_phrase()
+            self._dispatch_gesture(gesture)
             return
         if event is None:
             return
@@ -184,12 +200,24 @@ class Controller:
         elif event.kind == "letter":
             self._on_letter(event.keys, device_id, code)
 
+    def _dispatch_gesture(self, gesture: str) -> None:
+        if self._pending:
+            # Фикс уже запланирован, но ещё не исполнен (третий тап пришёл
+            # раньше idle): жест обработаем после него, на обновлённом буфере.
+            self._pending_gesture = gesture
+        elif gesture == "word":
+            self.manual_word()
+        else:
+            self.manual_phrase()
+
     def on_click(self) -> None:
         if self.busy:
             self._abort_requested = True  # клик — физический ввод, как и нажатие клавиши
             return
         self.buffer.click()
         self.context.clear()
+        # Клик посреди тапа жеста — не жест: иначе Ctrl+клик переворачивал бы слово.
+        self.gesture.reset()
 
     def on_layout_changed(self, index: int, external: bool) -> None:
         if external:
