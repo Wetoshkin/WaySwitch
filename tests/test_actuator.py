@@ -26,8 +26,10 @@ def test_plan_fix_builds_steps_with_shift_and_caps():
     km = make_keymap()
     plan = plan_fix(7, "Привет, ", RU, km, caps_on=False)
     assert isinstance(plan.steps[0], ReleaseModifiers)
-    assert plan.steps[1] == Backspace(7)
-    assert plan.steps[2] == SwitchLayout(RU)
+    # Переключение раскладки — до Backspace-ов: иначе несработавшее
+    # переключение оставило бы слово стёртым.
+    assert plan.steps[1] == SwitchLayout(RU)
+    assert plan.steps[2] == Backspace(7)
     t = plan.steps[3]
     assert isinstance(t, Type) and t.text == "Привет, "
     assert t.keys[0] == (kc.KEY_G, True)          # П — с Shift
@@ -44,6 +46,18 @@ def test_plan_fix_without_switch_and_impossible_char():
     assert not any(isinstance(s, SwitchLayout) for s in plan.steps)
     assert plan.steps[-1].keys[0] == (kc.KEY_A, False)
     assert plan_fix(1, "ж", US, km, caps_on=False) is None
+
+
+def test_failed_switch_leaves_text_untouched():
+    """Не переключилась раскладка — ни одного Backspace-а не уходит."""
+    km = make_keymap()
+    backend = FakeBackend(current=US, fail_switch=True)
+    typist = RecordingTypist()
+    plan = plan_fix(6, "привет", RU, km, caps_on=False)
+    assert plan is not None
+    assert execute(plan, typist, backend) == FAILED
+    assert kc.KEY_BACKSPACE not in [code for code, _shift in typist.taps()]
+    assert "привет" not in [ch for ch in typist.events if isinstance(ch, str)]
 
 
 def test_execute_full_sequence():
