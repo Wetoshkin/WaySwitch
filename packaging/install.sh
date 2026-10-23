@@ -91,6 +91,18 @@ case "$(echo "$DESKTOP" | tr "[:upper:]" "[:lower:]")" in
 esac
 echo "== Среда: ${DESKTOP:-неизвестна} (режим $DE)"
 
+echo "== Мост доступности (at-spi)"
+# Без него программы не отдают дерево доступности, и WaySwitch не может понять,
+# что печатают в исключённой программе или в поле пароля. Настройка системная,
+# обратима одной командой (см. README, раздел «Исключения по программам»).
+if command -v gsettings >/dev/null 2>&1; then
+    sudo -u "$SUDO_USER" gsettings set org.gnome.desktop.interface toolkit-accessibility true 2>/dev/null \
+        && echo "   включено: программы отдают дерево доступности" \
+        || echo "   не удалось включить toolkit-accessibility — исключения по программам не будут работать"
+else
+    echo "   gsettings не найден — настройте toolkit-accessibility вручную"
+fi
+
 echo "== Ярлык"
 install -m 644 "$SRC/packaging/ru.siberia.WaySwitch.desktop" /usr/local/share/applications/ 2>/dev/null \
     || { mkdir -p /usr/local/share/applications; install -m 644 "$SRC/packaging/ru.siberia.WaySwitch.desktop" /usr/local/share/applications/; }

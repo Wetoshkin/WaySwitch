@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from wayswitch import __version__
+from wayswitch import __version__, a11y
 from wayswitch import config as cfgmod
 from wayswitch.gui import autostart
 from wayswitch.gui.daemon_proxy import DaemonProxy
@@ -93,7 +93,9 @@ def main(argv: list[str] | None = None) -> int:
             menu_button.update_property([Gtk.AccessibleProperty.LABEL], ["Меню"])
             header.pack_end(menu_button)
             toolbar.add_top_bar(header)
-            toolbar.set_content(self.stack)
+            self.toasts = Adw.ToastOverlay()
+            self.toasts.set_child(self.stack)
+            toolbar.set_content(self.toasts)
             self.set_content(toolbar)
             self.stack.add_titled_with_icon(self._status_page(), "status", "Статус",
                                             "dialog-information-symbolic")
@@ -209,6 +211,42 @@ def main(argv: list[str] | None = None) -> int:
             self.sp_undo.set_value(self.cfg.general.undo_window_sec)
             g2.add(self.sp_undo)
             page.add(g2)
+            gr = Adw.PreferencesGroup(
+                title="Правила",
+                description="Как в Punto Switcher: что чинить, а где не мешать")
+            self.sw_punct = Adw.SwitchRow(title="Знаки препинания из другой раскладки",
+                                          subtitle="«пирогб» → «пирог,», «рубю» → «руб.»")
+            self.sw_punct.set_active(self.cfg.general.punct_fix)
+            gr.add(self.sw_punct)
+            self.sw_particles = Adw.SwitchRow(title="Слипшиеся частицы",
+                                              subtitle="«чтото» → «что-то», «кембы» → «кем бы»")
+            self.sw_particles.set_active(self.cfg.general.particles_fix)
+            gr.add(self.sw_particles)
+            self.sw_password = Adw.SwitchRow(title="Не трогать поля паролей",
+                                             subtitle="Определяется через at-spi: роль поля")
+            self.sw_password.set_active(self.cfg.general.skip_password_fields)
+            gr.add(self.sw_password)
+            self.sp_guard = Adw.SpinRow.new_with_range(0, 10, 0.5)
+            self.sp_guard.set_title("Тишина после правки текста, с")
+            self.sp_guard.set_subtitle("После Backspace, стрелок и ручной смены раскладки")
+            self.sp_guard.set_digits(1)
+            self.sp_guard.set_value(self.cfg.general.edit_guard_sec)
+            gr.add(self.sp_guard)
+            self.sw_sound = Adw.SwitchRow(title="Звуковой сигнал после исправления",
+                                          subtitle="Короткий щелчок, как в Punto Switcher")
+            self.sw_sound.set_active(self.cfg.general.sound_on_fix)
+            gr.add(self.sw_sound)
+            self.sw_tab = Adw.SwitchRow(
+                title="Исправлять слово перед Tab",
+                subtitle="Осторожно: Tab в терминале выбирает автодополнение")
+            self.sw_tab.set_active(self.cfg.general.fix_on_tab)
+            gr.add(self.sw_tab)
+            self.sw_enter = Adw.SwitchRow(
+                title="Исправлять слово перед Enter",
+                subtitle="Автодополнение в IDE тоже срабатывает на Enter")
+            self.sw_enter.set_active(self.cfg.general.fix_on_enter)
+            gr.add(self.sw_enter)
+            page.add(gr)
             g3 = Adw.PreferencesGroup(title="Тонкая настройка")
             self.sp_settle = Adw.SpinRow.new_with_range(0, 2000, 5)
             self.sp_settle.set_title("Запас после смены раскладки, мс")
@@ -290,6 +328,13 @@ def main(argv: list[str] | None = None) -> int:
             c.gesture.tap_key = tap_key if tap_key in cfgmod.KEY_NAMES else "leftctrl"
             self.er_tap.set_text(c.gesture.tap_key)
             c.general.undo_window_sec = float(self.sp_undo.get_value())
+            c.general.punct_fix = self.sw_punct.get_active()
+            c.general.particles_fix = self.sw_particles.get_active()
+            c.general.skip_password_fields = self.sw_password.get_active()
+            c.general.edit_guard_sec = float(self.sp_guard.get_value())
+            c.general.fix_on_tab = self.sw_tab.get_active()
+            c.general.fix_on_enter = self.sw_enter.get_active()
+            c.general.sound_on_fix = self.sw_sound.get_active()
             c.typing.settle_ms = int(self.sp_settle.get_value())
             c.typing.key_delay_ms = int(self.sp_delay.get_value())
             c.backend.prefer = cfgmod.BACKEND_PREFS[self.cb_backend.get_selected()]
@@ -309,8 +354,80 @@ def main(argv: list[str] | None = None) -> int:
             self.exc_box.add_css_class("boxed-list")
             g.add(self.exc_box)
             page.add(g)
+
+            # Приложения: сюда попадает всё, где автоисправление мешает —
+            # самой частой болью пользователей Punto Switcher были именно
+            # «лезет в Telegram / IDE / консоль».
+            ga = Adw.PreferencesGroup(
+                title="Программы, где не исправлять",
+                description="Сравнение по вхождению без регистра: «telegram» "
+                            "подойдёт и для TelegramDesktop")
+            self.entry_app = Adw.EntryRow(title="Добавить программу")
+            self.entry_app.connect("apply", lambda *_: self._add_app())
+            self.entry_app.set_show_apply_button(True)
+            ga.add(self.entry_app)
+            add_current = Adw.ActionRow(
+                title="Добавить текущую программу",
+                subtitle="Ту, в которой сейчас окно на переднем плане")
+            add_btn = Gtk.Button(label="Добавить", valign=Gtk.Align.CENTER)
+            add_btn.connect("clicked", lambda *_: self._add_current_app())
+            add_current.add_suffix(add_btn)
+            ga.add(add_current)
+            self.app_box = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+            self.app_box.add_css_class("boxed-list")
+            ga.add(self.app_box)
+            page.add(ga)
+
             self._render_exceptions()
+            self._render_apps()
             return page
+
+        def _toast(self, text: str):
+            """Короткое сообщение поверх содержимого (Adw.Toast)."""
+            self.toasts.add_toast(Adw.Toast(title=text, timeout=3))
+
+        def _render_apps(self):
+            while (child := self.app_box.get_row_at_index(0)) is not None:
+                self.app_box.remove(child)
+            apps = cfgmod.load_apps()
+            if not apps:
+                row = Adw.ActionRow(title="Список пуст",
+                                    subtitle="Автоисправление работает во всех программах")
+                self.app_box.append(row)
+                return
+            for app in apps:
+                row = Adw.ActionRow(title=app)
+                btn = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER)
+                btn.add_css_class("flat")
+                btn.connect("clicked", lambda _b, a=app: self._remove_app(a))
+                row.add_suffix(btn)
+                self.app_box.append(row)
+
+        def _add_app(self, name: str | None = None):
+            value = (name if name is not None else self.entry_app.get_text()).strip()
+            if not value:
+                return
+            cfgmod.add_app(value)
+            self.entry_app.set_text("")
+            self._render_apps()
+            self.proxy.call("Reload")
+
+        def _remove_app(self, app: str):
+            cfgmod.remove_app(app)
+            self._render_apps()
+            self.proxy.call("Reload")
+
+        def _add_current_app(self):
+            """Взять имя активного приложения из at-spi (один запрос, не поток)."""
+            try:
+                name, _password = a11y.query_focus()
+            except Exception:
+                name = None
+            if name:
+                self._add_app(name)
+                self._toast(f"Добавлено: {name}")
+            else:
+                self._toast("Не удалось определить активное окно")
 
         def _render_exceptions(self):
             while (child := self.exc_box.get_row_at_index(0)) is not None:

@@ -38,6 +38,15 @@ class General:
     punct_fix: bool = True
     # «чтото» → «что-то», «кембы» → «кем бы».
     particles_fix: bool = True
+    # Не трогать поля паролей (at-spi видит их ролью password text).
+    skip_password_fields: bool = True
+    # Короткий сигнал после автоисправления (как в Punto Switcher).
+    sound_on_fix: bool = False
+    # Исправлять слово, законченное Tab или Enter. По умолчанию нет: в
+    # терминале и IDE Tab выбирает автодополнение, и перепечатка после него
+    # попадёт уже в другое место.
+    fix_on_tab: bool = False
+    fix_on_enter: bool = False
 
 
 @dataclass
@@ -87,6 +96,53 @@ def default_path() -> Path:
 
 def exceptions_path() -> Path:
     return config_dir() / "exceptions.txt"
+
+
+def apps_path() -> Path:
+    """Список исключённых приложений (по строке на приложение)."""
+    return config_dir() / "apps.txt"
+
+
+def load_apps(path: Path | None = None) -> list[str]:
+    """Прочитать исключённые приложения; файла нет — пустой список."""
+    path = path or apps_path()
+    if not path.exists():
+        return []
+    return [line.strip() for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")]
+
+
+def save_apps(apps: list[str], path: Path | None = None) -> None:
+    """Записать список приложений (по одному в строке, без дублей)."""
+    path = path or apps_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    seen: list[str] = []
+    for app in apps:
+        name = app.strip()
+        if name and name.lower() not in {s.lower() for s in seen}:
+            seen.append(name)
+    text = "\n".join(seen) + ("\n" if seen else "")
+    path.write_text(text, encoding="utf-8")
+
+
+def add_app(app: str, path: Path | None = None) -> bool:
+    """Добавить приложение; False — уже было."""
+    apps = load_apps(path)
+    if any(app.strip().lower() == a.lower() for a in apps):
+        return False
+    apps.append(app.strip())
+    save_apps(apps, path)
+    return True
+
+
+def remove_app(app: str, path: Path | None = None) -> bool:
+    """Убрать приложение; False — такого не было."""
+    apps = load_apps(path)
+    left = [a for a in apps if a.lower() != app.strip().lower()]
+    if len(left) == len(apps):
+        return False
+    save_apps(left, path)
+    return True
 
 
 def _section_from_dict(cls, data: dict):

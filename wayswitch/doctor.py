@@ -52,6 +52,37 @@ def uinput_status() -> tuple[bool, str]:
     return True, ""
 
 
+def toolkit_accessibility() -> tuple[bool, str]:
+    """Включён ли мост доступности в GTK-программах.
+
+    Без него at-spi видит только оболочку: исключения по программам и защита
+    полей паролей не работают (автоисправление при этом работает).
+    """
+    import subprocess
+
+    try:
+        out = subprocess.run(["gsettings", "get", "org.gnome.desktop.interface",
+                              "toolkit-accessibility"], capture_output=True, text=True,
+                             timeout=3).stdout.strip().lower()
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, f"gsettings недоступен ({exc})"
+    if out == "true":
+        return True, ""
+    return False, ("gsettings set org.gnome.desktop.interface toolkit-accessibility true "
+                   "и перезапустить программы")
+
+
+def atspi_status() -> tuple[bool, str]:
+    """Отвечает ли мост доступности: без него не узнать приложение и поле пароля.
+
+    Проверка необязательная: без at-spi автоисправление работает, просто не
+    исключает программы и не распознаёт поля паролей.
+    """
+    from wayswitch.a11y import bridge_available
+
+    return bridge_available()
+
+
 def run_checks() -> list[Check]:
     checks = []
     desktop = detect_desktop()
@@ -62,6 +93,13 @@ def run_checks() -> list[Check]:
     checks.append(_check("Сессия Wayland", session,
                          "WaySwitch работает только на Wayland; в X11 раскладку "
                          "не прочитать и не переключить"))
+
+    checks.append(_check("Доступность GTK (toolkit-accessibility)", toolkit_accessibility,
+                         "необязательно: без неё не работают исключения по "
+                         "программам и защита полей паролей", required=False))
+    checks.append(_check("Мост доступности (at-spi)", atspi_status,
+                         "необязательно: без него не работают исключения по "
+                         "программам и защита полей паролей", required=False))
 
     if desktop == GNOME:
         def gnome_tools():

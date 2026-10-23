@@ -258,6 +258,10 @@ undo_window_sec = 5.0         # how many seconds after a fix a double Shift stil
 edit_guard_sec = 1.0          # autocorrect pauses after Backspace/arrows/Delete and manual layout switches (0..10)
 punct_fix = true              # "пирогб" → "пирог,": punctuation typed as a letter of the other layout
 particles_fix = true          # "чтото" → "что-то", "кембы" → "кем бы"
+skip_password_fields = true   # never touch password fields (at-spi)
+sound_on_fix = false          # short click after a correction
+fix_on_tab = false            # correct a word finished with Tab (risky in terminals)
+fix_on_enter = false          # correct a word finished with Enter
 
 [gesture]
 manual = "double_shift"       # double_shift | tap_key | pause_key | none
@@ -279,6 +283,32 @@ opposite.
 `~/.config/wayswitch/exceptions.txt` lists words that are never
 autocorrected (one per line, case-insensitive); it grows when you undo a
 fix with a gesture or edit exceptions in the GUI.
+
+### Per-application exclusions
+
+The most frequent complaint about Punto Switcher on its forum was "it kicks in
+where it should not": Telegram, IDEs, terminals. WaySwitch handles this on the
+"Exceptions" page, group "Программы, где не исправлять":
+
+- "Добавить текущую программу" asks at-spi for the focused window and fills
+  the name in for you;
+- matching is a case-insensitive substring, so `telegram` covers
+  `TelegramDesktop` and `org.telegram.desktop`;
+- the list lives in `~/.config/wayswitch/apps.txt` and is re-read on every
+  decision — no daemon restart needed.
+
+It requires the GTK accessibility bridge, which the installer enables:
+
+```bash
+gsettings set org.gnome.desktop.interface toolkit-accessibility false   # to undo
+```
+
+### Password fields and the sound
+
+Password fields are detected through at-spi (role `password text`) and never
+touched. `sound_on_fix = true` adds a short click after each automatic
+correction — the WAV is generated on first use and played with `pw-play`,
+`paplay` or `aplay`, whichever exists.
 
 ## How it works
 
@@ -340,8 +370,9 @@ it has not yet run on a live GNOME session; the first-run VM checklist is
   `evdev`-based design.
 - KDE Plasma 6 on Wayland works through the `kde` backend; Sway/Hyprland get
   the manual gesture only (no way to read the layout).
-- Per-application exclusions (skip Telegram/IDE/CMD like Punto does) are not
-  there yet: on Wayland the focused window is only visible through at-spi.
+- Per-application exclusions work through at-spi and need
+  `toolkit-accessibility` enabled (the installer turns it on). If the
+  accessibility bridge is silent, WaySwitch assumes a normal application.
 
 ## Development
 
