@@ -24,61 +24,11 @@ echo "== Версия: python=$PY_VERSION deb=$DEB_VERSION"
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
 
-# --- код пакета ---------------------------------------------------------
-PYLIB="$STAGE/usr/lib/python3/dist-packages"
-mkdir -p "$PYLIB"
-cp -r "$ROOT/wayswitch" "$PYLIB/wayswitch"
-find "$PYLIB/wayswitch" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
-
-# --- исполняемые обёртки -------------------------------------------------
+# --- файлы пакета (общие с .rpm и AUR) -----------------------------------
+bash "$ROOT/tools/stage.sh" "$STAGE" /usr/lib/python3/dist-packages
 BIN="$STAGE/usr/bin"
-mkdir -p "$BIN"
-cat > "$BIN/wayswitch" <<'EOF'
-#!/usr/bin/python3
-from wayswitch.cli import main
-
-raise SystemExit(main())
-EOF
-cat > "$BIN/wayswitch-gui" <<'EOF'
-#!/usr/bin/python3
-from wayswitch.gui.app import main
-
-raise SystemExit(main())
-EOF
-chmod 755 "$BIN/wayswitch" "$BIN/wayswitch-gui"
-
-# --- udev / uinput --------------------------------------------------------
-UDEV_DIR="$STAGE/usr/lib/udev/rules.d"
-mkdir -p "$UDEV_DIR"
-cp "$ROOT/packaging/60-wayswitch.rules" "$UDEV_DIR/60-wayswitch.rules"
-
-MODLOAD_DIR="$STAGE/usr/lib/modules-load.d"
-mkdir -p "$MODLOAD_DIR"
-echo "uinput" > "$MODLOAD_DIR/wayswitch.conf"
-
-# --- systemd user-юнит ------------------------------------------------
-SYSTEMD_DIR="$STAGE/usr/lib/systemd/user"
-mkdir -p "$SYSTEMD_DIR"
-sed 's#ExecStart=/usr/local/bin/wayswitch run#ExecStart=/usr/bin/wayswitch run#' \
-    "$ROOT/packaging/wayswitch.service" > "$SYSTEMD_DIR/wayswitch.service"
-
-# --- расширение GNOME Shell -----------------------------------------------
-EXT_DIR="$STAGE/usr/share/gnome-shell/extensions/wayswitch@siberia.ru"
-mkdir -p "$EXT_DIR"
-cp -r "$ROOT"/extension/wayswitch@siberia.ru/. "$EXT_DIR/"
-
-# --- .desktop ---------------------------------------------------------
-APPS_DIR="$STAGE/usr/share/applications"
-ICONS_DIR="$STAGE/usr/share/icons/hicolor/scalable/apps"
-mkdir -p "$APPS_DIR"
-mkdir -p "$ICONS_DIR"
-cp "$ROOT/packaging/ru.siberia.WaySwitch.Settings.desktop" \
-   "$APPS_DIR/ru.siberia.WaySwitch.Settings.desktop"
-cp "$ROOT/packaging/icons/ru.siberia.WaySwitch.svg" \
-   "$ICONS_DIR/ru.siberia.WaySwitch.svg"
-SYMBOLIC_DIR="$STAGE/usr/share/icons/hicolor/symbolic/apps"
-mkdir -p "$SYMBOLIC_DIR"
-cp "$ROOT"/packaging/icons/ru.siberia.WaySwitch-*symbolic.svg "$SYMBOLIC_DIR/"
+# В Debian лицензия — в doc/<пакет>/copyright, а не в /usr/share/licenses.
+rm -rf "$STAGE/usr/share/licenses"
 
 # --- документация и лицензии ----------------------------------------------
 DOC_DIR="$STAGE/usr/share/doc/wayswitch"

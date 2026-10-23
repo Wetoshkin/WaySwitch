@@ -1,169 +1,142 @@
 <p align="center">
-  <img src="packaging/icons/ru.siberia.WaySwitch.svg" width="112" height="112" alt="">
+  <img src=".github/assets/banner-en.png" alt="WaySwitch — fixes words typed in the wrong keyboard layout" width="100%">
 </p>
 
-<h1 align="center">WaySwitch</h1>
-
 <p align="center">
-  Fixes words typed in the wrong keyboard layout — on Wayland, in GNOME and KDE Plasma.<br>
-  <code>ghbdtn</code> + Space → «привет», and the layout switches by itself.
+  <a href="https://github.com/Wetoshkin/WaySwitch/releases"><img src="https://img.shields.io/github/v/release/Wetoshkin/WaySwitch?include_prereleases&style=flat-square&color=c67139" alt="Release"></a>
+  <a href="https://github.com/Wetoshkin/WaySwitch/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Wetoshkin/WaySwitch/ci.yml?style=flat-square&label=tests" alt="Tests"></a>
+  <img src="https://img.shields.io/badge/GNOME-46–51-7a8a5e?style=flat-square" alt="GNOME 46–51">
+  <img src="https://img.shields.io/badge/KDE_Plasma-6-3daee9?style=flat-square" alt="KDE Plasma 6">
+  <img src="https://img.shields.io/badge/Wayland-✓-7a8a5e?style=flat-square" alt="Wayland">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4a4540?style=flat-square" alt="MIT"></a>
 </p>
 
 <p align="center">
   <a href="README.md">Русский</a> · <b>English</b>
 </p>
 
-<p align="center">
-  <a href="https://github.com/Wetoshkin/WaySwitch/releases"><img alt="Release" src="https://img.shields.io/github/v/release/Wetoshkin/WaySwitch?include_prereleases"></a>
-  <a href="https://github.com/Wetoshkin/WaySwitch/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Wetoshkin/WaySwitch/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="Wayland" src="https://img.shields.io/badge/Wayland-GNOME%2046%E2%80%9351%20%C2%B7%20KDE%20Plasma%206-c46a32">
-  <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-7a8a5e"></a>
-</p>
+**A modern Punto Switcher and Caramba Switcher alternative for Linux on Wayland.**
+
+WaySwitch fixes a word typed in the wrong layout (`ghbdtn` instead of
+«привет») right away, on Space — no hotkeys, no manual layout switching. It
+works on Wayland in GNOME, KDE Plasma, Sway, Hyprland, Xfce, MATE, Cinnamon,
+Budgie and LXQt, where classic tools of this kind can neither listen to the
+keyboard nor type for you. The interface is in Russian: WaySwitch currently
+supports the Russian ↔ English pair.
 
 <p align="center">
-  <img src="docs/screenshots/main-light.png" width="420" alt="WaySwitch main window">
-  &nbsp;
-  <img src="docs/screenshots/main-dark.png" width="420" alt="Main window, dark theme">
+  <img src=".github/assets/how-en.png" alt="Type руддщ, press Space, get hello" width="100%">
 </p>
-
----
-
-On X11 this kind of tool has existed for years (Punto Switcher, Caramba
-Switcher, xneur). On Wayland the compositor deliberately stops programs from
-listening to the keyboard or faking input, so those tools do not work there.
-WaySwitch works one level lower: it reads the keyboard from `/dev/input`
-(evdev) and types through the kernel's virtual keyboard (uinput). The layout
-is switched by its own GNOME Shell extension or by KWin on KDE. The daemon
-never grabs the keyboard: if it hangs, typing keeps working.
-
-The UI is in Russian: WaySwitch currently supports the Russian ↔ English
-pair.
 
 ## Features
 
-| | |
-|---|---|
-| **Fix on Space** | `ghbdtn` → «привет», `руддщ` → `hello`. A 48k-word dictionary plus character trigrams; digits, paths, URLs, camelCase and abbreviations are left alone |
-| **Manual fix** | double Shift fixes the last word, triple Shift the whole phrase. Instead of double Shift you can pick a single key (Right Ctrl, ScrollLock, an F-key…) or Pause |
-| **Fix selection** | select a phrase typed in the wrong layout and convert it with one key — any key you choose, or a system shortcut bound to `wayswitch fix-selection` |
-| **Undo that learns** | the same gesture within 5 s after an automatic fix restores the word and remembers it |
-| **Small typos** | `пирогб` → «пирог,» (comma from the other layout), `чтото` → «что-то», `кембы` → «кем бы», `сонатуБаха` → «сонату Баха», `ПРивет` → «Привет» |
-| **Exceptions** | words and programs to leave alone (Telegram, terminal, IDE). Password fields are skipped |
-| **Edit guard** | for a second after Backspace, arrows or a manual layout switch, nothing is auto-corrected |
-| **Panel icon** | status, pause, fix last word, fix selection |
-| **Update notice** | asks GitHub once a day whether a new version is out; can be turned off |
+- **Fix on Space.** `ghbdtn ` becomes `привет `, and the layout switches too.
+  Numbers, paths, URLs, camelCase and abbreviations are left alone.
+- **URLs right away.** A URL scheme typed in the wrong layout is fixed
+  without waiting for Space.
+- **Manual fix.** Double Shift fixes the last word, triple Shift the whole
+  phrase. You can pick a single key instead (Right Ctrl, ScrollLock, an F-key).
+- **Fix selection.** Select a phrase typed in the wrong layout, press your
+  key — done.
+- **Undo that learns.** The same gesture right after an automatic fix
+  restores the word and never touches it again.
+- **Small typos.** `пирогб` → «пирог,», `чтото` → «что-то», `ПРивет` → «Привет».
+- **Exceptions.** Words and programs to leave alone. Password fields are skipped.
 
-Nothing leaves your machine except the anonymous “what is the latest version”
-request (which can be disabled). Corrected words are never written to the log.
+<p align="center">
+  <img src="docs/screenshots/main-dark.png" width="400" alt="WaySwitch main window">
+  &nbsp;
+  <img src="docs/screenshots/prefs-light.png" width="400" alt="WaySwitch preferences">
+</p>
 
 ## Install
 
-Requirements: **Wayland** (not X11), **GNOME 46–51** or **KDE Plasma 6**,
-exactly two layouts — Russian and English.
+**You need** a Wayland session (not X11) and two layouts — Russian and a
+Latin one. Ubuntu, Debian, Fedora, openSUSE, Arch, CachyOS, EndeavourOS,
+Manjaro and most other modern distributions are fine.
 
-<details open>
-<summary><b>Arch, CachyOS, Manjaro, Fedora — from source</b></summary>
+1. Open a terminal (in KDE it is **Konsole**).
+2. Paste the command with <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> and press <kbd>Enter</kbd>:
 
-```bash
-git clone https://github.com/Wetoshkin/WaySwitch.git
-cd WaySwitch
-sudo packaging/install.sh
-```
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/get.sh | sh
+   ```
 
-The script installs dependencies (`pacman`/`dnf`/`apt`), copies the program
-to `/usr/local`, installs the udev rule, the systemd service and the GNOME
-Shell extension (and enables it). Then **log out and back in**.
+3. The script detects your distribution, says what it is going to do and
+   asks for confirmation, then for your password (it is not shown while you
+   type — that's normal).
+4. **Log out and back in.** WaySwitch starts by itself; the first time you
+   open its window it checks the system and tells you if anything is missing.
 
-</details>
+| Distribution | What happens |
+|---|---|
+| Ubuntu 24.04+, Debian 13 and derivatives | downloads the `.deb` from the latest release, installs with `apt` |
+| Fedora 41+ | installs the `.rpm` with `dnf` |
+| Silverblue, Kinoite, Bazzite | layers the `.rpm` with `rpm-ostree` (reboot afterwards) |
+| openSUSE Tumbleweed, Slowroll | installs the `.rpm` with `zypper` |
+| Arch, CachyOS, EndeavourOS, Manjaro | AUR package via `paru`/`yay` if available, otherwise from source |
+| others | from source via `packaging/install.sh` |
 
-<details>
-<summary><b>Ubuntu, Debian — .deb package</b></summary>
+Uninstall: the same command with `| sh -s -- --uninstall`.
 
-```bash
-url=$(curl -s "https://api.github.com/repos/Wetoshkin/WaySwitch/releases?per_page=1" | grep -o 'https://[^"]*\.deb' | head -1)
-wget "$url"
-sudo apt install ./wayswitch_*.deb
-gnome-extensions enable wayswitch@siberia.ru
-```
+## Gestures
 
-Then **log out and back in**.
+| Gesture | Action |
+|---|---|
+| <kbd>Shift</kbd> <kbd>Shift</kbd> | fix the last word; with nothing typed — just switch the layout |
+| <kbd>Shift</kbd> <kbd>Shift</kbd> <kbd>Shift</kbd> | fix the whole phrase |
+| <kbd>Shift</kbd> <kbd>Shift</kbd> right after an automatic fix | undo and remember the word |
+| your key (Preferences → Manual) | fix the selected text |
 
-</details>
+## Settings
 
-After logging in, open **WaySwitch** from the app menu. The first run checks
-the system, tells you what to fix and enables the service.
+Everything is set with the mouse and applied immediately. Open **WaySwitch**
+from the app menu; preferences are under <kbd>☰</kbd> or
+<kbd>Ctrl</kbd>+<kbd>,</kbd>. On **Sway and Hyprland** the indicator is a
+Waybar module (`wayswitch waybar`), control is via commands on your hotkeys
+(`wayswitch toggle`, `wayswitch fix`), and ready-made config snippets are
+copied from Preferences → System → Panel. On **Xfce, MATE, Budgie, LXQt**
+(labwc / Wayfire) WaySwitch reads the layouts from the compositor's XKB
+settings — see the Russian README for snippets.
 
 ## Updating
 
-**How you learn about a new version.** Once a day WaySwitch asks GitHub
-whether a new version is out. If so, the window shows a “new version” bar, the
-panel menu gets an item with the version number, and a system notification is
-sent once. Turn it off in Preferences → System. You can also watch the
-repository: **Watch → Custom → Releases**.
-
-**How to update:**
-
-```bash
-# from source (Arch, CachyOS, Fedora)
-cd WaySwitch && git pull && sudo packaging/install.sh
-
-# .deb — download the new package and install it over the old one
-sudo apt install ./wayswitch_<version>_all.deb
-```
-
-Settings and exceptions are kept. If the GNOME Shell extension was updated,
-log out and back in: Shell keeps the old copy loaded until then.
-
-## Usage
-
-| What | How |
-|---|---|
-| Fix the last word manually | double Shift (or your own key from Preferences) |
-| Fix the whole phrase | triple Shift |
-| Undo an automatic fix and remember the word | the same gesture within 5 s |
-| Fix selected text | your own key (Preferences → Manual), panel menu, or `wayswitch fix-selection` bound to a system shortcut |
-| Pause | switch in the window, Ctrl+P, panel menu, `wayswitch pause` |
-| Preferences / Gestures and keys | Ctrl+, / Ctrl+? |
-
-Terminal commands: `wayswitch doctor` (system check with fixes),
-`status`, `pause`/`resume`, `fix`, `fix-selection`, `dry-run` (observe only),
-`devices`; `wayswitch-gui [--tray]`. The config file is
-`~/.config/wayswitch/config.toml` — see the Russian README for every key.
+Once a day WaySwitch asks GitHub whether a new version is out; if so, the
+window shows a bar, the panel menu shows the version, and a notification is
+sent once (can be turned off). You can also **Watch → Custom → Releases**.
+To update, run the install command again — settings are kept. Log out and
+back in afterwards.
 
 ## Troubleshooting
 
-1. `wayswitch doctor` — shows what is missing and how to fix it.
-2. In the window: menu → About → Troubleshooting — details to attach to an issue.
-3. Common cases: the space after a fixed word disappears — raise “wait after
-   layout switch” to 150–200 ms (Preferences → System → Advanced); the layout
-   does not switch in GNOME — is the extension enabled, and did you log out
-   and back in?
-4. Still stuck — [open an issue](https://github.com/Wetoshkin/WaySwitch/issues)
-   with the output of `wayswitch doctor` and `journalctl --user -u wayswitch -n 100`.
+| Command | What it shows |
+|---|---|
+| `wayswitch doctor` | what works, what is missing and how to fix it |
+| `journalctl --user -u wayswitch -n 50` | the latest log lines |
+| `wayswitch dry-run` | detector decisions without touching the screen |
 
-## Good to know
+A word was fixed by mistake — press <kbd>Shift</kbd> <kbd>Shift</kbd> right
+away. Still stuck — [open an issue](https://github.com/Wetoshkin/WaySwitch/issues/new)
+with the output of these commands (the window has it under About →
+Troubleshooting).
 
-- **Keyboard access.** The udev rule lets programs in your session read
-  keyboard events — otherwise WaySwitch could not see what you type. Every
-  layout fixer on Wayland pays this price. WaySwitch never writes typed text
-  to files or logs and never sends it anywhere.
-- **Accessibility bridge (at-spi).** To know which program you are typing in
-  and whether it is a password field, the installer enables
-  `toolkit-accessibility` (`uninstall.sh` restores the previous value). Use
-  `--no-a11y` to skip it; only per-program exceptions and password detection
-  stop working.
-- **Tested on** CachyOS, GNOME 51, Wayland. KDE Plasma 6 is covered by tests
-  but not yet tried live. Sway, Hyprland and others offer no way to read the
-  layout, so auto-correction is unavailable there.
-- **The GNOME Shell extension** types only on request of WaySwitch itself;
-  other programs on the bus cannot use it.
+## FAQ
 
-## Uninstall
+**Is it safe?** WaySwitch reads key presses — otherwise it could not fix
+words. Typed text is never written anywhere or sent anywhere; corrected words
+do not even reach the log. The only network request is an anonymous “what is
+the latest version” (can be turned off). The code is open.
 
-```bash
-sudo packaging/uninstall.sh      # installed from source
-sudo apt remove wayswitch        # installed from .deb
-```
+**X11?** No, WaySwitch is built for Wayland.
+
+**Flatpak or Snap?** No: the program needs direct access to `/dev/input`,
+which a sandbox does not give.
+
+## Status
+
+Alpha. Tested on CachyOS with GNOME 51. KDE Plasma 6, Sway, Hyprland and the
+labwc/Wayfire desktops are covered by tests but not yet tried live — reports
+are welcome.
 
 ## Development
 
@@ -173,11 +146,10 @@ python -m pytest -q
 python -m ruff check .
 ```
 
-Core logic does not import GTK or evdev at module level and is tested
-anywhere, Windows included. See [CLAUDE.md](CLAUDE.md) for the module map.
+Packages: `bash tools/build_deb.sh`, `bash tools/build_rpm.sh`,
+`cd packaging/arch && makepkg -si`. Module map: [CLAUDE.md](CLAUDE.md).
 
 ## License
 
-Code — [MIT](LICENSE). Dictionaries in `wayswitch/data` are built from
-[FrequencyWords](https://github.com/hermitdave/FrequencyWords)
-(OpenSubtitles), CC-BY-SA 4.0 — see `wayswitch/data/LICENSE`.
+Code — MIT. Dictionaries in `wayswitch/data` are built from
+[FrequencyWords](https://github.com/hermitdave/FrequencyWords), CC-BY-SA 4.0.

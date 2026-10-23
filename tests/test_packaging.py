@@ -153,3 +153,8 @@ def test_versions_agree():
     meta = json.loads((repo / "extension" / "wayswitch@siberia.ru" / "metadata.json")
                       .read_text(encoding="utf-8"))
     assert meta["version-name"] == __version__
+    plasmoid = json.loads((repo / "packaging" / "kde" / "ru.siberia.wayswitch" / "metadata.json")
+                          .read_text(encoding="utf-8"))
+    assert plasmoid["KPlugin"]["Version"] == __version__
+    pkgbuild = (repo / "packaging" / "arch" / "PKGBUILD").read_text(encoding="utf-8")
+    assert f"pkgver={__version__}" in pkgbuild

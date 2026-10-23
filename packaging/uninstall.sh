@@ -29,6 +29,7 @@ rm -f /etc/udev/rules.d/60-wayswitch.rules /etc/modules-load.d/wayswitch.conf
 rm -f /usr/local/share/applications/ru.siberia.WaySwitch.desktop
 rm -f /usr/local/share/applications/ru.siberia.WaySwitch.Settings.desktop
 rm -f /usr/local/share/icons/hicolor/scalable/apps/ru.siberia.WaySwitch.svg
+rm -rf /usr/local/share/plasma/plasmoids/ru.siberia.wayswitch
 rm -f /usr/local/share/icons/hicolor/symbolic/apps/ru.siberia.WaySwitch-symbolic.svg
 rm -f /usr/local/share/icons/hicolor/symbolic/apps/ru.siberia.WaySwitch-paused-symbolic.svg
 
