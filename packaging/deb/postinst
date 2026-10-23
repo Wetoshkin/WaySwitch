@@ -12,11 +12,11 @@ case "$1" in
         cat <<'EOF'
 
 WaySwitch установлен. Дальше от имени обычного пользователя:
-  1. Перелогиньтесь (правила udev применяются к новому сеансу).
-  2. wayswitch doctor
-  3. systemctl --user enable --now wayswitch
-  4. Необязательно: gnome-extensions enable wayswitch@siberia.ru
-  5. wayswitch-gui — настройки и трей.
+  1. В GNOME: gnome-extensions enable wayswitch@siberia.ru
+  2. Выйдите из сеанса и войдите снова (правила udev и расширение
+     применяются к новому сеансу).
+  3. Откройте WaySwitch из меню приложений — первый запуск проверит
+     систему и включит службу. Подробная проверка: wayswitch doctor
 EOF
         ;;
 esac

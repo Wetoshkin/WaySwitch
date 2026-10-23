@@ -122,10 +122,24 @@ def test_backend_signal_marks_external_change(no_variant):
 
 def test_auto_order_depends_on_desktop():
     assert order_for("gnome", "auto") == ["shell", "ibus", "hotkey"]
-    assert order_for("kde", "auto") == ["kde", "hotkey"]
+    assert order_for("kde", "auto") == ["kde"]
     assert order_for("other", "auto") == ["hotkey"]
 
 
 def test_explicit_backend_wins_over_desktop():
     assert order_for("kde", "shell") == ["shell"]
     assert order_for("gnome", "hotkey") == ["hotkey"]
+
+
+def test_kde_variants_come_from_kxkbrc(tmp_path):
+    """KWin отдаёт «ru» без варианта — вариант берём из VariantList."""
+    from wayswitch.backends.kde_plasma import parse_layouts_list, read_kxkbrc_variants
+    from wayswitch.keymap import LayoutSpec
+
+    rc = tmp_path / "kxkbrc"
+    rc.write_text("[Layout]\nLayoutList=us,ru\nVariantList=,phonetic\n", encoding="utf-8")
+    variants = read_kxkbrc_variants(rc)
+    rows = [("us", "", "English (US)"), ("ru", "", "Russian")]
+    assert parse_layouts_list(rows, variants) == [LayoutSpec("us"), LayoutSpec("ru", "phonetic")]
+    # Число не совпало (kxkbrc устарел) — не гадаем, берём как отдал KWin.
+    assert parse_layouts_list(rows, ["", "", "x"]) == [LayoutSpec("us"), LayoutSpec("ru")]

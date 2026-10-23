@@ -8,8 +8,9 @@ Type=simple
 ExecStart=/usr/local/bin/wayswitch run
 Restart=on-failure
 RestartSec=3
-# Код 3 — второй экземпляр, перезапускать не надо.
-RestartPreventExitStatus=3
+# Код 3 — второй экземпляр, 4 — в этой среде нечем переключать раскладку:
+# перезапуск не поможет.
+RestartPreventExitStatus=3 4
 
 [Install]
 # graphical-session.target, а не default.target: иначе сервис стартует до

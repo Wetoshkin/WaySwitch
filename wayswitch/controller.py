@@ -14,11 +14,22 @@ from dataclasses import dataclass
 
 from wayswitch import a11y as focus
 from wayswitch import keycodes as kc
-from wayswitch.actuator import DONE, execute, keys_for_typing, plan_fix
+from wayswitch.actuator import (
+    DONE,
+    Plan,
+    ReleaseModifiers,
+    SwitchLayout,
+    TextTypist,
+    Type,
+    execute,
+    keys_for_typing,
+    plan_fix,
+)
 from wayswitch.buffer import InputBuffer, KeyPress
 from wayswitch.config import Config, apps_path
 from wayswitch.detector import SENSITIVITY, Detector
 from wayswitch.gesture import ShiftGesture, TapKeyGesture
+from wayswitch.selection import convert as convert_selection
 
 log = logging.getLogger("wayswitch")
 
@@ -123,6 +134,9 @@ class Controller:
 
     def _rebuild_gesture(self, config: Config) -> None:
         """Жест по настройке: двойной Shift или одиночный тап своей клавиши."""
+        sel = config.gesture.selection_key.lower()
+        self._selection_gesture = TapKeyGesture(frozenset({kc.KEY_NAMES[sel]})) \
+            if sel in kc.KEY_NAMES else None
         if config.gesture.manual == "tap_key":
             # Неизвестное имя клавиши сюда не дойдёт (ловит валидация конфига),
             # но запасной вариант на случай правки конфига в обход неё.
@@ -209,6 +223,10 @@ class Controller:
         # счётчик снова даст «word» — лишний переворот раскладки.
         gesture = self.gesture.on_key(code, value, now) \
             if self.config.gesture.manual in ("double_shift", "tap_key") else None
+        # Тап клавиши выделения тоже видит все клавиши: Ctrl+C при выделении
+        # на правом Ctrl — не жест.
+        selection_tap = (self._selection_gesture.on_key(code, value, now)
+                         if self._selection_gesture is not None else None)
         if self.busy:
             # Физический ввод во время перепечатки — прервать; зажатые клавиши
             # учесть. Shift-тап не прерывает: он короткий и сам по себе ничего
@@ -221,6 +239,17 @@ class Controller:
                 self.buffer.note_release(code, device_id)
             if gesture:
                 self._pending_gesture = gesture
+            return
+        if self._selection_gesture is not None and code in self._selection_gesture.keys \
+                and not (self.paused or self.locked):
+            # Своя клавиша «Исправить выделенное» (gesture.selection_key):
+            # одиночное нажатие, как у жеста последнего слова. В буфер не идёт.
+            if value == 1:
+                self.buffer.note_press(code, device_id)
+            elif value == 0:
+                self.buffer.note_release(code, device_id)
+            if selection_tap:
+                self.schedule(self.fix_selection)
             return
         if self.config.gesture.manual == "tap_key" and code in self._gesture_keys \
                 and not (self.paused or self.locked):
@@ -516,6 +545,68 @@ class Controller:
         if n and end >= n and phrase[end - n:end] == last.target_keys:
             return list(last.target_keys)
         return None
+
+    def fix_selection(self, text: str | None = None) -> bool:
+        """Перевести выделенный текст в другую раскладку («Исправить выделенное»).
+
+        Текст берётся у бэкенда (расширение GNOME Shell читает PRIMARY —
+        выделение без Ctrl+C) и печатается поверх выделения: в любом поле ввода
+        набор заменяет выделенный текст, Backspace не нужен — значит, и стереть
+        лишнее нечем.
+        """
+        if not self._manual_allowed():
+            return False
+        if text is None:
+            getter = getattr(self.backend, "get_selection", None)
+            try:
+                text = getter() if getter is not None else None
+            except Exception as exc:  # noqa: BLE001 — бэкенд/расширение не ответили
+                log.warning("выделение не прочитать: %s", exc)
+                return False
+        if not text:
+            log.info("исправить выделенное: ничего не выделено")
+            return False
+        groups = self._groups()
+        if groups is None:
+            return False
+        converted = convert_selection(self.keymap, text, (0, 1))
+        if converted is None:
+            return False
+        new_text, target = converted
+        steps: list = [ReleaseModifiers(), SwitchLayout(target)]
+        if isinstance(self.typist, TextTypist):
+            steps.append(Type(new_text, []))
+        else:
+            keys = keys_for_typing(new_text, target, self.keymap, self.buffer.caps)
+            if keys is None:
+                log.warning("исправить выделенное: есть символы, которые не напечатать")
+                return False
+            steps.append(Type(new_text, keys))
+        if self.dry_run:
+            log.info("[dry-run] выделенное → %d символов", len(new_text))
+            return False
+        secret = self._password_focus()
+        self.busy = True
+        try:
+            # Прерывать нечего: стирающих шагов нет, а наполовину набранная
+            # фраза хуже целой.
+            result = execute(Plan(steps), self.typist, self.backend,
+                             key_delay=self.config.typing.key_delay_ms / 1000.0,
+                             sleep=self.sleep, restore_group=groups[0])
+        finally:
+            self.busy = False
+        self.buffer.reset()
+        self.context.clear()
+        if result != DONE:
+            log.info("исправить выделенное: %s", result)
+            self._emit_status()
+            return False
+        self.stats["manual"] += 1
+        self._last_fix = None
+        if self.on_corrected and not secret:
+            self.on_corrected(text, new_text, True)
+        self._emit_status()
+        return True
 
     def manual_phrase(self) -> bool:
         if not self._manual_allowed():

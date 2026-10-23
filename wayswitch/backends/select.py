@@ -23,7 +23,8 @@ log = logging.getLogger("wayswitch")
 # Порядок попыток по среде для prefer = "auto".
 BACKEND_ORDERS = {
     "gnome": ["shell", "ibus", "hotkey"],
-    KDE: ["kde", "hotkey"],
+    # В KDE системный хоткей GNOME не годится: свои раскладки и сочетания.
+    KDE: ["kde"],
     OTHER: ["hotkey"],
 }
 

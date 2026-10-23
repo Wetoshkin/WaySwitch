@@ -98,7 +98,8 @@ def run_checks() -> list[Check]:
                          "WaySwitch работает только на Wayland; в X11 раскладку "
                          "не прочитать и не переключить", key="wayland"))
 
-    checks.append(_check("Доступность GTK (toolkit-accessibility)", toolkit_accessibility,
+    checks.append(_check("Мост доступности в программах (toolkit-accessibility)",
+                         toolkit_accessibility,
                          "необязательно: без неё не работают исключения по "
                          "программам и защита полей паролей", required=False))
     checks.append(_check("Мост доступности (at-spi)", atspi_status,
@@ -109,9 +110,12 @@ def run_checks() -> list[Check]:
         def gnome_tools():
             from wayswitch.backends.gnome_shell import shell_extension_present
             return shell_extension_present(), ""
+        # На GNOME 46+ без расширения автоисправления нет: IBus меняет движок,
+        # но не раскладку компоузитора. Поэтому проверка обязательная.
         checks.append(_check("Расширение GNOME Shell", gnome_tools,
-                             "необязательно: gnome-extensions enable wayswitch@siberia.ru",
-                             required=False, key="extension"))
+                             "gnome-extensions enable wayswitch@siberia.ru; если не помогает — "
+                             "выйдите из сеанса и войдите снова",
+                             key="extension"))
 
         def ibus():
             import gi
@@ -196,7 +200,10 @@ def run_checks() -> list[Check]:
                          "правило udev 60-wayswitch.rules + перелогин", key="keyboards"))
 
     def udev_rule():
-        return Path("/etc/udev/rules.d/60-wayswitch.rules").exists(), ""
+        # install.sh кладёт правило в /etc, .deb — в /usr/lib.
+        found = [p for p in ("/etc/udev/rules.d/60-wayswitch.rules",
+                             "/usr/lib/udev/rules.d/60-wayswitch.rules") if Path(p).exists()]
+        return bool(found), found[0] if found else ""
     checks.append(_check("Правило udev установлено", udev_rule, "sudo packaging/install.sh"))
 
     def unit():

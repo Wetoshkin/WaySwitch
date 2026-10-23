@@ -24,6 +24,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("pause", help="приостановить исправления")
     sub.add_parser("resume", help="возобновить")
     sub.add_parser("fix", help="исправить последнее слово")
+    sub.add_parser("fix-selection", help="исправить выделенный текст (назначьте сочетание "
+                                          "клавиш в настройках системы)")
     sub.add_parser("status", help="состояние демона")
     sub.add_parser("gui", help="открыть настройки")
     sub.add_parser("version")
@@ -91,6 +93,9 @@ def main(argv: list[str] | None = None) -> int:
         elif ns.command == "fix":
             (ok,) = call_daemon("FixLastWord")
             print("исправлено" if ok else "нечего исправлять")
+        elif ns.command == "fix-selection":
+            (ok,) = call_daemon("FixSelection")
+            print("исправлено" if ok else "нечего исправлять: выделите текст")
         elif ns.command == "status":
             (status,) = call_daemon("GetStatus")
             for k, v in sorted(status.items()):

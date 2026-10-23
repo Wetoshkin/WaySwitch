@@ -45,5 +45,9 @@ class LayoutBackend(ABC):
         """
         return True
 
+    def get_selection(self) -> str | None:
+        """Выделенный сейчас текст (для «Исправить выделенное»); None — бэкенд не умеет."""
+        return None
+
     def close(self) -> None:  # noqa: B027 — необязательный хук, не все бэкенды держат ресурсы
         pass

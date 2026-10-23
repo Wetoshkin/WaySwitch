@@ -11,6 +11,7 @@ from pathlib import Path
 from wayswitch import a11y as cfgmod_a11y
 from wayswitch import config as cfgmod
 from wayswitch.actuator import UInputTypist
+from wayswitch.backends.base import BackendError
 from wayswitch.backends.desktop import session_summary
 from wayswitch.backends.select import choose_backend
 from wayswitch.controller import Controller
@@ -35,7 +36,13 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     except OSError as e:
         log.error("не открыть /dev/uinput: %s (правило udev? см. wayswitch doctor)", e)
         return 1
-    backend = choose_backend(config.backend.prefer, typist, config.typing.settle_ms)
+    try:
+        backend = choose_backend(config.backend.prefer, typist, config.typing.settle_ms)
+    except BackendError as e:
+        # Перезапуск не поможет: среда та же. Код 4 — в RestartPreventExitStatus.
+        log.error("%s. Подробности: wayswitch doctor", e)
+        typist.close()
+        return 4
     log.info("среда: %s", session_summary())
     log.info("бэкенд раскладки: %s, источники: %s", backend.name,
              [s.xkb_id for s in backend.layouts()])
