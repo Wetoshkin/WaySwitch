@@ -406,6 +406,13 @@ python -m pytest -q
 python -m ruff check .
 ```
 
+Живой прогон правил без GUI (нужна сессия с раскладками `ru`+`us`) —
+`PYTHONPATH=. python3 tools/live_rules.py`: печатающая машинка только
+записывает, ничего не уходит в чужие окна.
+
+Карта для ревью — `docs/review-notes.md`: порядок чтения, решения с
+обоснованием, список мест, где автор сам сомневается.
+
 Два теста `keymap.py`, завязанных на настоящий `libxkbcommon`
 (`tests/test_keymap_xkb.py`), пропускаются на Windows и выполняются в CI
 (GitHub Actions, `ubuntu-latest`). Словарные данные пересобираются
