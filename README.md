@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".github/assets/banner-ru.png" alt="WaySwitch — исправляет слова, набранные не в той раскладке" width="100%">
+  <img src=".github/assets/banner-ru.svg" alt="WaySwitch — исправляет слова, набранные не в той раскладке" width="100%">
 </p>
 
 <p align="center">

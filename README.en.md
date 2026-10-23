@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".github/assets/banner-en.png" alt="WaySwitch — fixes words typed in the wrong keyboard layout" width="100%">
+  <img src=".github/assets/banner-en.svg" alt="WaySwitch — fixes words typed in the wrong keyboard layout" width="100%">
 </p>
 
 <p align="center">
