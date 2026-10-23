@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=WaySwitch
+Comment=Запуск службы WaySwitch в сеансах без graphical-session.target
+# Xfce, MATE, LXQt, Budgie и Cinnamon не поднимают graphical-session.target,
+# поэтому включённая служба сама там не стартует. Этот файл запускает её при
+# входе — только если человек включил автозапуск (is-enabled). В GNOME и KDE
+# служба стартует через systemd, здесь её дублировать не нужно.
+Exec=sh -c "systemctl --user is-enabled -q wayswitch && systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_ID && systemctl --user start wayswitch"
+NotShowIn=GNOME;KDE;
+NoDisplay=true
+Terminal=false
+X-GNOME-Autostart-enabled=true

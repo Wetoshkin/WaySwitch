@@ -29,7 +29,7 @@
 WaySwitch чинит слово, набранное не в той раскладке (`ghbdtn` вместо
 «привет»), сразу же, на пробеле — без горячих клавиш и без переключения
 раскладки вручную. Работает под Wayland в GNOME, KDE Plasma, Sway, Hyprland,
-а также в Xfce, MATE, Cinnamon, Budgie и LXQt — там, где обычные утилиты
+а также в Xfce, MATE, Budgie, LXQt и (пока экспериментально) Cinnamon — там, где обычные утилиты
 такого рода не могут ни слушать клавиатуру, ни печатать за пользователя.
 
 <p align="center">
@@ -243,7 +243,6 @@ WaySwitch на паузе. Посмотреть все жесты в окне �
   "exec": "wayswitch waybar",
   "return-type": "json",
   "on-click": "wayswitch toggle",
-  "on-click-middle": "wayswitch fix",
   "on-click-right": "wayswitch gui"
 }
 ```
@@ -265,7 +264,6 @@ input {
     kb_layout = us,ru
 }
 bind = SUPER SHIFT, W, exec, wayswitch toggle
-bind = SUPER, grave,   exec, wayswitch fix
 windowrule = float, class:^(ru\.siberia\.WaySwitch\.Settings)$
 windowrule = size 640 740, class:^(ru\.siberia\.WaySwitch\.Settings)$
 ```
@@ -277,13 +275,16 @@ input type:keyboard {
     xkb_layout us,ru
 }
 bindsym $mod+Shift+w exec wayswitch toggle
-bindsym $mod+grave   exec wayswitch fix
 for_window [app_id="ru.siberia.WaySwitch.Settings"] floating enable, resize set 640 740
 ```
 
-Если сеанс запускается без systemd (не через uwsm или аналог), добавьте
-автозапуск в конфиг: `exec-once = wayswitch run` (Hyprland) или
-`exec wayswitch run` (Sway).
+Последнее слово исправляется жестом (двойной Shift или своя клавиша) — он
+работает везде. Отдельную горячую клавишу для `wayswitch fix` не назначайте:
+сочетания с Super и щелчки по панели сбрасывают набранное слово.
+
+Sway и обычный Hyprland не запускают пользовательские службы systemd сами.
+Добавьте автозапуск в конфиг: `exec wayswitch run` (Sway) или
+`exec-once = wayswitch run` (Hyprland). С uwsm это не нужно.
 
 </details>
 
@@ -406,7 +407,7 @@ curl -fsSL https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/
 | `wayswitch doctor` | проверка системы |
 | `wayswitch status [--json]` | состояние |
 | `wayswitch pause` / `resume` / `toggle` | пауза, продолжить, переключить |
-| `wayswitch fix` | исправить последнее слово |
+| `wayswitch fix` | исправить последнее слово (удобнее жестом) |
 | `wayswitch fix-selection` | исправить выделенный текст |
 | `wayswitch waybar` | поток JSON для модуля Waybar |
 | `wayswitch gui` | открыть окно |
@@ -478,11 +479,13 @@ Sway, Hyprland и среды на labwc/Wayfire покрыты тестами, �
 <details>
 <summary><b>Планы</b></summary>
 
-- Модуль «Исправление раскладки» в Параметрах системы KDE и виджет в лотке.
+- Модуль «Исправление раскладки» в Параметрах системы KDE (виджет в лотке уже есть).
 - «Исправить выделенное» в KDE, Sway и Hyprland.
 - Третьи языки как подключаемый пакет словаря и триграмм.
 - Привилегированный помощник вместо широкого правила `uaccess`.
-- Пакет в AUR (готовый [PKGBUILD](packaging/arch/PKGBUILD) уже в репозитории).
+- Пакет в AUR: [PKGBUILD](packaging/arch/PKGBUILD) готов, публикация — как только
+  AUR снова откроет регистрацию (см. [docs/aur.md](docs/aur.md)). Пока на Arch
+  ставится из исходников той же командой.
 
 </details>
 

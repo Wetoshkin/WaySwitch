@@ -71,6 +71,15 @@
   IPC — против настоящего sway (headless). Живьём не проверены: KDE,
   Sway/Hyprland с реальной клавиатурой, labwc/Wayfire.
 
+## 2026-10-24 — второе адверсариальное ревью, подготовка AUR
+
+- Исправлены находки второго ревью (ядро, бэкенды, GUI, установка) —
+  сводка в `docs/review-pr1.md`.
+- AUR: `tools/aur_update.py`, `tools/aur_publish.sh`, инструкция
+  `docs/aur.md`. Публикация ждёт открытия регистрации в AUR.
+- Проверено в контейнерах: .deb (Debian 13), .rpm (Fedora 41, openSUSE
+  Tumbleweed), PKGBUILD (Arch), get.sh из исходников и отказ по «н» под dash.
+
 ## Релизы
 
 - v2.0.0a1 (2026-09-23) — первый .deb: https://github.com/Wetoshkin/WaySwitch/releases/tag/v2.0.0a1 (не проверен на живой GNOME; см. чек-лист VM выше).

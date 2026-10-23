@@ -17,9 +17,10 @@ Requires:       python3 >= 3.11
 Requires:       python3-evdev
 Requires:       python3-gobject
 Requires:       (gtk4 or typelib-1_0-Gtk-4_0)
-Requires:       (libadwaita or typelib-1_0-Adw-1)
+Requires:       (libadwaita >= 1.5 or typelib-1_0-Adw-1 >= 1.5)
 Requires:       (libxkbcommon or libxkbcommon0)
 Recommends:     (gnome-shell-extension-appindicator if gnome-shell)
+Recommends:     (ibus if gnome-shell)
 
 %description
 WaySwitch — аналог Punto Switcher для Wayland: исправляет слова, набранные
@@ -55,9 +56,18 @@ udevadm control --reload-rules >/dev/null 2>&1 || :
 /usr/lib/udev/rules.d/60-wayswitch.rules
 /usr/lib/modules-load.d/wayswitch.conf
 /usr/lib/systemd/user/wayswitch.service
+%dir /usr/share/gnome-shell
+%dir /usr/share/gnome-shell/extensions
 /usr/share/gnome-shell/extensions/wayswitch@siberia.ru/
+%dir /usr/share/plasma
+%dir /usr/share/plasma/plasmoids
 /usr/share/plasma/plasmoids/ru.siberia.wayswitch/
+%config(noreplace) /etc/xdg/autostart/wayswitch-session.desktop
 /usr/share/applications/ru.siberia.WaySwitch.Settings.desktop
 /usr/share/icons/hicolor/scalable/apps/ru.siberia.WaySwitch.svg
 /usr/share/icons/hicolor/symbolic/apps/ru.siberia.WaySwitch-symbolic.svg
 /usr/share/icons/hicolor/symbolic/apps/ru.siberia.WaySwitch-paused-symbolic.svg
+
+%changelog
+* Sat Oct 24 2026 Wetoshkin <wetoshkin@gmail.com> - %{ws_version}-1
+- Сборка из репозитория: история изменений — в релизах на GitHub.

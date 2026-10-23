@@ -38,7 +38,7 @@ GNOME: в контейнере Debian с GTK4/libadwaita под Xvfb и подд
 | `wayswitch/panel.py` | модуль Waybar (`wayswitch waybar`), сводка состояния, фрагменты конфигов Sway/Hyprland |
 | `wayswitch/updates.py` | проверка новых версий на GitHub Releases (только GUI, суточный кэш) |
 | `wayswitch/keys.py` | обход `/dev/input/event*`, hot-plug, классификация устройств, `SYN_DROPPED`/`ENODEV` |
-| `wayswitch/session.py` | охрана сессии: блокировка экрана (`org.gnome.ScreenSaver`), `logind` |
+| `wayswitch/session.py` | охрана сессии: блокировка экрана (ScreenSaver GNOME/freedesktop, процессы swaylock/hyprlock/…), `logind` |
 | `wayswitch/daemon.py` | сборка демона: GLib main loop, устройства, бэкенд, контроллер, D-Bus |
 | `wayswitch/dbus_service.py` | D-Bus сервис `ru.siberia.WaySwitch` (`Pause`/`Resume`/`FixLastWord`/`FixSelection`/`GetStatus`/…) |
 | `wayswitch/cli.py` | подкоманды `wayswitch` |
@@ -71,6 +71,8 @@ GNOME: в контейнере Debian с GTK4/libadwaita под Xvfb и подд
 | `packaging/` | udev-правило, systemd-юнит, `.desktop`, значки, `install.sh`/`uninstall.sh`, `get.sh` (одной командой), `deb/`, `rpm/`, `arch/PKGBUILD`, `kde/` (виджет лотка Plasma 6) |
 | `tools/stage.sh` | раскладка файлов пакета — общая для .deb, .rpm и AUR |
 | `tools/build_rpm.sh` | сборка `.rpm` |
+| `tools/aur_update.py` | sha256 архива релиза и `.SRCINFO` для AUR (`--check` — только сверка) |
+| `tools/aur_publish.sh` | push PKGBUILD/.SRCINFO в AUR (см. `docs/aur.md`) |
 | `tools/build_data.py` | сборка `wayswitch/data/*.gz` (словари, триграммы) из открытого корпуса |
 | `tools/build_deb.sh` | сборка `.deb` |
 | `tools/live_rules.py` | живой прогон правил без окон |

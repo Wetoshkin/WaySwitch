@@ -5,9 +5,8 @@ Section: utils
 Priority: optional
 Maintainer: Wetoshkin <wetoshkin@gmail.com>
 Homepage: https://github.com/Wetoshkin/WaySwitch
-Depends: python3 (>= 3.11), python3-evdev, python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1, gir1.2-ibus-1.0, gir1.2-glib-2.0, libxkbcommon0, udev
-Recommends: gnome-shell-extension-appindicator
-Suggests: ibus, pipewire-bin | pulseaudio-utils | alsa-utils
+Depends: python3 (>= 3.11), python3-evdev, python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1 (>= 1.5), gir1.2-ibus-1.0, gir1.2-glib-2.0, libxkbcommon0, udev
+Suggests: gnome-shell-extension-appindicator, ibus, pipewire-bin | pulseaudio-utils | alsa-utils
 Description: Keyboard layout auto-corrector for Wayland: GNOME and KDE (ru/en)
  WaySwitch — аналог Punto Switcher для Wayland (GNOME и KDE Plasma).
  Демон читает клавиатуру через evdev, определяет по словарю и символьным
