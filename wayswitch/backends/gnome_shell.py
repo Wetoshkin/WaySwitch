@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 
 from wayswitch.backends import gnome_common
@@ -29,10 +30,11 @@ class GnomeShellBackend(LayoutBackend):
     name = "shell"
     supports_auto = True
 
-    def __init__(self):
+    def __init__(self, settle_ms: int = 30):
         from gi.repository import Gio, GLib
 
         self._GLib = GLib
+        self._settle = settle_ms
         self._specs = gnome_common.read_sources()
         self._proxy = Gio.DBusProxy.new_for_bus_sync(
             Gio.BusType.SESSION, Gio.DBusProxyFlags.NONE, None, BUS_NAME, OBJECT_PATH,
@@ -99,7 +101,12 @@ class GnomeShellBackend(LayoutBackend):
         self._current = index
 
     def wait_applied(self, index: int, timeout: float) -> bool:
-        return self._current == index  # SetLayout синхронен внутри Shell
+        # SetLayout внутри Shell синхронен, но композитору нужно несколько
+        # миллисекунд, чтобы новые события с клавиатуры уже раскладывались по
+        # новому keymap: иначе первый символ уходит в прежнюю раскладку.
+        if self._settle > 0:
+            time.sleep(self._settle / 1000)
+        return self._current == index
 
     def on_change(self, cb: Callable[[int, bool], None]) -> None:
         self._callbacks.append(cb)

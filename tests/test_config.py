@@ -9,7 +9,7 @@ def test_defaults_when_file_missing(tmp_path: Path):
     cfg = cfgmod.load(tmp_path / "nope.toml")
     assert cfg.general.auto_correct is True
     assert cfg.general.sensitivity == "normal"
-    assert cfg.typing.settle_ms == 30
+    assert cfg.typing.settle_ms == 120
     assert cfg.backend.prefer == "auto"
     assert cfg.backend.shell_typing == "extension"
 
