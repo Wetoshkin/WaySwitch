@@ -66,3 +66,13 @@ def test_shell_typing_validation(tmp_path: Path):
     p.write_text('[backend]\nshell_typing = "magic"\n', encoding="utf-8")
     with pytest.raises(cfgmod.ConfigError):
         cfgmod.load(p)
+
+
+def test_tap_key_validation(tmp_path: Path):
+    p = tmp_path / "c.toml"
+    p.write_text('[gesture]\nmanual = "tap_key"\ntap_key = "scrolllock"\n', encoding="utf-8")
+    assert cfgmod.load(p).gesture.tap_key == "scrolllock"
+
+    p.write_text('[gesture]\nmanual = "tap_key"\ntap_key = "нетакойклавиши"\n', encoding="utf-8")
+    with pytest.raises(cfgmod.ConfigError):
+        cfgmod.load(p)

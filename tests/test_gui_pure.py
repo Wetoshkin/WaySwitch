@@ -30,3 +30,11 @@ def test_parse_gui_args():
     assert parse_gui_args(["gui"]) is False
     assert parse_gui_args(["--tray"]) is True
     assert parse_gui_args(["gui", "--tray"]) is True
+
+
+def test_gui_app_id_does_not_clash_with_daemon():
+    """Общее D-Bus-имя с демоном не даёт окну настроек открыться."""
+    from wayswitch.dbus_service import BUS_NAME
+    from wayswitch.gui import app as gui_app
+
+    assert gui_app.APP_ID != BUS_NAME

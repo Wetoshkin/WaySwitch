@@ -515,3 +515,85 @@ def test_fix_waits_for_physical_shift_release(env):
     ctrl.pump = lambda: ctrl.on_key(kc.KEY_LEFTSHIFT, 0, 2)  # отпускание приходит в ожидании
     type_text(env, " ")
     assert typed_text(env) == "\b" * 7 + "привет "
+
+
+def enable_ctrl_gesture(env):
+    """Переключить жест на одиночный тап левого Ctrl (через reload_config)."""
+    cfg = Config()
+    cfg.gesture.manual = "tap_key"
+    env["ctrl"].reload_config(cfg)
+
+
+def ctrl_tap(env, times=1):
+    for _ in range(times):
+        env["ctrl"].on_key(kc.KEY_LEFTCTRL, 1, 1)
+        env["ctrl"].on_key(kc.KEY_LEFTCTRL, 0, 1)
+        env["clock"].now += 0.1
+
+
+def test_ctrl_tap_fixes_last_word(env):
+    enable_ctrl_gesture(env)
+    type_text(env, "ghbdtn")
+    ctrl_tap(env)
+    assert typed_text(env) == "\b" * 6 + "привет"
+    assert env["corrected"][-1][2] is True
+
+
+def test_ctrl_tap_undoes_auto_fix(env):
+    enable_ctrl_gesture(env)
+    type_text(env, "ghbdtn ")
+    env["typist"].events.clear()
+    ctrl_tap(env)
+    assert typed_text(env) == "\b" * 7 + "ghbdtn "
+    assert env["ctrl"].status()["undo_total"] == 1
+    assert env["exceptions"] == ["ghbdtn"]
+
+
+def test_ctrl_with_letter_is_shortcut_not_gesture(env):
+    enable_ctrl_gesture(env)
+    type_text(env, "ghbdtn")
+    env["typist"].events.clear()
+    env["ctrl"].on_key(kc.KEY_LEFTCTRL, 1, 1)
+    env["ctrl"].on_key(kc.KEY_A, 1, 1)
+    env["ctrl"].on_key(kc.KEY_A, 0, 1)
+    env["ctrl"].on_key(kc.KEY_LEFTCTRL, 0, 1)
+    assert [e for e in env["typist"].events if e[0] == kc.KEY_BACKSPACE] == []
+
+
+def test_ctrl_tap_with_empty_buffer_just_switches(env):
+    enable_ctrl_gesture(env)
+    ctrl_tap(env)
+    assert env["backend"].set_calls == [RU]
+
+
+def test_gesture_rebuilt_by_reload_config(env):
+    from wayswitch.gesture import ShiftGesture, TapKeyGesture
+
+    assert isinstance(env["ctrl"].gesture, ShiftGesture)
+    enable_ctrl_gesture(env)
+    assert isinstance(env["ctrl"].gesture, TapKeyGesture)
+    env["ctrl"].reload_config(Config())
+    assert isinstance(env["ctrl"].gesture, ShiftGesture)
+
+
+def test_tap_key_custom_key_works(env):
+    """Клавиша жеста настраивается: проверяем на ScrollLock."""
+    cfg = Config()
+    cfg.gesture.manual = "tap_key"
+    cfg.gesture.tap_key = "scrolllock"
+    env["ctrl"].reload_config(cfg)
+    type_text(env, "ghbdtn")
+    env["ctrl"].on_key(kc.KEY_SCROLLLOCK, 1, 1)
+    env["ctrl"].on_key(kc.KEY_SCROLLLOCK, 0, 1)
+    assert typed_text(env) == "\b" * 6 + "привет"
+
+
+def test_left_ctrl_is_not_gesture_when_another_key_mapped(env):
+    cfg = Config()
+    cfg.gesture.manual = "tap_key"
+    cfg.gesture.tap_key = "scrolllock"
+    env["ctrl"].reload_config(cfg)
+    type_text(env, "ghbdtn")
+    env["typist"].events.clear()
+    ctrl_tap(env)  # левый Ctrl больше не жест
+    assert [e for e in env["typist"].events if e[0] == kc.KEY_BACKSPACE] == []
