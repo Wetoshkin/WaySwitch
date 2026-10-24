@@ -45,6 +45,7 @@ class Preferences:
             # человек что-то поменяет сам.
             self.cfg = cfgmod.Config()
             self.broken = str(exc)
+        self._saved = copy.deepcopy(self.cfg)  # последнее, что удалось записать
         self._loading = False
         self._save_source = 0
         # Что человек поменял в этом окне: (секция, ключ) → значение. При
@@ -107,12 +108,12 @@ class Preferences:
                 try:
                     self.cfg = cfgmod.load()
                 except cfgmod.ConfigError:
-                    pass
-                else:
-                    self._load_correction()
-                    self._load_system()
+                    self.cfg = copy.deepcopy(self._saved)
+                self._load_correction()
+                self._load_system()
             return GLib.SOURCE_REMOVE
         self.cfg = fresh
+        self._saved = copy.deepcopy(fresh)
         self._dirty.clear()
         self._replace = False
         self.broken = None
@@ -259,6 +260,9 @@ class Preferences:
             return
         if name == self.cfg.gesture.selection_key:
             self.toast("Эта клавиша уже исправляет выделенный текст")
+            return
+        if self.cfg.gesture.pause_hotkey and name == self.cfg.gesture.pause_hotkey.lower():
+            self.toast("Эта клавиша ставит WaySwitch на паузу")
             return
         self._set("gesture", "tap_key", name)
         self.key_cap.set_label(gesture_keys.human_name(name))

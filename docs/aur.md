@@ -7,7 +7,10 @@
 
 Пока пакета в AUR нет, `get.sh` на Arch сам собирает WaySwitch из исходников.
 Как только пакет появится, `get.sh` поставит его через `paru`/`yay`, если
-один из них установлен. Менять скрипт для этого не нужно.
+один из них установлен, — но только если сопровождающий пакета в AUR —
+`AUR_MAINTAINER` из `packaging/get.sh` (сейчас `Wetoshkin`). Имя пакета может
+занять кто угодно, а чужой PKGBUILD собрался бы от root без просмотра.
+Зарегистрируетесь под другим именем — поправьте `AUR_MAINTAINER`.
 
 ## Один раз: аккаунт и ключ
 
@@ -41,7 +44,9 @@
    Скрипт скачивает архив тега с GitHub, вписывает `sha256sums` в `PKGBUILD`
    и собирает `.SRCINFO`. На Arch то же самое делают
    `updpkgsums && makepkg --printsrcinfo > .SRCINFO`.
-4. Проверить сборку в чистом окружении (по желанию, но полезно):
+4. Проверить сборку в чистом окружении (по желанию, но полезно; в Git Bash
+   на Windows перед командой добавьте `MSYS_NO_PATHCONV=1`, иначе путь
+   `/pkg` подменится):
    ```bash
    docker run --rm -v "$PWD/packaging/arch:/pkg" archlinux bash -c \
      'pacman -Syu --noconfirm base-devel python python-evdev python-gobject gtk4 libadwaita libxkbcommon \

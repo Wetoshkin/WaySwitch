@@ -69,7 +69,8 @@ Manjaro and most other modern distributions are fine.
 3. The script detects your distribution, says what it is going to do and
    asks for confirmation, then for your password (it is not shown while you
    type — that's normal).
-4. **Log out and back in.** WaySwitch starts by itself; the first time you
+4. **Log out and back in.** WaySwitch starts by itself (on Sway and
+   Hyprland — once `exec wayswitch run` is in the config, see below); the first time you
    open its window it checks the system and tells you if anything is missing.
 
 | Distribution | What happens |

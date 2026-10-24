@@ -81,7 +81,6 @@ need_sudo() {
 fetch() { # скачать пакет релиза во временную папку, напечатать путь
   # Код возврата: 0 — скачан, 2 — в последнем релизе нет такого пакета,
   # 1 — GitHub недоступен.
-  have curl || die "Нужен curl." "curl is required."
   api=$(curl -fsSL "$API") || return 1
   url=$(printf '%s' "$api" | grep -o "https://[^\"]*\.$1\"" | tr -d '"' | head -n1)
   [ -n "$url" ] || return 2
@@ -119,30 +118,41 @@ drop_source_copy() { # копия из исходников мешает пак�
   if [ -f "$SOURCE_UNINSTALL" ]; then
     say "  Убираю прежнюю установку из исходников (/usr/local)…" \
         "  Removing the previous from-source installation (/usr/local)…"
-    sudo bash "$SOURCE_UNINSTALL" >/dev/null
+    sudo WAYSWITCH_MIGRATE=1 bash "$SOURCE_UNINSTALL" >/dev/null
   fi
 }
 aur_helper() { for h in paru yay; do have "$h" && { echo "$h"; return; }; done; }
+# Ставим из AUR, только если пакет wayswitch там ведёт автор: имя пакета может
+# занять кто угодно, а paru --noconfirm собрал бы чужой PKGBUILD от root.
+AUR_MAINTAINER=Wetoshkin
+aur_is_ours() {
+  have curl || return 1
+  curl -fsSL "https://aur.archlinux.org/rpc/v5/info?arg[]=wayswitch" 2>/dev/null \
+    | grep -q "\"Maintainer\":\"$AUR_MAINTAINER\""
+}
 
-enable_extension() { # GNOME: расширение из пакета включить сразу (подхватится после входа)
+enable_extension() { # $1 = uuid; GNOME: включить расширение сразу (подхватится после входа)
   case "${XDG_CURRENT_DESKTOP:-}" in *GNOME*) ;; *) return 0 ;; esac
-  gnome-extensions enable wayswitch@siberia.ru 2>/dev/null && return 0
+  gnome-extensions enable "$1" 2>/dev/null && return 0
   have gsettings || return 0
   cur=$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null || echo "@as []")
   case "$cur" in
-    *wayswitch@siberia.ru*) ;;
-    "@as []"|"[]") gsettings set org.gnome.shell enabled-extensions "['wayswitch@siberia.ru']" 2>/dev/null ;;
-    *) gsettings set org.gnome.shell enabled-extensions "${cur%]}, 'wayswitch@siberia.ru']" 2>/dev/null ;;
+    *"$1"*) ;;
+    "@as []"|"[]") gsettings set org.gnome.shell enabled-extensions "['$1']" 2>/dev/null ;;
+    *) gsettings set org.gnome.shell enabled-extensions "${cur%]}, '$1']" 2>/dev/null ;;
   esac
 }
 A11Y_PREV="${XDG_CONFIG_HOME:-$HOME/.config}/wayswitch/a11y-prev"
 enable_a11y() { # мост доступности: без него не работают защита паролей и исключения программ
   have gsettings || return 0
+  # Установка из исходников сохраняет прежнее значение сама (install.sh).
+  [ -f "/var/lib/wayswitch/a11y-prev-$(id -un)" ] && return 0
+  # Уже включали раньше — при обновлении не перебиваем то, что человек мог
+  # выключить сам.
+  [ -f "$A11Y_PREV" ] && return 0
   key="org.gnome.desktop.interface toolkit-accessibility"
   prev=$(gsettings get $key 2>/dev/null) || return 0
-  if [ ! -f "$A11Y_PREV" ]; then
-    mkdir -p "$(dirname "$A11Y_PREV")" && printf '%s\n' "$prev" > "$A11Y_PREV"
-  fi
+  mkdir -p "$(dirname "$A11Y_PREV")" && printf '%s\n' "$prev" > "$A11Y_PREV"
   gsettings set $key true 2>/dev/null || true
 }
 restore_a11y() {
@@ -203,6 +213,10 @@ if [ "${XDG_SESSION_TYPE:-}" != wayland ]; then
   warn "Сеанс не Wayland (${XDG_SESSION_TYPE:-неизвестно}). На экране входа выберите сеанс Wayland." \
        "Not a Wayland session (${XDG_SESSION_TYPE:-unknown}). Pick a Wayland session on the login screen."
 fi
+case "$FAMILY" in deb|fedora|suse)
+  have curl || die "Нужен curl: установите его менеджером пакетов и запустите снова." \
+                   "curl is required: install it with your package manager and run again." ;;
+esac
 [ "$FAMILY" = deb ] && check_adwaita_deb
 
 h=""
@@ -213,7 +227,7 @@ case "$FAMILY" in
           else PLAN_RU="установить пакет .rpm через dnf"; PLAN_EN="install the .rpm package with dnf"; fi ;;
   suse)   PLAN_RU="скачать пакет .rpm и установить через zypper";          PLAN_EN="download the .rpm package and install it with zypper" ;;
   arch)   h=$(aur_helper)
-          if [ -n "$h" ] && "$h" -Si wayswitch >/dev/null 2>&1; then
+          if [ -n "$h" ] && aur_is_ours; then
           PLAN_RU="установить пакет wayswitch из AUR через $h";            PLAN_EN="install the wayswitch AUR package with $h"
           else h=""; PLAN_RU="собрать из исходников (git + packaging/install.sh)"; PLAN_EN="install from source (git + packaging/install.sh)"; fi ;;
   *)      PLAN_RU="установить из исходников (packaging/install.sh)";       PLAN_EN="install from source (packaging/install.sh)" ;;
@@ -222,6 +236,8 @@ say "  План: $PLAN_RU." "  Plan: $PLAN_EN."
 ask "Продолжить?" "Continue?" || exit 0
 
 # --- Установка ---------------------------------------------------------------
+# Обновление: автозапуск службы, выключенный человеком, не включаем снова.
+WAS=$(systemctl --user is-enabled wayswitch 2>/dev/null || true)
 step "Устанавливаю" "Installing"
 need_sudo
 case "$FAMILY" in
@@ -229,11 +245,16 @@ case "$FAMILY" in
           if [ -n "$PKG" ]; then drop_source_copy; sudo apt install -y "$PKG"; else from_source install.sh; fi
           # Значок в верхней панели GNOME — через AppIndicator (в Ubuntu уже есть).
           case "${XDG_CURRENT_DESKTOP:-}" in *GNOME*)
-            sudo apt install -y gnome-shell-extension-appindicator >/dev/null 2>&1 || true ;;
+            sudo apt install -y gnome-shell-extension-appindicator >/dev/null 2>&1 \
+              && enable_extension appindicatorsupport@rgcjonas.gmail.com || true ;;
           esac ;;
   fedora) get_package rpm
           if [ -z "$PKG" ]; then from_source install.sh
-          elif [ "$ATOMIC" = 1 ]; then drop_source_copy; sudo rpm-ostree install -y "$PKG"
+          elif [ "$ATOMIC" = 1 ]; then drop_source_copy
+            if rpm -q wayswitch >/dev/null 2>&1; then
+              # Обновление: старый наложенный пакет заменяем новым за один шаг.
+              sudo rpm-ostree install -y --uninstall=wayswitch "$PKG"
+            else sudo rpm-ostree install -y "$PKG"; fi
           else drop_source_copy; sudo dnf install -y "$PKG"; fi ;;
   suse)   get_package rpm
           if [ -n "$PKG" ]; then drop_source_copy; sudo zypper --non-interactive install --allow-unsigned-rpm "$PKG"
@@ -243,10 +264,10 @@ case "$FAMILY" in
 esac
 
 systemctl --user daemon-reload >/dev/null 2>&1 || true
-systemctl --user enable wayswitch >/dev/null 2>&1 || true
+[ "$WAS" = disabled ] || systemctl --user enable wayswitch >/dev/null 2>&1 || true
 # Обновление: работающая служба перечитает новый код.
 systemctl --user try-restart wayswitch >/dev/null 2>&1 || true
-enable_extension || true
+enable_extension wayswitch@siberia.ru || true
 enable_a11y || true
 
 # --- Что дальше ----------------------------------------------------------------
