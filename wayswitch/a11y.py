@@ -33,6 +33,9 @@ MAX_AGE_SEC = 3.0
 # Как часто поток обновляет снимок. Чаще нет смысла: фокус не скачет,
 # а каждый опрос — это обход дерева доступности.
 POLL_SEC = 1.5
+# poke() на каждой клавише: снимок моложе этого — не будим поток, иначе
+# обход дерева доступности шёл бы с частотой набора.
+POKE_FRESH_SEC = 1.0
 
 # Пределы обхода: в браузере дерево доступности бывает на тысячи узлов,
 # а поле ввода почти всегда не глубже десятка уровней.
@@ -140,6 +143,9 @@ class AtspiProbe:
             return self._snap
 
     def poke(self) -> None:
+        alive = self._thread is not None and self._thread.is_alive()
+        if alive and self.snapshot().age(self._clock()) < POKE_FRESH_SEC:
+            return
         self._ensure_thread()
         self._wake.set()
 

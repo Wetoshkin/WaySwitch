@@ -41,6 +41,15 @@ SELECTION_RELEASE_WAIT = 2.0  # «Исправить выделенное» с �
 SELECTION_MAX = 300  # больше — это уже не опечатка во фразе
 
 
+def _word_unfinished(events: list[tuple[int, int, int]]) -> bool:
+    """Последнее нажатие во время исправления — буква (слово ещё не закончено)."""
+    for code, value, _dev in reversed(events):
+        if value != 1 or code in kc.MODIFIER_KEYS or code in kc.LOCK_KEYS:
+            continue
+        return code != kc.KEY_SPACE and code not in kc.RESET_KEYS
+    return False
+
+
 def _clip(text: str, limit: int = 40) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 SPACE = KeyPress(kc.KEY_SPACE)
@@ -73,6 +82,7 @@ class Controller:
                  pump: Callable[[], None] = lambda: None,
                  dry_run: bool = False,
                  on_corrected: Callable[[str, str, bool], None] | None = None,
+                 on_fixed: Callable[[bool], None] | None = None,
                  on_status: Callable[[dict], None] | None = None,
                  persist_exception: Callable[[str], None] | None = None,
                  probe=None,
@@ -96,6 +106,8 @@ class Controller:
         self.pump = pump  # прокрутить очередь событий главного цикла (для отмены)
         self.dry_run = dry_run
         self.on_corrected = on_corrected
+        # Исправление выполнено (без текста): звук — и для поля пароля тоже.
+        self.on_fixed = on_fixed
         self.on_status = on_status
         self.persist_exception = persist_exception
         # Сведения о фокусе (приложение, поле пароля) — из at-spi, через снимок
@@ -126,6 +138,8 @@ class Controller:
         # Нажатия, пришедшие во время исправления: если оно прервано до первого
         # Backspace (экран не тронут), их досылаем в буфер — слово не теряется.
         self._busy_keys: list[tuple[int, int, int]] = []
+        self._busy_held: frozenset = frozenset()
+        self._busy_reset = False  # клик/пауза/блокировка посреди исправления
         self._pending = 0  # отложенных (запланированных, но ещё не исполненных) фиксов
         self._pending_gesture: str | None = None  # жест, пришедший во время фикса
         self._last_fix: LastFix | None = None
@@ -213,6 +227,8 @@ class Controller:
         self.paused = True
         if self.busy:
             self._abort_requested = True  # пауза посреди фикса — не дописывать слово
+            self._busy_reset = True
+        self._skip_word = False
         self.buffer.reset()
         self._emit_status()
 
@@ -224,6 +240,9 @@ class Controller:
         self.locked = on
         if on and self.busy:
             self._abort_requested = True  # ничего не печатать на экране блокировки
+        if self.busy:
+            self._busy_reset = True
+        self._skip_word = False
         self.buffer.reset()
         self.context.clear()
         self._emit_status()
@@ -237,7 +256,8 @@ class Controller:
         now = self.clock()
         if value == 1 and code in kc.EDIT_KEYS:
             self._last_edit_at = now
-        if value == 1 and self.probe is not None and not self.busy:
+        if value == 1 and self.probe is not None \
+                and not (self.busy or self.paused or self.locked):
             # Будим опрос фокуса с первой буквы: после простоя поток спит, и
             # к пробелу снимок поля пароля должен быть уже свежим.
             self.probe.poke()
@@ -287,6 +307,8 @@ class Controller:
             if gesture:
                 self._dispatch_gesture(gesture)
             return
+        if value == 1 and self._skip_word and (code in kc.RESET_KEYS or code in kc.META_KEYS):
+            self._skip_word = False  # Enter, стрелки, Esc: каретка ушла, слово кончилось
         event = self.buffer.feed(code, value, device_id, now)
         if value == 1 and self._pause_key is not None and code == self._pause_key:
             (self.resume if self.paused else self.pause)()
@@ -308,6 +330,7 @@ class Controller:
             return
         if event.reset_before:
             self.context.clear()  # буфер очищен по таймауту перед этой клавишей
+            self._skip_word = False
         if self._skip_word:
             # Хвост слова, начало которого напечатано во время исправления.
             if event.kind == "word":
@@ -359,9 +382,11 @@ class Controller:
     def on_click(self) -> None:
         if self.busy:
             self._abort_requested = True  # клик — физический ввод, как и нажатие клавиши
+            self._busy_reset = True
             return
         self.buffer.click()
         self.context.clear()
+        self._skip_word = False
         # Клик посреди тапа жеста — не жест: иначе Ctrl+клик переворачивал бы слово.
         self.gesture.reset()
         if self._selection_gesture is not None:
@@ -377,6 +402,7 @@ class Controller:
         if external:
             self.buffer.reset()
             self.context.clear()
+            self._skip_word = False
             self._last_external_layout_at = self.clock()
         self._emit_status()
 
@@ -567,9 +593,6 @@ class Controller:
         True — исправление запланировано/выполнено, False — нечего делать."""
         if not self._manual_allowed():
             return False
-        if self._skip_word:
-            log.info("ручное исправление пропущено: слово набрано во время исправления")
-            return False
         groups = self._groups()
         if groups is None:
             return False
@@ -578,6 +601,10 @@ class Controller:
         # иначе не проверяется: через час простоя перевернулось бы старое слово.
         self.buffer.expire(self.clock())
         word, tail = self.buffer.last_word_with_tail()
+        if word and self._skip_word:
+            # Слово на экране длиннее, чем в буфере: перевернули бы не всё.
+            log.info("ручное исправление пропущено: слово набрано во время исправления")
+            return False
         if not word:
             if not self.dry_run:
                 self.busy = True
@@ -694,6 +721,8 @@ class Controller:
         finally:
             self.busy = False
             self._lost_input = False
+            self._busy_keys = []
+            self._busy_reset = False
         self.buffer.reset()
         self.context.clear()
         if result != DONE:
@@ -702,6 +731,8 @@ class Controller:
             return False
         self.stats["manual"] += 1
         self._last_fix = None
+        if self.on_fixed:
+            self.on_fixed(True)
         if self.on_corrected and not secret:
             # Наружу — только начало: сигнал видят все программы сеанса.
             self.on_corrected(_clip(text), _clip(new_text), True)
@@ -866,15 +897,19 @@ class Controller:
         self._abort_requested = False
         self._lost_input = False
         self._busy_keys = []
+        self._busy_held = self.buffer.held_snapshot()
+        self._busy_reset = False
         started = self.clock()
         try:
             if not self._wait_release(trigger):
                 log.info("исправление отменено: зажата физическая клавиша")
-                return False
-            result = execute(plan, self.typist, self.backend, abort=self._abort,
-                             key_delay=self.config.typing.key_delay_ms / 1000.0,
-                             sleep=self.sleep, restore_group=group_before if switch else None,
-                             hold=self._wait_shift_released)
+                result = ABORTED
+            else:
+                result = execute(plan, self.typist, self.backend, abort=self._abort,
+                                 key_delay=self.config.typing.key_delay_ms / 1000.0,
+                                 sleep=self.sleep,
+                                 restore_group=group_before if switch else None,
+                                 hold=self._wait_shift_released)
         except Exception as exc:  # noqa: BLE001 — execute сам ловит, это страховка
             log.error("исправление %s: ошибка %s", reason, exc)
             result = "failed"
@@ -882,21 +917,25 @@ class Controller:
             self.busy = False
         lost, self._lost_input = self._lost_input, False
         busy_keys, self._busy_keys = self._busy_keys, []
-        if lost and result == ABORTED:
-            # До первого Backspace: на экране — прежнее слово и то, что
-            # человек допечатал. Досылаем эти нажатия в буфер, как будто
-            # исправления не было; само слово больше не трогаем автоматически.
+        interrupted, self._busy_reset = self._busy_reset, False
+        if result == ABORTED and not interrupted:
+            # Экран не тронут: на нём прежнее слово и то, что человек
+            # допечатал. Досылаем эти нажатия в буфер с тем состоянием
+            # зажатых клавиш, что было на входе, — как будто исправления не было.
+            self.buffer.restore_held(self._busy_held)
             for code, value, device_id in busy_keys:
                 self.buffer.feed(code, value, device_id, self.clock())
+            log.info("исправление %s: %s", reason, result)
             self.gesture.reset()
             self._pending_gesture = None
             self._emit_status()
             return False
         if lost:
-            # Буква, нажатая во время исправления, на экране есть, а в буфере
-            # нет: слово дальше не трогаем до пробела.
-            self._skip_word = True
             self._last_fix = None
+            if not interrupted and _word_unfinished(busy_keys):
+                # Буква легла посреди перепечатки: на экране она есть, в
+                # буфере — нет. Хвост этого слова не трогаем до пробела.
+                self._skip_word = True
         if result != DONE:
             log.info("исправление %s: %s", reason, result)
             self.buffer.reset()
@@ -935,6 +974,8 @@ class Controller:
             if not lost:
                 self._last_fix = LastFix(list(keys), word_keys, group_before, self.clock(),
                                          end=len(self.buffer.phrase()) - tail)
+        if self.on_fixed:
+            self.on_fixed(manual)
         if self.on_corrected and not secret:
             # Из поля пароля текст наружу (D-Bus, окно) не отдаём.
             self.on_corrected(original, text.rstrip(), manual)

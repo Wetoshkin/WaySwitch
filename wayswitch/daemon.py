@@ -144,9 +144,12 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     last_beep = [0.0]
 
     def _corrected(old: str, new: str, manual: bool) -> None:
-        """Событие исправления: наружу в D-Bus, при желании — со звуком."""
+        """Событие исправления с текстом — наружу в D-Bus (окно, история)."""
         if service is not None:
             service.emit_corrected(old, new, manual)
+
+    def _fixed(manual: bool) -> None:
+        """Исправление выполнено — звук, в том числе в поле пароля."""
         # controller.config, а не config из замыкания: после Reload настройка
         # звука должна действовать сразу, без перезапуска демона.
         now = time.monotonic()
@@ -159,6 +162,7 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     controller = Controller(
         config, keymap, detector, backend, typist_for_controller, pump=pump, dry_run=dry_run,
         on_corrected=lambda o, f, m: _corrected(o, f, m),
+        on_fixed=_fixed,
         on_status=lambda s: service and service.emit_status(s),
         persist_exception=cfgmod.add_exception,
         probe=probe,
