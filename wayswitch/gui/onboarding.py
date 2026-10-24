@@ -187,9 +187,7 @@ class Onboarding:
             return
         rows = texts.onboarding_rows(result)
         blocking = texts.onboarding_blocking(rows)
-        self.checks_hint.set_label(
-            "Осталось исправить отмеченное красным — после этого WaySwitch заработает."
-            if blocking else "Всё готово к работе.")
+        self.checks_hint.set_label(texts.onboarding_hint(rows))
         for item in rows:
             row = Adw.ActionRow(title=item.title, subtitle=item.subtitle)
             icon_name, css = ROW_ICONS[item.state]
