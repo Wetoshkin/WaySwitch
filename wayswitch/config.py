@@ -68,6 +68,9 @@ class Gesture:
     selection_key: str = ""
 
 
+OLD_SETTLE_MS = 30  # умолчание до 2.0.0a2
+
+
 @dataclass
 class Typing:
     # Пауза после переключения раскладки, прежде чем печатать. Приложению нужно
@@ -122,7 +125,8 @@ def load_apps(path: Path | None = None) -> list[str]:
     path = path or apps_path()
     if not path.exists():
         return []
-    return [line.strip() for line in path.read_text(encoding="utf-8").splitlines()
+    # errors="replace": файл правят руками, и в cp1251 он не должен ронять демон.
+    return [line.strip() for line in path.read_text(encoding="utf-8", errors="replace").splitlines()
             if line.strip() and not line.lstrip().startswith("#")]
 
 
@@ -236,6 +240,10 @@ def from_dict(data: dict) -> Config:
             raise ConfigError(f"[{name}] должна быть секцией")
         kwargs[name] = _section_from_dict(cls, section)
     cfg = Config(**kwargs)
+    if cfg.typing.settle_ms == OLD_SETTLE_MS:
+        # Прежние версии записывали в файл все ключи, и старое умолчание
+        # 30 мс закрепилось бы навсегда — а с ним терялся пробел после слова.
+        cfg.typing.settle_ms = Typing.settle_ms
     _validate(cfg)
     return cfg
 
@@ -291,7 +299,7 @@ def load_exceptions(path: Path | None = None) -> set[str]:
     if not path.exists():
         return set()
     words = set()
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         word = line.strip().lower()
         if word and not word.startswith("#"):
             words.add(word)

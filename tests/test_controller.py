@@ -173,7 +173,8 @@ def test_abort_on_physical_key_during_fix(env):
     env["ctrl"].typist = env["typist"]
     type_text(env, "ghbdtn ")
     assert env["typist"].stuck() == set()
-    assert env["ctrl"].buffer.is_empty()
+    # Экран не тронут: буфер — то, что на нём, вместе с нажатой «a».
+    assert env["km"].decode(env["ctrl"].buffer.phrase(), US) == "ghbdtn a"
     assert env["corrected"] == []
 
 
@@ -418,12 +419,57 @@ def test_shift_press_during_fix_does_not_abort(env):
     assert env["typist"].stuck() == set()
 
 
-def test_shift_held_across_fix_end_is_still_tracked(env):
+def test_shift_held_during_fix_is_not_typed_through(env, monkeypatch):
+    # Shift следующего слова («ghbdtn Dfcz») зажат до первого Backspace:
+    # модификаторы общие для сеанса, и «привет» вышло бы «ПРИВЕТ». Не дождались
+    # отпускания — исправление прерывается, ничего не стёрто.
+    monkeypatch.setattr(controller_mod, "RELEASE_WAIT", 0.02)
     ctrl = env["ctrl"]
     reenter_during_fix(env, lambda: ctrl.on_key(kc.KEY_LEFTSHIFT, 1, 1))
     type_text(env, "ghbdtn ")
-    assert env["corrected"] == [("ghbdtn", "привет", False)]
+    assert env["corrected"] == []
+    assert kc.KEY_BACKSPACE not in [c for c, _ in env["typist"].taps()]
     assert ctrl.buffer.shift_held()  # нажат во время фикса, не отпущен — зажат
+
+
+def test_key_typed_before_first_backspace_is_kept_in_buffer(env):
+    # Буква следующего слова, нажатая до первого Backspace, прерывает
+    # исправление: экран не тронут, и нажатие досылается в буфер. Иначе
+    # «gjrf» осталось бы в буфере как «jrf», и исправление стёрло бы на
+    # символ меньше («gока»).
+    ctrl = env["ctrl"]
+
+    def press_g():
+        ctrl.on_key(kc.KEY_G, 1, 1)
+        ctrl.on_key(kc.KEY_G, 0, 1)
+
+    reenter_during_fix(env, press_g)
+    type_text(env, "ghbdtn ")
+    assert env["corrected"] == []
+    assert kc.KEY_BACKSPACE not in [c for c, _ in env["typist"].taps()]
+    type_text(env, "jrf ")
+    assert env["corrected"] == [("gjrf", "пока", False)]
+    assert [c for c, _ in env["typist"].taps()].count(kc.KEY_BACKSPACE) == len("gjrf ")
+
+
+def test_key_typed_after_first_backspace_skips_rest_of_word(env):
+    # После точки невозврата буква легла посреди перепечатки: слово на экране
+    # и в буфере разошлись — до пробела его не трогаем ни авто, ни жестом.
+    ctrl = env["ctrl"]
+
+    def press_g():
+        ctrl.on_key(kc.KEY_G, 1, 1)
+        ctrl.on_key(kc.KEY_G, 0, 1)
+
+    reenter_during_fix(env, press_g, at_event=60)
+    type_text(env, "ghbdtn ")
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+    before = len(env["typist"].taps())
+    type_text(env, "кот")  # раскладка уже русская
+    assert not ctrl.manual_word()
+    type_text(env, " ")
+    assert len(env["typist"].taps()) == before  # слово не тронуто
+    assert ctrl.buffer.is_empty()  # на пробеле буфер начат заново
 
 
 def test_third_shift_tap_during_word_fix_execution_yields_phrase(env):

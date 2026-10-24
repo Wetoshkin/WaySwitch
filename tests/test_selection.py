@@ -118,3 +118,23 @@ def test_selection_key_validation():
     cfg.gesture.manual = "tap_key"
     with pytest.raises(cfgmod.ConfigError):
         cfgmod._validate(cfg)
+
+
+def test_fix_selection_pressed_twice_types_once():
+    # Сочетание нажали второй раз, пока первый вызов ждёт отпускания клавиш:
+    # второй вызов приходит через pump() и должен быть отклонён.
+    typist = RecordingTypist()
+    ctrl, _backend, _corrected = make_ctrl("ghbdtn", typist)
+    ctrl.buffer.note_press(kc.KEY_LEFTCTRL, 1)
+    second = []
+
+    def pump():
+        if not second:
+            second.append(ctrl.fix_selection())
+        ctrl.buffer.note_release(kc.KEY_LEFTCTRL, 1)
+
+    ctrl.pump = pump
+    assert ctrl.fix_selection()
+    assert second == [False]
+    letters = [c for c, _ in typist.taps() if c not in (kc.KEY_LEFTSHIFT,)]
+    assert len(letters) == len("привет")
