@@ -237,8 +237,18 @@ ONBOARDING_CHECKS = {
                None),
     "extension": ("Расширение GNOME Shell", "Включено",
                   "Нужно, чтобы переключать раскладку. Нажмите «Включить», затем "
-                  "перезагрузите компьютер",
+                  "выйдите из сеанса и войдите снова",
                   "extension"),
+    "extension_missing": ("Расширение GNOME Shell", "Включено",
+                          "Не установлено. Переустановите WaySwitch той же командой, "
+                          "которой устанавливали", None),
+    # Включено, но GNOME держит старую копию (или ещё не загрузил новую):
+    # кнопка «Включить» тут бесполезна, помогает только новый вход. Не
+    # блокирует «Продолжить» — старая версия умеет главное.
+    "extension_relogin": ("Расширение GNOME Shell", "Включено",
+                          "Включено, но GNOME загрузит новую версию только после "
+                          "нового входа. Можно продолжить и выйти из сеанса позже",
+                          "logout"),
 }
 
 
@@ -271,6 +281,15 @@ def onboarding_rows(checks) -> list[OnboardingRow]:
         rows.append(OnboardingRow(check.key, title, subtitle, state,
                                   None if check.ok else action))
     return rows
+
+
+def onboarding_hint(rows: list[OnboardingRow]) -> str:
+    """Подпись над списком проверок."""
+    if onboarding_blocking(rows):
+        return "Осталось исправить отмеченное красным — после этого WaySwitch заработает."
+    if any(r.state == "optional" and r.action for r in rows):
+        return "Можно продолжать. Отмеченное кружком — по желанию, можно сделать и позже."
+    return "Всё готово к работе."
 
 
 def onboarding_blocking(rows: list[OnboardingRow]) -> bool:

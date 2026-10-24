@@ -144,7 +144,7 @@ class Controller:
         self._skip_word = False
         # Слово только что вернули жестом после раннего триггера: на пробеле
         # его не исправлять снова (иначе пинг-понг и обучение не наступит).
-        self._hold_word = False
+        self._hold_keys: list[KeyPress] | None = None
         # Нажатия, пришедшие во время исправления: если оно прервано до первого
         # Backspace (экран не тронут), их досылаем в буфер — слово не теряется.
         self._busy_keys: list[tuple[int, int, int]] = []
@@ -348,7 +348,7 @@ class Controller:
         if event.kind == "reset":
             self.context.clear()
             self._skip_word = False
-            self._hold_word = False
+            self._hold_keys = None
             return
         if event.reset_before:
             self.context.clear()  # буфер очищен по таймауту перед этой клавишей
@@ -409,7 +409,7 @@ class Controller:
         self.buffer.click()
         self.context.clear()
         self._skip_word = False
-        self._hold_word = False
+        self._hold_keys = None
         # Клик посреди тапа жеста — не жест: иначе Ctrl+клик переворачивал бы слово.
         self.gesture.reset()
         for g, _action in self._selection_gestures:
@@ -536,8 +536,9 @@ class Controller:
         return False
 
     def _on_word(self, keys: list[KeyPress], device_id: int, code: int) -> None:
-        if self._hold_word:
-            self._hold_word = False
+        held, self._hold_keys = self._hold_keys, None
+        if held is not None and list(keys) == held:
+            # То самое слово, которое вернули жестом: не исправлять снова.
             self.context.append(None)
             return
         last = self._last_fix
@@ -730,7 +731,9 @@ class Controller:
                     self.stats["undo"] += 1
                     self._note_undo(letters)
                     if before_space:
-                        self._hold_word = True
+                        # Запоминаем само слово: пропустим на пробеле только
+                        # его, а не любое следующее.
+                        self._hold_keys = list(self.buffer.last_word_with_tail()[0])
 
         self._schedule_fix(word, tail, other, text + " " * tail, manual=True,
                            reason="manual", group_before=current, done=done)
