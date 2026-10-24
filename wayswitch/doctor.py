@@ -77,8 +77,8 @@ def toolkit_accessibility() -> tuple[bool, str]:
         out = subprocess.run(["gsettings", "get", "org.gnome.desktop.interface",
                               "toolkit-accessibility"], capture_output=True, text=True,
                              timeout=3).stdout.strip().lower()
-    except (OSError, subprocess.SubprocessError) as exc:
-        return False, f"gsettings недоступен ({exc})"
+    except (OSError, subprocess.SubprocessError):
+        return False, "в этой среде настройка недоступна"
     if out == "true":
         return True, ""
     return False, ("gsettings set org.gnome.desktop.interface toolkit-accessibility true "
@@ -104,14 +104,16 @@ def run_checks() -> list[Check]:
         wayland = is_wayland()
         return wayland, DESKTOP_NAMES[desktop]
     checks.append(_check("Сессия Wayland", session,
-                         "WaySwitch работает только на Wayland; в X11 раскладку "
-                         "не прочитать и не переключить", key="wayland"))
+                         "включён старый режим графики X11, а WaySwitch работает только "
+                         "в Wayland: на экране входа нажмите на шестерёнку и выберите "
+                         "сеанс без «Xorg»", key="wayland"))
 
-    checks.append(_check("Мост доступности в программах (toolkit-accessibility)",
+    checks.append(_check("Распознавание программ и полей пароля (настройка)",
                          toolkit_accessibility,
                          "необязательно: без неё не работают исключения по "
                          "программам и защита полей паролей", required=False))
-    checks.append(_check("Мост доступности (at-spi)", atspi_status,
+    checks.append(_check("Распознавание программ и полей пароля (служба at-spi)",
+                         atspi_status,
                          "необязательно: без него не работают исключения по "
                          "программам и защита полей паролей", required=False))
 
@@ -142,8 +144,9 @@ def run_checks() -> list[Check]:
                 return False, "IBus не отвечает"
             desc = bus.get_global_engine()
             return True, f"текущий движок {desc.get_name() if desc else '?'}"
-        checks.append(_check("IBus (страховочный бэкенд)", ibus,
-                             "нужен только без расширения Shell", required=False))
+        checks.append(_check("Запасной способ переключения (IBus)", ibus,
+                             "необязательно: нужен только без расширения WaySwitch",
+                             required=False))
 
     if desktop == KDE:
         def kde_service():
@@ -198,7 +201,7 @@ def run_checks() -> list[Check]:
         gi.require_version("Adw", "1")
         from gi.repository import Adw, Gtk  # noqa: F401
         return True, ""
-    checks.append(_check("Python-модули evdev, Gtk4, Adw", modules,
+    checks.append(_check("Нужные программные библиотеки (evdev, GTK 4, libadwaita)", modules,
                          "apt install python3-evdev python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 "
                          "(dnf: python3-evdev python3-gobject gtk4 libadwaita, "
                          "pacman: python-evdev python-gobject gtk4 libadwaita)"))
@@ -206,7 +209,7 @@ def run_checks() -> list[Check]:
     def xkb():
         from wayswitch.keymap import XkbKeymap
         return XkbKeymap.available(), ""
-    checks.append(_check("libxkbcommon", xkb,
+    checks.append(_check("Библиотека раскладок (libxkbcommon)", xkb,
                          "apt install libxkbcommon0 / dnf install libxkbcommon / "
                          "pacman -S libxkbcommon"))
 
@@ -243,15 +246,15 @@ def run_checks() -> list[Check]:
         km = XkbKeymap.from_names(specs, [])
         alphabets = sorted(km.alphabet(g) for g in range(km.num_groups))
         return alphabets == ["latin", "ru"], ", ".join(s.xkb_id for s in specs)
-    checks.append(_check("Две раскладки: русская и латинская", sources,
-                         "оставьте в системе ровно две раскладки: ru и en/us",
+    checks.append(_check("Две раскладки: русская и английская", sources,
+                         "оставьте в системе ровно две раскладки: русскую и английскую",
                          key="layouts"))
 
     def uinput():
         return uinput_status()
-    checks.append(_check("/dev/uinput доступен на запись", uinput,
-                         "sudo modprobe uinput (после обновления ядра — перезагрузка); "
-                         "если не помогает — правило udev: sudo packaging/install.sh",
+    checks.append(_check("Можно печатать исправления (/dev/uinput)", uinput,
+                         "перезагрузите компьютер; если не помогло — переустановите "
+                         "WaySwitch той же командой, которой устанавливали",
                          key="uinput"))
 
     def keyboards():
@@ -269,16 +272,18 @@ def run_checks() -> list[Check]:
             if kind == "keyboard":
                 found.append(dev.name)
             dev.close()
-        return bool(found), f"{len(found)} клавиатур, без доступа {denied}"
-    checks.append(_check("Клавиатуры читаются", keyboards,
-                         "правило udev 60-wayswitch.rules + перелогин", key="keyboards"))
+        return bool(found), f"клавиатур найдено: {len(found)}, без доступа: {denied}"
+    checks.append(_check("Клавиатура доступна", keyboards,
+                         "перезагрузите компьютер (доступ к клавиатуре выдаётся при "
+                         "входе в систему)", key="keyboards"))
 
     def udev_rule():
         # install.sh кладёт правило в /etc, .deb — в /usr/lib.
         found = [p for p in ("/etc/udev/rules.d/60-wayswitch.rules",
                              "/usr/lib/udev/rules.d/60-wayswitch.rules") if Path(p).exists()]
         return bool(found), found[0] if found else ""
-    checks.append(_check("Правило udev установлено", udev_rule, "sudo packaging/install.sh"))
+    checks.append(_check("Доступ к клавиатуре настроен (правило udev)", udev_rule,
+                         "переустановите WaySwitch той же командой, которой устанавливали"))
 
     def unit():
         # .deb кладёт юнит системно, install.sh — в профиль пользователя.
@@ -286,8 +291,9 @@ def run_checks() -> list[Check]:
                       Path.home() / ".config/systemd/user/wayswitch.service")
         found = [str(c) for c in candidates if c.exists()]
         return bool(found), found[0] if found else ""
-    checks.append(_check("systemd user-сервис", unit,
-                         "sudo packaging/install.sh", required=False))
+    checks.append(_check("Автозапуск установлен", unit,
+                         "необязательно: переустановите WaySwitch той же командой, "
+                         "которой устанавливали", required=False))
 
     def service_running():
         import subprocess
@@ -317,7 +323,9 @@ def run_checks() -> list[Check]:
 def format_report(checks: list[Check]) -> str:
     lines = []
     for c in checks:
-        mark = "✓" if c.ok else "✗"
+        # Необязательное — не крестиком: на исправной системе их бывает
+        # несколько, и человек решил бы, что всё сломано.
+        mark = "✓" if c.ok else ("✗" if c.required else "○")
         line = f"{mark} {c.name}"
         if c.hint:
             line += f"\n    {c.hint}"

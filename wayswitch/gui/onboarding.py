@@ -59,7 +59,7 @@ def open_layout_settings() -> bool:
             or _spawn(["systemsettings", "kcm_keyboard"]))
 
 
-ROW_ICONS = {"ok": ("emblem-ok-symbolic", "success"),
+ROW_ICONS = {"ok": ("object-select-symbolic", "success"),
              "fail": ("dialog-error-symbolic", "error"),
              "optional": ("radio-symbolic", "dim-label")}
 ACTIONS = {"logout": ("Выйти из сеанса", logout),
