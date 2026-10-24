@@ -40,7 +40,11 @@ supports the Russian ↔ English pair.
   key — done.
 - **Undo that learns.** The same gesture right after an automatic fix
   restores the word and never touches it again.
-- **Small typos.** `пирогб` → «пирог,», `чтото` → «что-то», `ПРивет` → «Привет».
+- **Small typos** (each can be turned off in Preferences): two capitals at
+  the start of a word (`ПРивет` → «Привет», Shift released too late); a
+  comma or period typed as the last Russian letter on the same key
+  (`пирогб` → «пирог,»); particles typed together (`чтото` → «что-то», `кембы` → «кем бы»);
+  a missing space before a capitalised word (`сонатуБаха` → «сонату Баха»).
 - **Exceptions.** Words and programs to leave alone. Password fields are skipped.
 
 <p align="center">

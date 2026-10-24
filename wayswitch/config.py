@@ -208,14 +208,9 @@ def _validate(cfg: Config) -> None:
     if sel:
         if sel not in GESTURE_KEY_NAMES:
             raise ConfigError(f"selection_key: недопустимая клавиша {ge.selection_key!r}")
-        if ge.manual == "tap_key" and sel == tap:
-            raise ConfigError("selection_key совпадает с клавишей жеста tap_key")
-        if ge.manual == "double_shift" and sel in ("leftshift", "rightshift"):
-            raise ConfigError("selection_key: Shift уже занят жестом «двойной Shift»")
-        if ge.manual == "pause_key" and sel == "pause":
-            raise ConfigError("selection_key: Pause уже занята жестом «клавиша Pause»")
-        if pause and sel == pause:
-            raise ConfigError("selection_key совпадает с клавишей паузы")
+        conflict = selection_key_conflict(ge, sel)
+        if conflict:
+            raise ConfigError(f"selection_key: {conflict}")
     if pause and ge.manual == "tap_key" and tap == pause:
         raise ConfigError("tap_key совпадает с клавишей паузы")
     if ge.pause_hotkey and ge.pause_hotkey.lower() not in KEY_NAMES:
@@ -228,6 +223,27 @@ def _validate(cfg: Config) -> None:
         raise ConfigError(f"prefer: допустимо {BACKEND_PREFS}")
     if b.shell_typing not in SHELL_TYPING:
         raise ConfigError(f"shell_typing: допустимо {SHELL_TYPING}")
+
+
+def selection_key_conflict(ge: Gesture, name: str, manual: str | None = None) -> str | None:
+    """С чем клавиша «Исправить выделенное» столкнулась бы (или None).
+
+    manual — жест, который собираются выбрать (по умолчанию текущий). Общая
+    проверка для конфига и окна «Параметры»: окно не должно принимать то,
+    что конфиг потом откажется сохранить.
+    """
+    name, manual = name.lower(), manual or ge.manual
+    if not name:
+        return None
+    if manual == "tap_key" and name == ge.tap_key.lower():
+        return "эта клавиша уже исправляет последнее слово"
+    if manual == "double_shift" and name in ("leftshift", "rightshift"):
+        return "Shift уже занят жестом «двойной Shift»"
+    if manual == "pause_key" and name == "pause":
+        return "Pause уже занята жестом «клавиша Pause»"
+    if ge.pause_hotkey and name == ge.pause_hotkey.lower():
+        return "эта клавиша ставит WaySwitch на паузу"
+    return None
 
 
 def from_dict(data: dict) -> Config:

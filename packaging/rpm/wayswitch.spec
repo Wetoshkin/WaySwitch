@@ -16,8 +16,10 @@ BuildArch:      noarch
 Requires:       python3 >= 3.11
 Requires:       python3-evdev
 Requires:       python3-gobject
-Requires:       (gtk4 or typelib-1_0-Gtk-4_0)
-Requires:       (libadwaita >= 1.5 or typelib-1_0-Adw-1 >= 1.5)
+# В Fedora typelib лежат в самих gtk4/libadwaita, в openSUSE — отдельными
+# пакетами: там «gtk4» ставит одну библиотеку, и окно не запустится.
+Requires:       (typelib-1_0-Gtk-4_0 if libgtk-4-1 else gtk4)
+Requires:       (typelib-1_0-Adw-1 >= 1.5 if libadwaita-1-0 else libadwaita >= 1.5)
 Requires:       (libxkbcommon or libxkbcommon0)
 Recommends:     (gnome-shell-extension-appindicator if gnome-shell)
 Recommends:     (ibus if gnome-shell)

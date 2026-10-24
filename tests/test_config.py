@@ -92,3 +92,15 @@ def test_lists_in_foreign_encoding_do_not_crash(tmp_path):
     path.write_bytes("телеграм\n".encode("cp1251"))
     assert len(load_apps(path)) == 1
     assert len(load_exceptions(path)) == 1
+
+
+def test_selection_key_conflict_matches_validation():
+    from wayswitch.config import Gesture, selection_key_conflict
+
+    g = Gesture()  # двойной Shift
+    assert selection_key_conflict(g, "leftshift")
+    assert selection_key_conflict(g, "rightctrl") is None
+    assert selection_key_conflict(g, "pause", manual="pause_key")
+    g.tap_key, g.pause_hotkey = "rightctrl", "scrolllock"
+    assert selection_key_conflict(g, "rightctrl", manual="tap_key")
+    assert selection_key_conflict(g, "scrolllock")

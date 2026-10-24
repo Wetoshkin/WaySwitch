@@ -99,6 +99,18 @@ class Preferences:
             cfgmod.save(fresh)
         except (cfgmod.ConfigError, OSError) as exc:
             self.toast(f"Не удалось сохранить: {exc}")
+            if isinstance(exc, cfgmod.ConfigError):
+                # Плохое значение не должно блокировать все следующие правки:
+                # отбрасываем несохранённое и показываем то, что в файле.
+                self._dirty.clear()
+                self._replace = False
+                try:
+                    self.cfg = cfgmod.load()
+                except cfgmod.ConfigError:
+                    pass
+                else:
+                    self._load_correction()
+                    self._load_system()
             return GLib.SOURCE_REMOVE
         self.cfg = fresh
         self._dirty.clear()
@@ -233,11 +245,11 @@ class Preferences:
         if self._loading:
             return
         g = self.cfg.gesture
-        if mode == "tap_key" and g.selection_key and g.selection_key == g.tap_key:
+        if cfgmod.selection_key_conflict(g, g.selection_key, mode):
             # Одна клавиша не может и исправлять слово, и выделение.
             self._set("gesture", "selection_key", "")
             self.sel_cap.set_label("Нет")
-            self.toast("Клавиша «Исправить выделенное» снята: она совпала с клавишей жеста")
+            self.toast("Клавиша «Исправить выделенное» снята: она занята новым жестом")
         self._set("gesture", "manual", mode)
 
     def _on_key_chosen(self, name: str | None) -> None:
@@ -253,8 +265,9 @@ class Preferences:
 
     def _on_sel_key_chosen(self, name: str | None) -> None:
         name = name or ""
-        if name and self.cfg.gesture.manual == "tap_key" and name == self.cfg.gesture.tap_key:
-            self.toast("Эта клавиша уже исправляет последнее слово")
+        conflict = cfgmod.selection_key_conflict(self.cfg.gesture, name)
+        if conflict:
+            self.toast(f"Нельзя: {conflict}")
             return
         self._set("gesture", "selection_key", name)
         self.sel_cap.set_label(gesture_keys.human_name(name) if name else "Нет")
