@@ -361,6 +361,9 @@ punct_fix = true              # «пирогб» → «пирог,»
 particles_fix = true          # «чтото» → «что-то», «кембы» → «кем бы»
 split_words_fix = true        # «сонатуБаха» → «сонату Баха»
 two_capitals_fix = true       # «ПРивет» → «Привет»
+caps_fix = true               # «пРИВЕТ» → «Привет» и выключить Caps Lock
+early_switch = true           # переключать раскладку по началу слова (не в conservative)
+learn_after_undos = 2         # со скольких отмен запоминать слово, 1–5
 skip_password_fields = true   # не исправлять в полях пароля
 sound_on_fix = false          # звук при исправлении
 check_updates = true          # раз в сутки спрашивать GitHub о новой версии
@@ -369,6 +372,8 @@ check_updates = true          # раз в сутки спрашивать GitHub
 manual = "double_shift"       # double_shift | tap_key | pause_key | none
 tap_key = "leftctrl"          # клавиша для tap_key
 selection_key = ""            # клавиша «Исправить выделенное» (пусто — нет)
+translit_key = ""             # клавиша транслитерации выделенного
+numbers_key = ""              # клавиша «число прописью» для выделенного
 
 [typing]
 settle_ms = 120               # ожидание после смены раскладки, мс
@@ -454,6 +459,8 @@ curl -fsSL https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/
 | `wayswitch pause` / `resume` / `toggle` | пауза, продолжить, переключить |
 | `wayswitch fix` | исправить последнее слово (удобнее жестом) |
 | `wayswitch fix-selection` | исправить выделенный текст |
+| `wayswitch translit` | транслитерация выделенного: Привет ↔ Privet |
+| `wayswitch number-words` | выделенное число прописью |
 | `wayswitch waybar` | поток JSON для модуля Waybar |
 | `wayswitch gui` | открыть окно |
 | `wayswitch dry-run` | служба в режиме наблюдения |

@@ -129,10 +129,11 @@ def test_early_switch_on_fourth_letter(real):
 
 def test_early_switch_respects_setting_and_careful_mode(real):
     km = real[0]
-    for tweak in ({"early_switch": False}, {"sensitivity": "careful"}):
+    for tweak in ({"early_switch": False}, {"sensitivity": "conservative"}):
         cfg = Config()
         for k, v in tweak.items():
             setattr(cfg.general, k, v)
+        cfgmod._validate(cfg)  # значение настоящее, а не выдуманное в тесте
         ctrl, _b, _t, corrected = make(real, US, cfg)
         for key in keys_for_text(km, "ghbd", US):
             press(ctrl, key.code)
