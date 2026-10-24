@@ -39,7 +39,11 @@ def make_ctrl(real, group=RU, config=None, typist=None, **kw):
     backend = FakeBackend(current=group)
     typist = typist or RecordingTypist()
     corrected = []
-    ctrl = Controller(config or Config(), km, det, backend, typist,
+    config = config or Config()
+    # Слова здесь печатаются без пробела ради ручных жестов: ранний триггер
+    # исправил бы их на четвёртой букве. У него свои тесты (test_punto_extras).
+    config.general.early_switch = False
+    ctrl = Controller(config, km, det, backend, typist,
                       on_corrected=lambda o, f, m: corrected.append((o, f, m)), **kw)
     return ctrl, backend, typist, corrected
 
@@ -201,7 +205,9 @@ def test_exception_blocks_rules_too(real):
 
 def test_undo_of_split_fix_restores_original(real):
     """Откат «кем бы» возвращает «кембы» целиком, а не переворачивает «бы»."""
-    ctrl, _backend, typist, corrected = make_ctrl(real, group=RU)
+    cfg = Config()
+    cfg.general.learn_after_undos = 1  # запомнить с первой отмены
+    ctrl, _backend, typist, corrected = make_ctrl(real, group=RU, config=cfg)
     km = real[0]
     type_word(ctrl, km, "кембы ", RU)
     assert corrected[-1][1] == "кем бы"

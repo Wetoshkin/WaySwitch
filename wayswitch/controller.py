@@ -31,6 +31,7 @@ from wayswitch.config import Config, apps_path
 from wayswitch.detector import SENSITIVITY, Detector
 from wayswitch.gesture import ShiftGesture, TapKeyGesture
 from wayswitch.selection import convert as convert_selection
+from wayswitch.textops import number_words, transliterate
 
 log = logging.getLogger("wayswitch")
 
@@ -143,6 +144,9 @@ class Controller:
         self._pending = 0  # отложенных (запланированных, но ещё не исполненных) фиксов
         self._pending_gesture: str | None = None  # жест, пришедший во время фикса
         self._last_fix: LastFix | None = None
+        # Сколько раз подряд отменяли исправление слова: запоминаем слово как
+        # исключение только с learn_after_undos-й отмены.
+        self._undo_counts: dict[str, int] = {}
         # Время последней правки текста руками и последней ручной смены
         # раскладки: в это окно автоисправление не вмешивается.
         self._last_edit_at: float | None = None
@@ -167,9 +171,15 @@ class Controller:
 
     def _rebuild_gesture(self, config: Config) -> None:
         """Жест по настройке: двойной Shift или одиночный тап своей клавиши."""
-        sel = config.gesture.selection_key.lower()
-        self._selection_gesture = TapKeyGesture(frozenset({kc.KEY_NAMES[sel]})) \
-            if sel in kc.KEY_NAMES else None
+        # Клавиши действий над выделенным: «Исправить выделенное»,
+        # транслитерация, число прописью — у каждой свой тап-жест.
+        self._selection_gestures: list[tuple[TapKeyGesture, str]] = []
+        for field_name, action in (("selection_key", "layout"), ("translit_key", "translit"),
+                                   ("numbers_key", "numbers")):
+            name = getattr(config.gesture, field_name).lower()
+            if name in kc.KEY_NAMES:
+                self._selection_gestures.append(
+                    (TapKeyGesture(frozenset({kc.KEY_NAMES[name]})), action))
         if config.gesture.manual == "tap_key":
             # Неизвестное имя клавиши сюда не дойдёт (ловит валидация конфига),
             # но запасной вариант на случай правки конфига в обход неё.
@@ -268,8 +278,8 @@ class Controller:
             if self.config.gesture.manual in ("double_shift", "tap_key") else None
         # Тап клавиши выделения тоже видит все клавиши: Ctrl+C при выделении
         # на правом Ctrl — не жест.
-        selection_tap = (self._selection_gesture.on_key(code, value, now)
-                         if self._selection_gesture is not None else None)
+        selection_taps = [(g.on_key(code, value, now), g, action)
+                          for g, action in self._selection_gestures]
         if self.busy:
             # Физический ввод во время перепечатки — прервать; зажатые клавиши
             # учесть. Shift-тап не прерывает: он короткий и сам по себе ничего
@@ -288,13 +298,15 @@ class Controller:
             if gesture:
                 self._pending_gesture = gesture
             return
-        if self._selection_gesture is not None and code in self._selection_gesture.keys \
-                and not (self.paused or self.locked):
-            # Своя клавиша «Исправить выделенное» (gesture.selection_key):
-            # одиночное нажатие, как у жеста последнего слова. В буфер не идёт.
+        own = [(tap, action) for tap, g, action in selection_taps if code in g.keys]
+        if own and not (self.paused or self.locked):
+            # Своя клавиша действия над выделенным (selection_key, translit_key,
+            # numbers_key): одиночное нажатие, как у жеста последнего слова.
+            # В буфер не идёт.
             self._note_own_key(code, value, device_id)
-            if selection_tap:
-                self.schedule(self.fix_selection)
+            tap, action = own[0]
+            if tap:
+                self.schedule(lambda a=action: self.transform_selection(a))
             return
         if self.config.gesture.manual == "tap_key" and code in self._gesture_keys \
                 and not (self.paused or self.locked):
@@ -389,14 +401,14 @@ class Controller:
         self._skip_word = False
         # Клик посреди тапа жеста — не жест: иначе Ctrl+клик переворачивал бы слово.
         self.gesture.reset()
-        if self._selection_gesture is not None:
-            self._selection_gesture.reset()
+        for g, _action in self._selection_gestures:
+            g.reset()
 
     def on_scroll(self) -> None:
         """Колесо мыши: слово не трогаем, но тап-жест разрываем (Ctrl+колесо — масштаб)."""
         self.gesture.reset()
-        if self._selection_gesture is not None:
-            self._selection_gesture.reset()
+        for g, _action in self._selection_gestures:
+            g.reset()
 
     def on_layout_changed(self, index: int, external: bool) -> None:
         if external:
@@ -547,6 +559,14 @@ class Controller:
                                reason="particles", group_before=current, switch=False,
                                trigger=(device_id, code))
             return
+        caps = self.detector.caps_lock_fix(keys, current, other) \
+            if self.config.general.caps_fix and self.buffer.caps else None
+        if caps:
+            text, group = caps
+            self._schedule_fix(keys, 1, group, text + " ", manual=False, reason="caps-lock",
+                               group_before=current, switch=group != current,
+                               trigger=(device_id, code), caps_off=True)
+            return
         capitals = self.detector.two_capitals_fix(keys, current) \
             if self.config.general.two_capitals_fix and not self.buffer.caps else None
         if capitals:
@@ -583,6 +603,13 @@ class Controller:
         target = self.detector.early_url_target(keys, current, other)
         if target:
             self._schedule_fix(keys, 0, other, target, manual=False, reason="url-early",
+                               group_before=current, trigger=(device_id, code))
+            return
+        if not self.config.general.early_switch or self.config.general.sensitivity == "careful":
+            return
+        early = self.detector.early_word_target(keys, current, other)
+        if early:
+            self._schedule_fix(keys, 0, other, early, manual=False, reason="early",
                                group_before=current, trigger=(device_id, code))
 
     # --- ручной режим -----------------------------------------------------------
@@ -631,12 +658,10 @@ class Controller:
                     return
                 self._last_fix = None
                 self.stats["undo"] += 1
-                self._emit_status()
                 letters = "".join(c for c in original if c.isalpha() or c in "-'").lower()
                 if letters:
-                    self.detector.exceptions.add(letters)
-                    if self.persist_exception:
-                        self.persist_exception(letters)
+                    self._note_undo(letters)
+                self._emit_status()
 
             self._schedule_fix(undo_keys, tail, last.group_before, original + " " * tail,
                                manual=True, reason="undo", group_before=current, done=done,
@@ -646,6 +671,23 @@ class Controller:
         self._schedule_fix(word, tail, other, text + " " * tail, manual=True,
                            reason="manual", group_before=current)
         return True
+
+    def _note_undo(self, word: str) -> None:
+        """Исправление слова отменили: на learn_after_undos-й раз — запомнить.
+
+        Одна отмена бывает случайной (слово исправлено верно, но человек
+        передумал), поэтому сразу в исключения не пишем.
+        """
+        count = self._undo_counts.get(word, 0) + 1
+        if count < self.config.general.learn_after_undos:
+            self._undo_counts[word] = count
+            log.info("исправление отменено; слово запомнится после ещё %d отмен",
+                     self.config.general.learn_after_undos - count)
+            return
+        self._undo_counts.pop(word, None)
+        self.detector.exceptions.add(word)
+        if self.persist_exception:
+            self.persist_exception(word)
 
     def _undo_span(self, last: LastFix | None) -> list[KeyPress] | None:
         """Клавиши последнего автоисправления в хвосте буфера — если его ещё
@@ -664,7 +706,31 @@ class Controller:
         return None
 
     def fix_selection(self, text: str | None = None) -> bool:
-        """Перевести выделенный текст в другую раскладку («Исправить выделенное»).
+        """Перевести выделенный текст в другую раскладку («Исправить выделенное»)."""
+        return self.transform_selection("layout", text)
+
+    def _group_for_text(self, text: str, groups: tuple[int, int]) -> int | None:
+        """Раскладка, в которой печатать результат: по алфавиту его букв."""
+        cyrillic = any("а" <= c.lower() <= "я" or c.lower() == "ё" for c in text)
+        want = "ru" if cyrillic else "latin"
+        for g in groups:
+            if self.keymap.alphabet(g) == want:
+                return g
+        return None
+
+    def _convert_selection(self, action: str, text: str,
+                           groups: tuple[int, int]) -> tuple[str, int] | None:
+        if action == "layout":
+            return convert_selection(self.keymap, text, (0, 1))
+        new_text = transliterate(text) if action == "translit" else number_words(text)
+        if new_text is None:
+            return None
+        target = self._group_for_text(new_text, groups)
+        return (new_text, target) if target is not None else None
+
+    def transform_selection(self, action: str, text: str | None = None) -> bool:
+        """Действие над выделенным текстом: «layout» — другая раскладка,
+        «translit» — транслитерация, «numbers» — число прописью.
 
         Текст берётся у бэкенда (расширение GNOME Shell читает PRIMARY —
         выделение без Ctrl+C) и печатается поверх выделения: в любом поле ввода
@@ -692,8 +758,9 @@ class Controller:
         groups = self._groups()
         if groups is None:
             return False
-        converted = convert_selection(self.keymap, text, (0, 1))
+        converted = self._convert_selection(action, text, groups)
         if converted is None:
+            log.info("выделенное: нечего менять (%s)", action)
             return False
         new_text, target = converted
         # Каждый символ должен быть в целевой раскладке: и uinput, и
@@ -785,7 +852,7 @@ class Controller:
                       whole_phrase: bool = False, switch: bool = True,
                       trigger: tuple[int, int] | None = None,
                       done: Callable[[bool], None] | None = None,
-                      span: bool = False) -> None:
+                      span: bool = False, caps_off: bool = False) -> None:
         """Отложить _apply_fix через self.schedule.
 
         Решение принято по снимку буфера; к моменту исполнения пользователь
@@ -818,7 +885,7 @@ class Controller:
                 ok = self._apply_fix(snapshot, tail, target_group, text, manual=manual,
                                      reason=reason, group_before=group_before,
                                      whole_phrase=whole_phrase, switch=switch, trigger=trigger,
-                                     span=span)
+                                     span=span, caps_off=caps_off)
             finally:
                 if done is not None:
                     done(ok)
@@ -880,7 +947,8 @@ class Controller:
     def _apply_fix(self, keys: list[KeyPress], tail: int, target_group: int, text: str,
                    *, manual: bool, reason: str, group_before: int,
                    whole_phrase: bool = False, switch: bool = True,
-                   trigger: tuple[int, int] | None = None, span: bool = False) -> bool:
+                   trigger: tuple[int, int] | None = None, span: bool = False,
+                   caps_off: bool = False) -> bool:
         # Бэкенд может ошибаться насчёт текущей раскладки (IBus на GNOME 46+).
         # Проверяем ДО плана: после Backspace-ов откатывать уже нечего.
         verify = getattr(self.backend, "verify_layout", None)
@@ -890,7 +958,7 @@ class Controller:
             return False
         switch = switch or bool(getattr(self.backend, "always_switch", False))
         plan = plan_fix(len(keys) + tail, text, target_group, self.keymap, self.buffer.caps,
-                        switch=switch)
+                        switch=switch, caps_off=caps_off)
         if plan is None:
             log.warning("не могу набрать %r в группе %s", text, target_group)
             return False
@@ -957,6 +1025,8 @@ class Controller:
         # хранит его неделями) исправленным словам делать нечего. text — через
         # %r как есть: по нему видно, ушёл ли пробел в конце.
         log.info("%s: исправлено за %.0f мс", reason, (self.clock() - started) * 1000)
+        if caps_off:
+            self.buffer.set_caps(False)  # светодиод подтвердит событием клавиатуры
         if not secret:
             log.debug("%s: %r → %r", reason, original, text)
         new_keys = [KeyPress(code, shift) for code, shift in

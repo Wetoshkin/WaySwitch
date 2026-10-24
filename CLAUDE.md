@@ -32,6 +32,7 @@ GNOME: в контейнере Debian с GTK4/libadwaita под Xvfb и подд
 | `wayswitch/gesture.py` | двойной/тройной Shift, одиночный тап своей клавиши |
 | `wayswitch/actuator.py` | план (`plan_fix`) и исполнение с точкой невозврата на первом Backspace; `UInputTypist` |
 | `wayswitch/selection.py` | «Исправить выделенное»: перевод текста в другую раскладку |
+| `wayswitch/textops.py` | транслитерация и число прописью для выделенного текста |
 | `wayswitch/controller.py` | оркестрация без GLib: события клавиш → правила/детектор → действия, откат, выделение |
 | `wayswitch/a11y.py` | at-spi: программа в фокусе и поле пароля (поток-проба, обход от активного окна) |
 | `wayswitch/sound.py` | звук при исправлении |
@@ -65,6 +66,7 @@ GNOME: в контейнере Debian с GTK4/libadwaita под Xvfb и подд
 | `wayswitch/gui/widgets.py` | строка «значение · − +», клавиша-надпись, работа в потоке |
 | `wayswitch/gui/gesture_keys.py` | человеческие имена клавиш и разбор нажатия в диалоге выбора |
 | `wayswitch/gui/tray.py` | `StatusNotifierItem` + dbusmenu через `Gio.DBus` |
+| `wayswitch/gui/terminal.py` | обновление и удаление кнопкой: get.sh в окне терминала |
 | `wayswitch/gui/autostart.py` | служба и автозапуск значка (`systemctl --user`, XDG autostart) |
 | `wayswitch/gui/daemon_proxy.py` | клиент D-Bus демона для GUI |
 | `extension/wayswitch@siberia.ru/` | расширение GNOME Shell (ESM, `shell-version` 46–51); печатать может только демон |
@@ -81,7 +83,8 @@ GNOME: в контейнере Debian с GTK4/libadwaita под Xvfb и подд
 ## Чистые модули
 
 `keycodes`, `config`, `keymap` (кроме `XkbKeymap`), `ngram`, `detector`,
-`buffer`, `gesture`, `actuator` (кроме `UInputTypist`), `selection`,
+`buffer`, `gesture`, `actuator` (кроме `UInputTypist`), `selection`, `textops`,
+`gui/terminal`,
 `updates`, `panel`, `controller`, `a11y` (кроме `query_focus`), `gui/texts`,
 `gui/gesture_keys`, `backends/sway`, `backends/hyprland`, `backends/compositor`,
 `backends/xkbnames` —

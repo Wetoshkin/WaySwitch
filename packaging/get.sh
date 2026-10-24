@@ -251,6 +251,7 @@ fi
 # --- Установка ---------------------------------------------------------------
 # Обновление: автозапуск службы, выключенный человеком, не включаем снова.
 WAS=$(systemctl --user is-enabled wayswitch 2>/dev/null || true)
+HAD=0; have wayswitch && HAD=1  # уже стоял — значит, это обновление
 step "Устанавливаю" "Installing"
 need_sudo
 case "$FAMILY" in
@@ -284,6 +285,13 @@ enable_extension wayswitch@siberia.ru || true
 enable_a11y || true
 
 # --- Что дальше ----------------------------------------------------------------
+if [ "$HAD" = 1 ] && [ "$ATOMIC" != 1 ]; then
+  # Обновление: служба уже перезапущена (try-restart выше), доступ к
+  # клавиатуре был и раньше — перезагружаться не нужно.
+  step "WaySwitch обновлён" "WaySwitch is updated"
+  say "  Перезагружать компьютер не нужно. Если окно WaySwitch открыто — закройте его и откройте снова."       "  No restart needed. If the WaySwitch window is open, close it and open it again."
+  exit 0
+fi
 step "WaySwitch установлен" "WaySwitch is installed"
 if [ "$ATOMIC" = 1 ]; then
   say "  Осталось перезагрузить компьютер. После перезагрузки откройте WaySwitch из меню приложений — он проверит систему и включит службу." \
