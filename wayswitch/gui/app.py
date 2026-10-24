@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
                 "auto": self._toggle_auto,
                 "pause": self._toggle_pause,
                 "fix_selection": lambda: self.proxy.call("FixSelection"),
-                "update": self.open_release,
+                "update": self.run_update,
                 "settings": self.show_window,
                 "quit": self._ask_quit,
             })
@@ -105,6 +105,8 @@ def main(argv: list[str] | None = None) -> int:
                                   ("shortcuts", self.show_shortcuts),
                                   ("about", self.show_about),
                                   ("pause", self._toggle_pause),
+                                  ("run-update", self.run_update),
+                                  ("uninstall", self.ask_uninstall),
                                   ("quit", self._ask_quit),
                                   ("show-window", self.show_window)):
                 action = Gio.SimpleAction.new(name, None)
@@ -284,8 +286,10 @@ def main(argv: list[str] | None = None) -> int:
 
         def _notify_update(self, release):
             note = Gio.Notification.new(f"Вышла WaySwitch {release.version}")
-            note.set_body("Откройте страницу релиза — там пакет и инструкция по обновлению.")
+            note.set_body("Нажмите «Обновить» — откроется терминал, там нужно будет ввести "
+                          "пароль.")
             note.set_default_action("app.show-window")
+            note.add_button("Обновить", "app.run-update")
             self.send_notification("update", note)
 
         def update_text(self, checked: bool = False) -> str:
@@ -295,6 +299,34 @@ def main(argv: list[str] | None = None) -> int:
 
         def open_release(self):
             _open_uri(self.update.url if self.update else updates.RELEASES_URL)
+
+        def run_update(self):
+            self._run_in_terminal(uninstall=False)
+
+        def ask_uninstall(self):
+            from wayswitch.gui import dialogs
+
+            dialogs.uninstall_dialog(self._parent(),
+                                     lambda: self._run_in_terminal(uninstall=True))
+
+        def _run_in_terminal(self, uninstall: bool):
+            """Обновить или удалить той же командой, что в README, — в терминале:
+            скрипт спрашивает подтверждение и пароль и показывает ход работы."""
+            import subprocess
+
+            from wayswitch.backends.desktop import detect_desktop
+            from wayswitch.gui import dialogs, terminal
+
+            argv = terminal.terminal_argv(terminal.script(uninstall), detect_desktop())
+            if argv is not None:
+                try:
+                    subprocess.Popen(argv, start_new_session=True, stdin=subprocess.DEVNULL,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    return
+                except OSError as exc:
+                    log.warning("терминал не запустился: %s", exc)
+            self._ensure_main().present()
+            dialogs.command_dialog(self._parent(), terminal.manual_command(uninstall))
 
     # Приложение не умеет открывать файлы (FLAGS_NONE): любой позиционный
     # аргумент кроме имени программы приводит к ошибке GApplication

@@ -153,8 +153,20 @@ class GnomeShellBackend(LayoutBackend):
 class ShellTypist:
     """Печать через расширение: keysym-ы не зависят от раскладки."""
 
-    def __init__(self, backend: GnomeShellBackend):
+    def __init__(self, backend: GnomeShellBackend, keys=None):
         self._backend = backend
+        # uinput-устройство демона: им нажимаем Caps Lock (расширение печатает
+        # keysym-ами и Caps Lock не трогает).
+        self._keys = keys
+
+    def toggle_caps(self) -> None:
+        if self._keys is None:
+            return
+        from wayswitch import keycodes as kc
+
+        for value in (1, 0):
+            self._keys.key(kc.KEY_CAPSLOCK, value)
+            self._keys.syn()
 
     def backspace(self, count: int) -> None:
         self._backend.backspace(count)

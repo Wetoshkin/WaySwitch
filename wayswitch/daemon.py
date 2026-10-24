@@ -74,7 +74,7 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     elif backend.name == "shell":
         from wayswitch.backends.gnome_shell import ShellTypist
 
-        typist_for_controller = ShellTypist(backend)
+        typist_for_controller = ShellTypist(backend, keys=typist)
     else:
         typist_for_controller = typist
         if backend.name == "ibus" and not backend.verify_layout():

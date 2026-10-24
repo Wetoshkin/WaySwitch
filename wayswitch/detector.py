@@ -87,6 +87,12 @@ BRAND_PREFIXES = frozenset((
     "медиа", "пром", "газ", "тех", "спец", "рос", "мос", "яндекс", "вкус"))
 
 
+# Ранний триггер: на какой букве слова решать и сколько слов другого языка
+# должно начинаться так же.
+EARLY_LEN = 4
+EARLY_MIN_WORDS = 3
+
+
 @dataclass(frozen=True)
 class Sensitivity:
     min_length: int
@@ -156,6 +162,19 @@ class LanguageModel:
             return False
         i = bisect_left(self._sorted_words, prefix)
         return i < len(self._sorted_words) and self._sorted_words[i].startswith(prefix)
+
+    def prefix_count(self, prefix: str, limit: int = 100) -> int:
+        """Сколько слов словаря начинаются с prefix (считаем не дальше limit)."""
+        prefix = prefix.lower()
+        if not prefix:
+            return 0
+        words = self._sorted_words
+        i = bisect_left(words, prefix)
+        n = 0
+        while i < len(words) and n < limit and words[i].startswith(prefix):
+            n += 1
+            i += 1
+        return n
 
     def looks_like_word(self, word: str) -> bool:
         """Слово или его форма: точное совпадение либо основа в словаре.
@@ -338,6 +357,55 @@ class Detector:
             if stem in _LI_WORDS or (len(stem) >= 4 and stem.endswith(_LI_VERB_ENDINGS)
                                      and model.is_word(stem)):
                 return f"{stem} ли"
+        return None
+
+    def early_word_target(self, keys, current_group: int, other_group: int) -> str | None:
+        """Начало слова — явно в другой раскладке: исправить, не дожидаясь пробела.
+
+        Срабатывает ровно на EARLY_LEN-й букве: такого начала нет ни у одного
+        слова текущего языка, а в другом с него начинаются хотя бы
+        EARLY_MIN_WORDS слов («ghbd» → «прив»). Дальше человек допечатывает
+        слово уже в правильной раскладке.
+        """
+        if len(keys) != EARLY_LEN:
+            return None
+        cur, oth = self.lang_of_group(current_group), self.lang_of_group(other_group)
+        if cur not in self.models or oth not in self.models or cur == oth:
+            return None
+        a = self.decode(keys, current_group)
+        b = self.decode(keys, other_group)
+        for text, lang in ((a, cur), (b, oth)):
+            if any(c.lower() not in LETTERS[lang] for c in text) or not text[1:].islower():
+                return None  # знаки, цифры, «ПРив», аббревиатуры — не трогаем
+        if a.lower() in self.exceptions or self.models[cur].has_prefix(a.lower()):
+            return None
+        if self.models[oth].prefix_count(b.lower(), EARLY_MIN_WORDS) < EARLY_MIN_WORDS:
+            return None
+        return b
+
+    def caps_lock_fix(self, keys, current_group: int,
+                      other_group: int) -> tuple[str, int] | None:
+        """Слово набрано с нечаянно включённым Caps Lock: «пРИВЕТ» → «Привет».
+
+        Признак: Caps Lock горел на всём слове, первая буква — строчная (её
+        набрали с Shift, чтобы сделать заглавной), остальные — заглавные.
+        Исправленное слово должно быть в словаре — в этой раскладке или в
+        другой («gHBDTN» → «Привет»). Возвращает (текст, раскладка).
+        """
+        if len(keys) < 3 or not all(getattr(k, "caps", False) for k in keys):
+            return None
+        for group in (current_group, other_group):
+            lang = self.lang_of_group(group)
+            if lang not in self.models:
+                continue
+            text = self.decode(keys, group)
+            if any(c.lower() not in LETTERS[lang] for c in text):
+                continue
+            if not (text[0].islower() and text[1:].isupper()):
+                continue
+            fixed = text[0].upper() + text[1:].lower()
+            if self.models[lang].looks_like_word(fixed.lower()):
+                return fixed, group
         return None
 
     def two_capitals_fix(self, keys, current_group: int) -> str | None:

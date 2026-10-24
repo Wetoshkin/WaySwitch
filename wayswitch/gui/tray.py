@@ -118,7 +118,7 @@ def menu_layout(status: dict | None, update: str | None = None) -> list[MenuItem
         MenuItem("sep2", kind="separator"),
     ]
     if update:
-        items.append(MenuItem("update", f"Вышла версия {update}…",
+        items.append(MenuItem("update", f"Обновить до {update}…",
                               icon="software-update-available-symbolic"))
     items += [
         MenuItem("settings", "Открыть WaySwitch", icon="window-new-symbolic"),
