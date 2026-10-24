@@ -197,3 +197,67 @@ def test_selection_keys_conflicts(gesture):
         setattr(cfg.gesture, key, value)
     with pytest.raises(cfgmod.ConfigError):
         cfgmod._validate(cfg)
+
+
+def test_caps_rule_off_when_caps_key_is_remapped(real):
+    km = real[0]
+
+    class CapsToggle(SelBackend):
+        def xkb_options(self):
+            return ["grp:caps_toggle"]
+
+    ctrl, _b, typist, corrected = make(real, RU)
+    ctrl.backend = CapsToggle(current=RU)
+    ctrl.set_caps(True)
+    type_caps_word(ctrl, km, "привет", RU)
+    assert kc.KEY_CAPSLOCK not in [c for c, _ in typist.taps()]
+
+
+def test_early_switch_respects_exception_of_whole_word(real):
+    km = real[0]
+    ctrl, _b, _t, corrected = make(real, US)
+    ctrl.detector.exceptions.add("ghbdtn")
+    for key in keys_for_text(km, "ghbd", US):
+        press(ctrl, key.code)
+    assert corrected == []
+
+
+def test_manual_revert_after_early_switch_counts_as_undo(real):
+    km = real[0]
+    cfg = Config()
+    cfg.general.learn_after_undos = 1
+    ctrl, backend, _t, corrected = make(real, US, cfg)
+    ctrl.schedule = lambda fn: fn()
+    for key in keys_for_text(km, "ghbd", US):
+        press(ctrl, key.code)
+    assert backend.current() == RU
+    for key in keys_for_text(km, "ет", RU):  # допечатал по-русски
+        press(ctrl, key.code)
+    assert ctrl.manual_word()  # и вернул всё слово назад
+    assert "ghbdtn" in ctrl.detector.exceptions
+
+
+def test_caps_buffer_kept_when_typist_cannot_toggle(real):
+    from tests.fakes import RecordingTextTypist
+
+    km = real[0]
+    ctrl, *_ = make(real, RU)
+    ctrl.typist = RecordingTextTypist()
+    ctrl.set_caps(True)
+    type_caps_word(ctrl, km, "привет", RU)
+    assert ctrl.buffer.caps  # Caps Lock никто не нажимал — он всё ещё горит
+
+
+def test_alias_keys_conflict():
+    cfg = cfgmod.Config()
+    cfg.gesture.selection_key, cfg.gesture.translit_key = "esc", "escape"
+    with pytest.raises(cfgmod.ConfigError):
+        cfgmod._validate(cfg)
+
+
+def test_translit_ye_and_apostrophe():
+    from wayswitch.textops import transliterate
+
+    assert transliterate("Yegor") == "Егор"
+    assert transliterate("Andreyev") == "Андреев"
+    assert transliterate("Olya") == "Оля"

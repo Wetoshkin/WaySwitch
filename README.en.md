@@ -120,7 +120,8 @@ Once a day WaySwitch asks GitHub whether a new version is out; if so, the
 window shows a bar with an **Update** button (also in the notification, the
 panel menu and Preferences → System). It opens a terminal with the install
 command — confirm and enter your password. Settings are kept, no restart
-needed. Preferences → System → **Remove WaySwitch** works the same way.
+needed (on GNOME the new extension version takes effect at the next login;
+on Silverblue and Kinoite — after a reboot). Preferences → System → **Remove WaySwitch** works the same way.
 
 ## Troubleshooting
 

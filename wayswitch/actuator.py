@@ -192,6 +192,7 @@ class _Run:
         if self.caps_toggle is not None and not self.committed:
             try:
                 self.caps_toggle()  # Caps Lock выключили зря — включить обратно
+                self.caps_toggle = None
             except Exception as exc:  # noqa: BLE001 — откат по возможности
                 log.warning("не удалось вернуть Caps Lock: %s", exc)
         if self.switched and not self.committed and self.restore_group is not None:
@@ -204,7 +205,9 @@ class _Run:
 def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: False,
             key_delay: float = 0.0, sleep=time.sleep, switch_timeout: float = 0.5,
             restore_group: int | None = None,
-            hold: Callable[[], bool] | None = None) -> str:
+            hold: Callable[[], bool] | None = None,
+            outcome: dict | None = None) -> str:
+    """outcome (если передан) получает caps_off: Caps Lock в итоге выключен нами."""
     run = _Run(backend, abort, restore_group, hold)
     if isinstance(typist, TextTypist):
         result = _execute_text(plan, typist, run, switch_timeout)
@@ -212,6 +215,8 @@ def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: Fal
         result = _execute_keys(plan, typist, run, key_delay, sleep, switch_timeout)
     if result != DONE:
         run.rollback()
+    if outcome is not None:
+        outcome["caps_off"] = run.caps_toggle is not None
     return result
 
 
@@ -284,8 +289,7 @@ def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: flo
                 # Печать текстом от Caps Lock не зависит; выключаем, если
                 # исполнитель умеет (у расширения GNOME — через uinput).
                 toggle = getattr(typist, "toggle_caps", None)
-                if toggle is not None:
-                    toggle()
+                if toggle is not None and toggle() is not False:
                     run.caps_toggle = toggle
             elif isinstance(step, Type):
                 run.committed = True
