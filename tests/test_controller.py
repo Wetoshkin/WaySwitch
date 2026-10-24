@@ -139,14 +139,31 @@ def test_triple_shift_after_auto_fix_keeps_fixed_word(env):
     assert env["backend"].current() == US
 
 
-def test_undo_by_gesture_adds_exception(env):
+def test_undo_by_gesture_adds_exception_after_second_undo(env):
     type_text(env, "ghbdtn ")
     env["typist"].events.clear()
     double_shift(env)
     assert typed_text(env) == "\b" * 7 + "ghbdtn "
-    assert env["exceptions"] == ["ghbdtn"]
+    # Одна отмена бывает случайной — слово ещё не запоминаем.
+    assert env["exceptions"] == []
     assert env["ctrl"].status()["undo_total"] == 1
     assert env["backend"].current() == US
+    env["clock"].now += 10
+    type_text(env, "ghbdtn ")  # снова исправилось
+    assert env["corrected"][-1] == ("ghbdtn", "привет", False)
+    double_shift(env)
+    assert env["exceptions"] == ["ghbdtn"]  # вторая отмена — запомнили
+    env["clock"].now += 10
+    n = len(env["corrected"])
+    type_text(env, "ghbdtn ")
+    assert len(env["corrected"]) == n  # больше не трогаем
+
+
+def test_learn_after_one_undo_when_configured(env):
+    env["ctrl"].config.general.learn_after_undos = 1
+    type_text(env, "ghbdtn ")
+    double_shift(env)
+    assert env["exceptions"] == ["ghbdtn"]
 
 
 def test_gesture_after_undo_window_is_plain_manual(env):
@@ -592,7 +609,7 @@ def test_ctrl_tap_undoes_auto_fix(env):
     ctrl_tap(env)
     assert typed_text(env) == "\b" * 7 + "ghbdtn "
     assert env["ctrl"].status()["undo_total"] == 1
-    assert env["exceptions"] == ["ghbdtn"]
+    assert env["exceptions"] == []  # запомним со второй отмены
 
 
 def test_ctrl_with_letter_is_shortcut_not_gesture(env):

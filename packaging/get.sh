@@ -31,6 +31,7 @@ step() { printf '\n\033[1m==> '; say "$1" "$2"; printf '\033[0m'; }
 warn() { printf '\033[33m! '; say "$1" "$2"; printf '\033[0m'; }
 die()  { { printf '\033[31m✗ '; say "$1" "$2"; printf '\033[0m'; } >&2; exit 1; }
 ask()  { # вопрос да/нет; читаем с терминала, потому что stdin занят самим скриптом
+  # $3 = no — ответ по умолчанию «нет» (для удаления: Enter не должен удалять)
   [ "$YES" = 1 ] && return 0
   # /dev/tty есть всегда, но без управляющего терминала (cron, контейнер)
   # не открывается — проверяем открытием, а не наличием.
@@ -39,12 +40,18 @@ ask()  { # вопрос да/нет; читаем с терминала, пот�
     die "Нет терминала, чтобы спросить подтверждение. Запустите с --yes, если уверены." \
         "No terminal to ask for confirmation. Run with --yes if you are sure."
   fi
-  printf '%s ' "$( [ "$RU" = 1 ] && echo "$1 [Д/н]" || echo "$2 [Y/n]" )"
+  if [ "${3:-}" = no ]; then
+    printf '%s ' "$( [ "$RU" = 1 ] && echo "$1 [д/Н]" || echo "$2 [y/N]" )"
+  else
+    printf '%s ' "$( [ "$RU" = 1 ] && echo "$1 [Д/н]" || echo "$2 [Y/n]" )"
+  fi
   read -r a </dev/tty || a="н"
+  [ -z "$a" ] && [ "${3:-}" = no ] && return 1
   # Шаблоны-префиксы: в dash [Дд] сравнивается побайтно, и «н» сошло бы за «да».
   case "$a" in ""|Y*|y*|Д*|д*) return 0 ;; *) return 1 ;; esac
 }
 have() { command -v "$1" >/dev/null 2>&1; }
+stop_gui() { pkill -u "$(id -u)" -f 'wayswitch-gui' >/dev/null 2>&1 || true; }
 
 [ "$(id -u)" = 0 ] && die "Запустите без sudo — пароль спросят, когда он понадобится." \
                           "Run without sudo — you will be asked for a password when needed."
@@ -179,7 +186,7 @@ check_adwaita_deb() { # окну нужна libadwaita 1.5+ (Ubuntu 24.04+, Debi
 # --- Удаление ----------------------------------------------------------------
 if [ "$MODE" = uninstall ]; then
   step "Удаляю WaySwitch (${PRETTY_NAME:-$ID})" "Removing WaySwitch (${PRETTY_NAME:-$ID})"
-  ask "Удалить WaySwitch?" "Remove WaySwitch?" || exit 0
+  ask "Удалить WaySwitch?" "Remove WaySwitch?" no || exit 0
   need_sudo
   systemctl --user disable --now wayswitch 2>/dev/null || true
   if   have dpkg   && dpkg -s wayswitch >/dev/null 2>&1; then sudo apt purge -y wayswitch
@@ -194,6 +201,7 @@ if [ "$MODE" = uninstall ]; then
   rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/ru.siberia.WaySwitch.Settings.desktop" \
         "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/ru.siberia.WaySwitch.desktop"
   restore_a11y
+  stop_gui  # окно и значок удалённой программы больше не нужны
   say "Готово. Настройки остались в ~/.config/wayswitch — удалите папку, если они не нужны." \
       "Done. Settings are kept in ~/.config/wayswitch — delete it if you don't need them."
   exit 0
@@ -251,6 +259,15 @@ fi
 # --- Установка ---------------------------------------------------------------
 # Обновление: автозапуск службы, выключенный человеком, не включаем снова.
 WAS=$(systemctl --user is-enabled wayswitch 2>/dev/null || true)
+# Уже стоял — значит, это обновление. Переход с исходников на пакет — нет:
+# uninstall.sh останавливает службу и убирает расширение, нужен новый вход.
+HAD=0; have wayswitch && [ ! -f "$SOURCE_UNINSTALL" ] && HAD=1
+# Перезапускаем после обновления только значок (--tray) и только из
+# графического сеанса: окно, открытое отдельно, и сеанс по SSH не трогаем.
+GUI_WAS=0
+if [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ] && pgrep -u "$(id -u)" -f 'wayswitch-gui --tray' >/dev/null 2>&1; then
+  GUI_WAS=1
+fi
 step "Устанавливаю" "Installing"
 need_sudo
 case "$FAMILY" in
@@ -284,6 +301,24 @@ enable_extension wayswitch@siberia.ru || true
 enable_a11y || true
 
 # --- Что дальше ----------------------------------------------------------------
+if [ "$HAD" = 1 ] && [ "$ATOMIC" != 1 ]; then
+  # Обновление: служба уже перезапущена (try-restart выше), доступ к
+  # клавиатуре был и раньше — перезагружаться не нужно.
+  step "WaySwitch обновлён" "WaySwitch is updated"
+  if [ "$GUI_WAS" = 1 ]; then
+    # Значок — старый код в памяти: перезапускаем его на новой версии.
+    pkill -u "$(id -u)" -f 'wayswitch-gui --tray' >/dev/null 2>&1 || true
+    if have setsid; then setsid wayswitch-gui --tray >/dev/null 2>&1 </dev/null &
+    else nohup wayswitch-gui --tray >/dev/null 2>&1 </dev/null & fi
+  fi
+  say "  Перезагружать компьютер не нужно. Если окно WaySwitch было открыто — откройте его снова из меню приложений." \
+      "  No restart needed. If the WaySwitch window was open, open it again from the app menu."
+  case "${XDG_CURRENT_DESKTOP:-}" in *GNOME*)
+    say "  Новая версия расширения GNOME заработает после следующего входа в систему." \
+        "  The new GNOME extension version takes effect at your next login." ;;
+  esac
+  exit 0
+fi
 step "WaySwitch установлен" "WaySwitch is installed"
 if [ "$ATOMIC" = 1 ]; then
   say "  Осталось перезагрузить компьютер. После перезагрузки откройте WaySwitch из меню приложений — он проверит систему и включит службу." \

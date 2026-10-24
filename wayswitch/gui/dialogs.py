@@ -11,7 +11,7 @@ from collections.abc import Callable
 
 from wayswitch import __version__
 from wayswitch import config as cfgmod
-from wayswitch.gui import gesture_keys
+from wayswitch.gui import gesture_keys, texts
 from wayswitch.gui.widgets import boxed_list, clear_list, keycap, keycaps, run_in_thread
 
 REPO_URL = "https://github.com/Wetoshkin/WaySwitch"
@@ -240,6 +240,18 @@ def gesture_rows(cfg) -> list[tuple[str, str, list[str]]]:
     return []
 
 
+def selection_rows(cfg) -> list[tuple[str, str, list[str]]]:
+    """Строки действий над выделенным для «Жесты и клавиши»: исправить,
+    транслитерация, число прописью. Без клавиши показываем только первое —
+    остальные необязательны и только загромождали бы список."""
+    rows = [selection_row(cfg)]
+    for field_name, title, *_rest in texts.SELECTION_KEY_ROWS[1:]:
+        key = getattr(cfg.gesture, field_name)
+        if key:
+            rows.append((title, "Выделенный текст", [gesture_keys.human_name(key)]))
+    return rows
+
+
 def selection_row(cfg) -> tuple[str, str, list[str]]:
     """Строка «Выделенный текст» для «Жесты и клавиши»."""
     if cfg.gesture.selection_key:
@@ -261,7 +273,7 @@ def shortcuts_dialog(parent, cfg):
     if not rows:
         fix.add(Adw.ActionRow(title="Ручной жест выключен",
                               subtitle="Включите его в Параметрах → Исправление"))
-    for title, subtitle, keys in [*rows, selection_row(cfg)]:
+    for title, subtitle, keys in [*rows, *selection_rows(cfg)]:
         row = Adw.ActionRow(title=title, subtitle=subtitle)
         if keys:
             row.add_suffix(keycaps(keys))
@@ -365,7 +377,8 @@ def about_dialog(parent, update=None):
     if update is not None:
         about.set_release_notes_version(update.version)
         about.set_release_notes(
-            f"<p>Вышла версия {update.version}. Как обновиться — на странице релиза.</p>")
+            f"<p>Вышла версия {update.version}. Обновить — кнопкой «Обновить» в "
+            "главном окне или в Параметрах → Система.</p>")
     about.add_link("Что нового", f"{REPO_URL}/releases")
     about.add_legal_section(
         "Словари", "© Hermit Dave, FrequencyWords (по корпусу OpenSubtitles)",
@@ -401,6 +414,46 @@ def quit_dialog(parent, on_background: Callable[[], None], on_stop: Callable[[],
             on_background()
         elif response == "stop":
             on_stop()
+
+    dialog.connect("response", on_response)
+    dialog.present(parent)
+    return dialog
+
+
+def uninstall_dialog(parent, on_uninstall: Callable[[], None]):
+    from gi.repository import Adw
+
+    dialog = Adw.AlertDialog(
+        heading="Удалить WaySwitch?",
+        body="Откроется окно терминала: там нужно будет подтвердить удаление и ввести "
+             "пароль от вашей учётной записи. Настройки останутся на случай "
+             "переустановки.")
+    dialog.add_response("cancel", "Отмена")
+    dialog.add_response("uninstall", "Удалить")
+    dialog.set_response_appearance("uninstall", Adw.ResponseAppearance.DESTRUCTIVE)
+    dialog.set_close_response("cancel")
+    dialog.connect("response", lambda _d, r: on_uninstall() if r == "uninstall" else None)
+    dialog.present(parent)
+    return dialog
+
+
+def command_dialog(parent, command: str):
+    """Терминал не нашёлся: показать команду, чтобы выполнить её вручную."""
+    from gi.repository import Adw, Gdk
+
+    dialog = Adw.AlertDialog(
+        heading="Выполните команду в терминале",
+        body="Не удалось открыть терминал. Откройте его сами (клавиша с логотипом "
+             "Windows → «Терминал»), вставьте команду сочетанием Ctrl+Shift+V и "
+             f"нажмите Enter:\n\n{command}")
+    dialog.add_response("close", "Закрыть")
+    dialog.add_response("copy", "Скопировать команду")
+    dialog.set_response_appearance("copy", Adw.ResponseAppearance.SUGGESTED)
+    dialog.set_close_response("close")
+
+    def on_response(_d, response):
+        if response == "copy":
+            Gdk.Display.get_default().get_clipboard().set(command)
 
     dialog.connect("response", on_response)
     dialog.present(parent)

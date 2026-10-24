@@ -46,6 +46,58 @@ def _check(name: str, fn, hint: str, required: bool = True, key: str = "") -> Ch
     return Check(name, ok, text, required, key)
 
 
+# Состояние расширения GNOME Shell → (ok, ключ проверки для окна, обязательна
+# ли, текст). Один источник и для `wayswitch doctor`, и для первого запуска.
+EXTENSION_UUID = "wayswitch@siberia.ru"
+RELOGIN = "выйдите из сеанса и войдите снова — тогда GNOME загрузит новую версию"
+EXTENSION_STATES = {
+    "ok": (True, "extension", True, ""),
+    "missing": (False, "extension_missing", True,
+                "расширение не установлено: переустановите WaySwitch той же командой, "
+                "которой устанавливали"),
+    "disabled": (False, "extension", True,
+                 "расширение выключено: включите его (кнопка «Включить» в окне WaySwitch "
+                 "или gnome-extensions enable wayswitch@siberia.ru)"),
+    # Включено, но GNOME его ещё не загрузил (поставили в этом сеансе) или
+    # держит старую копию после обновления: кнопкой «Включить» тут ничего не
+    # изменить, нужен новый вход. Не блокируем: старая копия умеет главное.
+    "not_loaded": (False, "extension_relogin", False,
+                   "расширение включено, но GNOME загрузит его только после входа: " + RELOGIN),
+    "outdated": (False, "extension_relogin", False,
+                 "работает старая версия расширения: " + RELOGIN),
+}
+
+
+def extension_state(installed: bool, enabled: bool, running: bool,
+                    version: int | None) -> str:
+    """Одно из EXTENSION_STATES по фактам о расширении. Чистая функция."""
+    if running:
+        return "outdated" if version is not None and version < 2 else "ok"
+    if not installed:
+        return "missing"
+    return "not_loaded" if enabled else "disabled"
+
+
+def _extension_installed() -> bool:
+    data_dirs = os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(":")
+    home = os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))
+    return any((Path(d) / "gnome-shell/extensions" / EXTENSION_UUID / "metadata.json").exists()
+               for d in [home, *data_dirs] if d)
+
+
+def _extension_enabled() -> bool:
+    import subprocess
+
+    def get(key: str) -> str:
+        try:
+            return subprocess.run(["gsettings", "get", "org.gnome.shell", key],
+                                  capture_output=True, text=True, timeout=3).stdout
+        except (OSError, subprocess.SubprocessError):
+            return ""
+    return EXTENSION_UUID in get("enabled-extensions") and \
+        EXTENSION_UUID not in get("disabled-extensions")
+
+
 def uinput_status() -> tuple[bool, str]:
     """Открывается ли /dev/uinput на самом деле.
 
@@ -118,22 +170,21 @@ def run_checks() -> list[Check]:
                          "программам и защита полей паролей", required=False))
 
     if desktop == GNOME:
-        def gnome_tools():
-            from wayswitch.backends.gnome_shell import extension_version, shell_extension_present
-            if not shell_extension_present():
-                return False, "расширение не запущено"
-            version = extension_version()
-            if version is not None and version < 2:
-                # Shell держит загруженной старую копию до перелогина.
-                return False, ("работает старая версия расширения — выйдите из сеанса "
-                               "и войдите снова")
-            return True, ""
         # На GNOME 46+ без расширения автоисправления нет: IBus меняет движок,
-        # но не раскладку компоузитора. Поэтому проверка обязательная.
-        checks.append(_check("Расширение GNOME Shell", gnome_tools,
-                             "gnome-extensions enable wayswitch@siberia.ru; если не помогает — "
-                             "выйдите из сеанса и войдите снова",
-                             key="extension"))
+        # но не раскладку компоузитора. Поэтому проверка обязательная — кроме
+        # случаев, когда помочь может только новый вход в систему.
+        try:
+            from wayswitch.backends.gnome_shell import extension_version, shell_extension_present
+            running = shell_extension_present()
+            state = extension_state(_extension_installed(), _extension_enabled(), running,
+                                    extension_version() if running else None)
+        except Exception as exc:  # noqa: BLE001 — нет D-Bus сеанса
+            state, ok_override = "missing", str(exc)
+        else:
+            ok_override = ""
+        ok, key, required, text = EXTENSION_STATES[state]
+        checks.append(Check("Расширение GNOME Shell", ok,
+                            ok_override or text, required, key))
 
         def ibus():
             import gi

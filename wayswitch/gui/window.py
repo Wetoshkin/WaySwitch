@@ -68,8 +68,8 @@ class MainWindow:
         header.pack_end(menu_button)
         toolbar.add_top_bar(header)
 
-        self.update_banner = Adw.Banner(button_label="Подробнее")
-        self.update_banner.connect("button-clicked", lambda *_: self.app.open_release())
+        self.update_banner = Adw.Banner(button_label="Обновить")
+        self.update_banner.connect("button-clicked", lambda *_: self.app.run_update())
         toolbar.add_top_bar(self.update_banner)
 
         self.toasts = Adw.ToastOverlay()

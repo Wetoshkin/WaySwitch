@@ -38,9 +38,16 @@ supports the Russian ↔ English pair.
   phrase. You can pick a single key instead (Right Ctrl, ScrollLock, an F-key).
 - **Fix selection.** Select a phrase typed in the wrong layout, press your
   key — done.
+- **By the start of a word.** If the first four letters clearly belong to
+  the other layout (`ghbd` starts no English word but does start «прив…»),
+  the layout is switched right away.
+- **Transliteration and numbers in words** for the selected text, on keys of
+  your choice (GNOME).
 - **Undo that learns.** The same gesture right after an automatic fix
-  restores the word and never touches it again.
-- **Small typos** (each can be turned off in Preferences): two capitals at
+  restores the word; undo the same word a second time and it is never
+  touched again.
+- **Small typos** (each can be turned off in Preferences): an accidental
+  Caps Lock (`пРИВЕТ` → «Привет», Caps Lock is turned off); two capitals at
   the start of a word (`ПРивет` → «Привет», Shift released too late); a
   comma or period typed as the last Russian letter on the same key
   (`пирогб` → «пирог,»); particles typed together (`чтото` → «что-то», `кембы` → «кем бы»);
@@ -110,10 +117,11 @@ settings — see the Russian README for snippets.
 ## Updating
 
 Once a day WaySwitch asks GitHub whether a new version is out; if so, the
-window shows a bar, the panel menu shows the version, and a notification is
-sent once (can be turned off). You can also **Watch → Custom → Releases**.
-To update, run the install command again — settings are kept. Log out and
-back in afterwards.
+window shows a bar with an **Update** button (also in the notification, the
+panel menu and Preferences → System). It opens a terminal with the install
+command — confirm and enter your password. Settings are kept, no restart
+needed (on GNOME the new extension version takes effect at the next login;
+on Silverblue and Kinoite — after a reboot). Preferences → System → **Remove WaySwitch** works the same way.
 
 ## Troubleshooting
 

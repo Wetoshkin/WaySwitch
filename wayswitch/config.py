@@ -51,6 +51,15 @@ class General:
     fix_on_enter: bool = False
     # «ПРивет» → «Привет»: Shift отпущен на букву позже.
     two_capitals_fix: bool = True
+    # «пРИВЕТ» → «Привет»: слово набрано с нечаянно включённым Caps Lock;
+    # Caps Lock при этом выключается.
+    caps_fix: bool = True
+    # Переключать раскладку по началу слова («ghbd» → «прив»), не дожидаясь
+    # пробела — если такого начала нет у слов текущего языка.
+    early_switch: bool = True
+    # Сколько раз нужно отменить исправление одного и того же слова, чтобы
+    # WaySwitch его запомнил и больше не трогал. 1 — с первой отмены.
+    learn_after_undos: int = 2
     # Раз в сутки спрашивать GitHub о новой версии (только GUI, демон в сеть
     # не ходит). Отключается в Параметрах и на последнем шаге первого запуска.
     check_updates: bool = True
@@ -63,9 +72,14 @@ class Gesture:
     # последнее слово (по умолчанию левый Ctrl, как в Punto Switcher).
     tap_key: str = "leftctrl"
     pause_hotkey: str = ""
-    # Клавиша «Исправить выделенное» (одиночное нажатие); пусто — только меню
-    # значка и команда `wayswitch fix-selection` на системное сочетание.
+    # Клавиша «Исправить выделенное» (одиночное нажатие); пусто — только
+    # команда `wayswitch fix-selection` на системное сочетание.
     selection_key: str = ""
+    # Транслитерация выделенного («Привет» ↔ «Privet») и число прописью
+    # («125» → «сто двадцать пять») — свои клавиши, пусто — только команды
+    # `wayswitch translit` и `wayswitch number-words`.
+    translit_key: str = ""
+    numbers_key: str = ""
 
 
 OLD_SETTLE_MS = 30  # умолчание до 2.0.0a2
@@ -195,6 +209,8 @@ def _validate(cfg: Config) -> None:
         raise ConfigError("undo_window_sec: 0..60")
     if not 0.0 <= g.edit_guard_sec <= 10.0:
         raise ConfigError("edit_guard_sec: 0..10")
+    if not 1 <= g.learn_after_undos <= 5:
+        raise ConfigError("learn_after_undos: 1..5")
     if ge.manual not in MANUAL_MODES:
         raise ConfigError(f"manual: допустимо {MANUAL_MODES}")
     if ge.tap_key.lower() not in GESTURE_KEY_NAMES:
@@ -203,14 +219,16 @@ def _validate(cfg: Config) -> None:
         raise ConfigError(
             f"tap_key: недопустимая клавиша жеста {ge.tap_key!r}, "
             f"можно: leftctrl, rightctrl, scrolllock, pause, f1…f12 и подобные")
-    sel, tap, pause = (ge.selection_key.lower(), ge.tap_key.lower(),
-                       ge.pause_hotkey.lower())
-    if sel:
+    tap, pause = ge.tap_key.lower(), ge.pause_hotkey.lower()
+    for field_name in SELECTION_KEY_FIELDS:
+        sel = getattr(ge, field_name).lower()
+        if not sel:
+            continue
         if sel not in GESTURE_KEY_NAMES:
-            raise ConfigError(f"selection_key: недопустимая клавиша {ge.selection_key!r}")
-        conflict = selection_key_conflict(ge, sel)
+            raise ConfigError(f"{field_name}: недопустимая клавиша {getattr(ge, field_name)!r}")
+        conflict = selection_key_conflict(ge, sel, field=field_name)
         if conflict:
-            raise ConfigError(f"selection_key: {conflict}")
+            raise ConfigError(f"{field_name}: {conflict}")
     if pause and ge.manual == "tap_key" and tap == pause:
         raise ConfigError("tap_key совпадает с клавишей паузы")
     if ge.pause_hotkey and ge.pause_hotkey.lower() not in KEY_NAMES:
@@ -225,23 +243,41 @@ def _validate(cfg: Config) -> None:
         raise ConfigError(f"shell_typing: допустимо {SHELL_TYPING}")
 
 
-def selection_key_conflict(ge: Gesture, name: str, manual: str | None = None) -> str | None:
-    """С чем клавиша «Исправить выделенное» столкнулась бы (или None).
+# Клавиши действий над выделенным текстом и что они делают (для сообщений).
+SELECTION_KEY_FIELDS = {"selection_key": "исправляет выделенный текст",
+                        "translit_key": "делает транслитерацию",
+                        "numbers_key": "пишет число прописью"}
 
-    manual — жест, который собираются выбрать (по умолчанию текущий). Общая
-    проверка для конфига и окна «Параметры»: окно не должно принимать то,
-    что конфиг потом откажется сохранить.
+
+def selection_key_conflict(ge: Gesture, name: str, manual: str | None = None,
+                           field: str = "selection_key") -> str | None:
+    """С чем клавиша действия над выделенным столкнулась бы (или None).
+
+    manual — жест, который собираются выбрать (по умолчанию текущий); field —
+    какую из клавиш выделенного проверяем (с остальными она не должна
+    совпадать). Общая проверка для конфига и окна «Параметры»: окно не должно
+    принимать то, что конфиг потом откажется сохранить.
     """
-    name, manual = name.lower(), manual or ge.manual
+    manual = manual or ge.manual
+
+    def code(key_name: str):
+        # Сравниваем коды, а не имена: «esc» и «escape» — одна клавиша.
+        key_name = key_name.lower()
+        return KEY_NAMES.get(key_name, key_name) if key_name else None
+
     if not name:
         return None
-    if manual == "tap_key" and name == ge.tap_key.lower():
+    name = code(name)
+    for other, does in SELECTION_KEY_FIELDS.items():
+        if other != field and name == code(getattr(ge, other)):
+            return f"эта клавиша уже {does}"
+    if manual == "tap_key" and name == code(ge.tap_key):
         return "эта клавиша уже исправляет последнее слово"
-    if manual == "double_shift" and name in ("leftshift", "rightshift"):
+    if manual == "double_shift" and name in (code("leftshift"), code("rightshift")):
         return "Shift уже занят жестом «двойной Shift»"
-    if manual == "pause_key" and name == "pause":
+    if manual == "pause_key" and name == code("pause"):
         return "Pause уже занята жестом «клавиша Pause»"
-    if ge.pause_hotkey and name == ge.pause_hotkey.lower():
+    if ge.pause_hotkey and name == code(ge.pause_hotkey):
         return "эта клавиша ставит WaySwitch на паузу"
     return None
 
