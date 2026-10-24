@@ -96,6 +96,13 @@ class InputBuffer:
     def click(self) -> None:
         self.reset()
 
+    def held_snapshot(self) -> frozenset:
+        """Зажатые клавиши — чтобы потом повторить нажатия с тем же состоянием."""
+        return frozenset(self._held)
+
+    def restore_held(self, held: frozenset) -> None:
+        self._held = set(held)
+
     def resync(self, device_id: int, held_codes: Iterable[int]) -> None:
         """После SYN_DROPPED: заменить зажатые клавиши устройства снимком, буфер сбросить."""
         self._held = {(d, c) for d, c in self._held if d != device_id}

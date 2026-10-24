@@ -73,12 +73,20 @@ def _is_virtual(name) -> bool:
     return str(name or "").lower().replace(" ", "-") == VIRTUAL
 
 
-def main_keyboard(devices: dict) -> dict | None:
+def main_keyboard(devices: dict, prefer: str | None = None) -> dict | None:
     # «main» в Hyprland — клавиатура, которая последней печатала или
     # подключилась; наша виртуальная становится ею сразу при старте демона.
     keyboards = [kb for kb in devices.get("keyboards") or [] if not _is_virtual(kb.get("name"))]
     for kb in keyboards:
         if kb.get("main"):
+            return kb
+    for kb in keyboards:
+        if prefer and kb.get("name") == prefer:
+            return kb  # последняя настоящая «main», на которой печатали
+    # «main» — наша виртуальная (после печати без физических нажатий):
+    # берём клавиатуру с несколькими раскладками, а не цифровой блок с одной.
+    for kb in keyboards:
+        if "," in str(kb.get("layout") or ""):
             return kb
     return keyboards[0] if keyboards else None
 
@@ -139,6 +147,7 @@ class HyprlandBackend(LayoutBackend):
         self._options = [o for o in _clean(options).split(",") if o]
         self._expected: int | None = None
         self._callbacks: list[Callable[[int, bool], None]] = []
+        self._last_main: str | None = None
         self._current = self._query()
         self._unwatch = (watch or _glib_watch)(self._ipc, self._on_line)
 
@@ -147,11 +156,12 @@ class HyprlandBackend(LayoutBackend):
 
     def _query(self) -> int | None:
         try:
-            kb = main_keyboard(self._ipc.json("devices"))
+            kb = main_keyboard(self._ipc.json("devices"), self._last_main)
         except (OSError, ValueError):
             return None
         if kb is None:
             return None
+        self._last_main = kb.get("name")
         if isinstance(kb.get("active_layout_index"), int):
             return kb["active_layout_index"]
         return self._index_of_desc(str(kb.get("active_keymap") or ""))

@@ -149,6 +149,7 @@ class _Run:
         self.backend = backend
         self._abort = abort
         self._hold = hold
+        self._gave_up = False  # после точки невозврата ждём Shift один раз
         self.restore_group = restore_group
         self.switched = False
         self.committed = False  # первый Backspace ушёл — назад дороги нет
@@ -163,7 +164,14 @@ class _Run:
         вышли бы заглавными. hold() ждёт отпускания; не дождались до точки
         невозврата — прерываемся, после неё печатаем как есть.
         """
-        return self._hold is not None and not self._hold() and not self.committed
+        if self._hold is None or self._gave_up or self._hold():
+            return False
+        if self.committed:
+            # Текст уже меняется: дописываем как есть, не замирая на каждой
+            # клавише ещё на RELEASE_WAIT.
+            self._gave_up = True
+            return False
+        return True
 
     def switch(self, group: int, timeout: float) -> bool:
         self.switched = True
@@ -206,7 +214,9 @@ def _execute_keys(plan: Plan, typist, run: _Run, key_delay: float, sleep,
                 typist.syn()
             elif isinstance(step, Backspace):
                 for _ in range(step.count):
-                    if run.aborted() or run.blocked():
+                    # blocked() — первым: пока ждём Shift, pump() мог принести
+                    # нажатие, и aborted() должен его увидеть.
+                    if run.blocked() or run.aborted():
                         return ABORTED
                     run.committed = True
                     session.press(kc.KEY_BACKSPACE)
@@ -216,8 +226,12 @@ def _execute_keys(plan: Plan, typist, run: _Run, key_delay: float, sleep,
                     return FAILED
             elif isinstance(step, Type):
                 for code, shift in step.keys:
-                    if run.aborted() or run.blocked():
+                    if run.blocked() or run.aborted():
                         return ABORTED
+                    # Первая напечатанная буква меняет экран, как и Backspace
+                    # (у «Исправить выделенное» Backspace нет вовсе): дальше
+                    # фразу не обрываем.
+                    run.committed = True
                     if shift:
                         session.press(kc.KEY_LEFTSHIFT)
                     session.press(code)
@@ -238,7 +252,7 @@ def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: flo
         for step in plan.steps:
             if run.aborted():
                 return ABORTED
-            if isinstance(step, (Backspace, Type)) and run.blocked():
+            if isinstance(step, (Backspace, Type)) and (run.blocked() or run.aborted()):
                 return ABORTED
             if isinstance(step, Backspace):
                 run.committed = True
@@ -247,6 +261,7 @@ def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: flo
                 if not run.switch(step.group, switch_timeout):
                     return FAILED
             elif isinstance(step, Type):
+                run.committed = True
                 typist.type_text(step.text)
         return DONE
     except Exception as exc:  # noqa: BLE001 — GLib.Error таймаута D-Bus и прочее

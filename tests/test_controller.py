@@ -643,3 +643,53 @@ def test_left_ctrl_is_not_gesture_when_another_key_mapped(env):
     env["typist"].events.clear()
     ctrl_tap(env)  # левый Ctrl больше не жест
     assert [e for e in env["typist"].events if e[0] == kc.KEY_BACKSPACE] == []
+
+
+def test_enter_after_lost_key_releases_gesture(env):
+    # Буква легла посреди перепечатки — слово пропускаем, но Enter его
+    # заканчивает: жест на пустом буфере снова просто переключает раскладку.
+    ctrl = env["ctrl"]
+
+    def press_g():
+        ctrl.on_key(kc.KEY_G, 1, 1)
+        ctrl.on_key(kc.KEY_G, 0, 1)
+
+    reenter_during_fix(env, press_g, at_event=60)
+    type_text(env, "ghbdtn ")
+    ctrl.on_key(kc.KEY_ENTER, 1, 1)
+    ctrl.on_key(kc.KEY_ENTER, 0, 1)
+    sets = list(env["backend"].set_calls)
+    double_shift(env)
+    assert env["backend"].set_calls != sets
+
+
+def test_space_typed_during_fix_does_not_skip_next_word(env):
+    ctrl = env["ctrl"]
+
+    def type_word():
+        for code in (kc.KEY_G, kc.KEY_SPACE):
+            ctrl.on_key(code, 1, 1)
+            ctrl.on_key(code, 0, 1)
+
+    reenter_during_fix(env, type_word, at_event=60)
+    type_text(env, "ghbdtn ")
+    assert not ctrl._skip_word
+
+
+def test_fixed_callback_fires_even_when_text_is_secret(env):
+    from wayswitch.a11y import FocusSnapshot
+
+    class PasswordProbe:
+        def snapshot(self):
+            return FocusSnapshot("firefox", True, env["clock"]())
+
+        def poke(self):
+            pass
+
+    fixed = []
+    ctrl = env["ctrl"]
+    ctrl.probe = PasswordProbe()
+    ctrl.config.general.skip_password_fields = False  # исправлять, но молчать
+    ctrl.on_fixed = fixed.append
+    type_text(env, "ghbdtn ")
+    assert env["corrected"] == [] and fixed == [False]

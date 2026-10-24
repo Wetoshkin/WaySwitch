@@ -278,3 +278,13 @@ def test_compositor_toggle_any_order_and_side(tmp_path):
     # Перезапуск службы посреди сеанса: счётчик не сбрасывается в 0.
     again = compositor.CompositorBackend(RecordingTypist(), settle_ms=0, env=env)
     assert again.current() == 1
+
+
+def test_hyprland_main_keyboard_when_main_is_virtual():
+    devices = {"keyboards": [
+        {"name": "yubico-yubikey", "main": False, "layout": "us", "active_keymap": "English (US)"},
+        {"name": "at-kbd", "main": False, "layout": "us,ru", "active_keymap": "Russian"},
+        {"name": "wayswitch-virtual-keyboard", "main": True, "layout": "us"},
+    ]}
+    assert hyprland.main_keyboard(devices)["name"] == "at-kbd"
+    assert hyprland.main_keyboard(devices, prefer="yubico-yubikey")["name"] == "yubico-yubikey"
