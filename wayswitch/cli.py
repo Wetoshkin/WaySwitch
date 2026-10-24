@@ -28,6 +28,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("fix", help="исправить последнее слово")
     sub.add_parser("fix-selection", help="исправить выделенный текст (назначьте сочетание "
                                           "клавиш в настройках системы)")
+    sub.add_parser("translit", help="транслитерация выделенного: Привет ↔ Privet")
+    sub.add_parser("number-words", help="выделенное число прописью: 125 → сто двадцать пять")
     status = sub.add_parser("status", help="состояние демона")
     status.add_argument("--json", action="store_true", help="машиночитаемый вывод")
     sub.add_parser("gui", help="открыть настройки")
@@ -180,6 +182,12 @@ def main(argv: list[str] | None = None) -> int:
         elif ns.command == "fix-selection":
             (ok,) = call_daemon("FixSelection")
             print("исправлено" if ok else "нечего исправлять: выделите текст")
+        elif ns.command == "translit":
+            (ok,) = call_daemon("TranslitSelection")
+            print("готово" if ok else "нечего менять: выделите текст")
+        elif ns.command == "number-words":
+            (ok,) = call_daemon("NumberWordsSelection")
+            print("готово" if ok else "нечего менять: выделите число")
         elif ns.command == "status":
             (status,) = call_daemon("GetStatus")
             if ns.json:

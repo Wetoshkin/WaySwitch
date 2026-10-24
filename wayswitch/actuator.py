@@ -45,6 +45,11 @@ class SwitchLayout:
 
 
 @dataclass(frozen=True)
+class ToggleCaps:
+    """Нажать Caps Lock: выключить нечаянно включённый (правило «пРИВЕТ»)."""
+
+
+@dataclass(frozen=True)
 class Type:
     text: str
     keys: list[tuple[int, bool]]
@@ -82,7 +87,7 @@ def keys_for_typing(text: str, group: int, keymap: Keymap,
 
 
 def plan_fix(delete_count: int, target_text: str, target_group: int, keymap: Keymap,
-             caps_on: bool, switch: bool = True) -> Plan | None:
+             caps_on: bool, switch: bool = True, caps_off: bool = False) -> Plan | None:
     """План: отпустить модификаторы, (переключить раскладку), стереть, набрать.
 
     Переключение — ДО Backspace-ов: если бэкенд не смог сменить раскладку
@@ -90,12 +95,15 @@ def plan_fix(delete_count: int, target_text: str, target_group: int, keymap: Key
     вернёт FAILED, и слово останется на экране целым. В обратном порядке текст
     был бы уже стёрт без возможности его вернуть.
     """
-    keys = keys_for_typing(target_text, target_group, keymap, caps_on)
+    # caps_off: Caps Lock выключим до печати — набираем как без него.
+    keys = keys_for_typing(target_text, target_group, keymap, caps_on and not caps_off)
     if keys is None:
         return None
     steps: list = [ReleaseModifiers()]
     if switch:
         steps.append(SwitchLayout(target_group))
+    if caps_off:
+        steps.append(ToggleCaps())
     if delete_count > 0:
         steps.append(Backspace(delete_count))
     if target_text:
@@ -152,6 +160,7 @@ class _Run:
         self._gave_up = False  # после точки невозврата ждём Shift один раз
         self.restore_group = restore_group
         self.switched = False
+        self.caps_toggle: Callable[[], None] | None = None  # чем вернуть Caps Lock
         self.committed = False  # первый Backspace ушёл — назад дороги нет
 
     def aborted(self) -> bool:
@@ -180,6 +189,12 @@ class _Run:
 
     def rollback(self) -> None:
         """Слово не тронуто, а раскладку уже переключили — вернуть прежнюю."""
+        if self.caps_toggle is not None and not self.committed:
+            try:
+                self.caps_toggle()  # Caps Lock выключили зря — включить обратно
+                self.caps_toggle = None
+            except Exception as exc:  # noqa: BLE001 — откат по возможности
+                log.warning("не удалось вернуть Caps Lock: %s", exc)
         if self.switched and not self.committed and self.restore_group is not None:
             try:
                 self.backend.set(self.restore_group)
@@ -190,7 +205,9 @@ class _Run:
 def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: False,
             key_delay: float = 0.0, sleep=time.sleep, switch_timeout: float = 0.5,
             restore_group: int | None = None,
-            hold: Callable[[], bool] | None = None) -> str:
+            hold: Callable[[], bool] | None = None,
+            outcome: dict | None = None) -> str:
+    """outcome (если передан) получает caps_off: Caps Lock в итоге выключен нами."""
     run = _Run(backend, abort, restore_group, hold)
     if isinstance(typist, TextTypist):
         result = _execute_text(plan, typist, run, switch_timeout)
@@ -198,6 +215,8 @@ def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: Fal
         result = _execute_keys(plan, typist, run, key_delay, sleep, switch_timeout)
     if result != DONE:
         run.rollback()
+    if outcome is not None:
+        outcome["caps_off"] = run.caps_toggle is not None
     return result
 
 
@@ -224,6 +243,12 @@ def _execute_keys(plan: Plan, typist, run: _Run, key_delay: float, sleep,
             elif isinstance(step, SwitchLayout):
                 if not run.switch(step.group, switch_timeout):
                     return FAILED
+            elif isinstance(step, ToggleCaps):
+                def tap_caps(s=session):
+                    s.press(kc.KEY_CAPSLOCK)
+                    s.release(kc.KEY_CAPSLOCK)
+                tap_caps()
+                run.caps_toggle = tap_caps
             elif isinstance(step, Type):
                 for code, shift in step.keys:
                     if run.blocked() or run.aborted():
@@ -260,6 +285,12 @@ def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: flo
             elif isinstance(step, SwitchLayout):
                 if not run.switch(step.group, switch_timeout):
                     return FAILED
+            elif isinstance(step, ToggleCaps):
+                # Печать текстом от Caps Lock не зависит; выключаем, если
+                # исполнитель умеет (у расширения GNOME — через uinput).
+                toggle = getattr(typist, "toggle_caps", None)
+                if toggle is not None and toggle() is not False:
+                    run.caps_toggle = toggle
             elif isinstance(step, Type):
                 run.committed = True
                 typist.type_text(step.text)

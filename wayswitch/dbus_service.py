@@ -16,6 +16,8 @@ INTROSPECTION_XML = f"""
     <method name="FixLastWord"><arg type="b" name="ok" direction="out"/></method>
     <method name="FixPhrase"><arg type="b" name="ok" direction="out"/></method>
     <method name="FixSelection"><arg type="b" name="ok" direction="out"/></method>
+    <method name="TranslitSelection"><arg type="b" name="ok" direction="out"/></method>
+    <method name="NumberWordsSelection"><arg type="b" name="ok" direction="out"/></method>
     <method name="Reload"/>
     <method name="GetStatus"><arg type="a{{sv}}" name="status" direction="out"/></method>
     <signal name="StatusChanged"><arg type="a{{sv}}" name="status"/></signal>
@@ -87,6 +89,10 @@ class DaemonService:
             invocation.return_value(GLib.Variant("(b)", (c.manual_phrase(),)))
         elif method == "FixSelection":
             invocation.return_value(GLib.Variant("(b)", (c.fix_selection(),)))
+        elif method == "TranslitSelection":
+            invocation.return_value(GLib.Variant("(b)", (c.transform_selection("translit"),)))
+        elif method == "NumberWordsSelection":
+            invocation.return_value(GLib.Variant("(b)", (c.transform_selection("numbers"),)))
         elif method == "Reload":
             self.on_reload()
             invocation.return_value(None)

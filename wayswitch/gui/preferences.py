@@ -168,23 +168,36 @@ class Preferences:
         self.row_key.connect("activated", lambda *_: dialogs.key_capture_dialog(
             self.dialog, self.cfg.gesture.tap_key, self._on_key_chosen))
         manual.add(self.row_key)
-        self.row_sel = Adw.ActionRow(
-            title="Исправить выделенное",
-            subtitle="Одно нажатие переводит выделенный текст в другую раскладку",
-            activatable=True)
-        self.sel_cap = keycap("")
-        self.row_sel.add_suffix(self.sel_cap)
-        self.row_sel.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-        self.row_sel.connect("activated", lambda *_: dialogs.key_capture_dialog(
-            self.dialog, self.cfg.gesture.selection_key or "", self._on_sel_key_chosen,
-            title="Выделенный текст",
-            hint="Нажмите клавишу, которой будете исправлять выделенный текст"))
-        manual.add(self.row_sel)
+        # Клавиши действий над выделенным текстом: своя строка у каждой.
+        self.sel_caps = {}
+        from wayswitch.backends.desktop import GNOME, detect_desktop
+
+        # Выделенный текст читает расширение GNOME Shell — в других средах
+        # клавиши ничего не сделают, о чём честно и пишем.
+        only_gnome = "" if detect_desktop() == GNOME else " (пока только в GNOME)"
+        for field_name, title, subtitle, hint in texts.SELECTION_KEY_ROWS:
+            row = Adw.ActionRow(title=title, subtitle=subtitle + only_gnome, activatable=True)
+            cap = keycap("")
+            row.add_suffix(cap)
+            row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+            row.connect("activated", lambda *_, f=field_name, t=title, h=hint:
+                        dialogs.key_capture_dialog(
+                            self.dialog, getattr(self.cfg.gesture, f) or "",
+                            lambda name, f=f: self._on_sel_key_chosen(f, name),
+                            title=t, hint=h))
+            self.sel_caps[field_name] = cap
+            manual.add(row)
         self.step_undo = StepRow(
-            "Время на отмену", "Повтор жеста в это время вернёт слово и запомнит его",
+            "Время на отмену", "Повтор жеста в это время вернёт слово",
             c.general.undo_window_sec, 0, 60, 1, texts.format_seconds,
             lambda v: self._set("general", "undo_window_sec", float(v)))
         manual.add(self.step_undo.row)
+        self.step_learn = StepRow(
+            "Запомнить слово после отмен",
+            "Сколько раз отменить исправление слова, чтобы WaySwitch его больше не трогал",
+            c.general.learn_after_undos, 1, 5, 1, texts.format_times,
+            lambda v: self._set("general", "learn_after_undos", int(v)))
+        manual.add(self.step_learn.row)
         page.add(manual)
 
         what = Adw.PreferencesGroup(title="Что исправлять")
@@ -194,6 +207,10 @@ class Preferences:
                 ("particles_fix", "Слитные частицы", "чтото → что-то,   кембы → кем бы"),
                 ("split_words_fix", "Слипшиеся слова", "сонатуБаха → сонату Баха"),
                 ("two_capitals_fix", "Две заглавные в начале", "ПРивет → Привет"),
+                ("caps_fix", "Нечаянный Caps Lock",
+                 "пРИВЕТ → Привет, и Caps Lock выключается"),
+                ("early_switch", "Переключать по началу слова",
+                 "ghbd → прив, не дожидаясь пробела"),
                 ("skip_password_fields", "Не исправлять в полях пароля",
                  "Работает не во всех приложениях")):
             row = Adw.SwitchRow(title=title, subtitle=subtitle)
@@ -223,8 +240,10 @@ class Preferences:
             self.cb_manual.set_selected(cfgmod.MANUAL_MODES.index(c.gesture.manual))
             self.key_cap.set_label(gesture_keys.human_name(c.gesture.tap_key))
             self.row_key.set_visible(c.gesture.manual == "tap_key")
-            self.sel_cap.set_label(gesture_keys.human_name(c.gesture.selection_key)
-                                   if c.gesture.selection_key else "Нет")
+            for field_name, cap in self.sel_caps.items():
+                value = getattr(c.gesture, field_name)
+                cap.set_label(gesture_keys.human_name(value) if value else "Нет")
+            self.step_learn.set_value(c.general.learn_after_undos)
             self.step_undo.set_value(c.general.undo_window_sec)
             for key, row in self.switches.items():
                 row.set_active(getattr(c.general, key))
@@ -246,11 +265,12 @@ class Preferences:
         if self._loading:
             return
         g = self.cfg.gesture
-        if cfgmod.selection_key_conflict(g, g.selection_key, mode):
-            # Одна клавиша не может и исправлять слово, и выделение.
-            self._set("gesture", "selection_key", "")
-            self.sel_cap.set_label("Нет")
-            self.toast("Клавиша «Исправить выделенное» снята: она занята новым жестом")
+        for field_name, title, *_rest in texts.SELECTION_KEY_ROWS:
+            if cfgmod.selection_key_conflict(g, getattr(g, field_name), mode, field=field_name):
+                # Одна клавиша не может и исправлять слово, и выделение.
+                self._set("gesture", field_name, "")
+                self.sel_caps[field_name].set_label("Нет")
+                self.toast(f"Клавиша «{title}» снята: она занята новым жестом")
         self._set("gesture", "manual", mode)
 
     def _on_key_chosen(self, name: str | None) -> None:
@@ -258,23 +278,24 @@ class Preferences:
             # Backspace в диалоге: «без клавиши» — жест выключается.
             self.cb_manual.set_selected(cfgmod.MANUAL_MODES.index("none"))
             return
-        if name == self.cfg.gesture.selection_key:
-            self.toast("Эта клавиша уже исправляет выделенный текст")
-            return
+        for field_name, does in cfgmod.SELECTION_KEY_FIELDS.items():
+            if name == getattr(self.cfg.gesture, field_name):
+                self.toast(f"Эта клавиша уже {does}")
+                return
         if self.cfg.gesture.pause_hotkey and name == self.cfg.gesture.pause_hotkey.lower():
             self.toast("Эта клавиша ставит WaySwitch на паузу")
             return
         self._set("gesture", "tap_key", name)
         self.key_cap.set_label(gesture_keys.human_name(name))
 
-    def _on_sel_key_chosen(self, name: str | None) -> None:
+    def _on_sel_key_chosen(self, field_name: str, name: str | None) -> None:
         name = name or ""
-        conflict = cfgmod.selection_key_conflict(self.cfg.gesture, name)
+        conflict = cfgmod.selection_key_conflict(self.cfg.gesture, name, field=field_name)
         if conflict:
             self.toast(f"Нельзя: {conflict}")
             return
-        self._set("gesture", "selection_key", name)
-        self.sel_cap.set_label(gesture_keys.human_name(name) if name else "Нет")
+        self._set("gesture", field_name, name)
+        self.sel_caps[field_name].set_label(gesture_keys.human_name(name) if name else "Нет")
 
     # --- страница «Исключения» --------------------------------------------------
 
@@ -483,8 +504,25 @@ class Preferences:
         check = Gtk.Button(label="Проверить", valign=Gtk.Align.CENTER)
         check.connect("clicked", lambda b: self._check_updates(b))
         self.row_check.add_suffix(check)
+        # «Обновить» — пока есть новая версия; запускает команду в терминале.
+        self.btn_update = Gtk.Button(label="Обновить", valign=Gtk.Align.CENTER,
+                                     visible=self.app.update is not None)
+        self.btn_update.add_css_class("suggested-action")
+        self.btn_update.connect("clicked", lambda *_: self.app.run_update())
+        self.row_check.add_suffix(self.btn_update)
         updates.add(self.row_check)
         page.add(updates)
+
+        remove = Adw.PreferencesGroup(title="Удаление")
+        row_remove = Adw.ActionRow(
+            title="Удалить WaySwitch",
+            subtitle="Откроется терминал: подтвердите удаление и введите пароль")
+        btn_remove = Gtk.Button(label="Удалить…", valign=Gtk.Align.CENTER)
+        btn_remove.add_css_class("destructive-action")
+        btn_remove.connect("clicked", lambda *_: self.app.ask_uninstall())
+        row_remove.add_suffix(btn_remove)
+        remove.add(row_remove)
+        page.add(remove)
 
         layout = Adw.PreferencesGroup(title="Переключение раскладки")
         current = texts.BACKEND_HUMAN.get(str(status.get("backend") or ""), "")
@@ -567,6 +605,7 @@ class Preferences:
         def done(_result):
             button.set_sensitive(True)
             self.row_check.set_subtitle(self.app.update_text(checked=True))
+            self.btn_update.set_visible(self.app.update is not None)
 
         self.app.check_updates(force=True, done=done)
 
