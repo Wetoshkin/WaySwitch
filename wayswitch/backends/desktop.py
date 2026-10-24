@@ -70,9 +70,9 @@ def detect_desktop(env: Mapping[str, str] | None = None) -> str:
     raw = (source.get("XDG_CURRENT_DESKTOP") or "").lower()
     if "kde" in raw or "plasma" in raw:
         return KDE
-    if "hyprland" in raw or source.get("HYPRLAND_INSTANCE_SIGNATURE"):
+    if "hyprland" in raw:
         return HYPRLAND
-    if "sway" in raw or source.get("SWAYSOCK"):
+    if "sway" in raw:
         return SWAY
     # Budgie, Cinnamon и прочие пишут себя рядом с GNOME («Budgie:GNOME»),
     # поэтому проверяем их раньше GNOME: gnome-shell у них нет.
@@ -81,6 +81,12 @@ def detect_desktop(env: Mapping[str, str] | None = None) -> str:
             return name
     if "gnome" in raw or "unity" in raw:
         return GNOME
+    # Переменные сокетов — только запасной признак: менеджер systemd мог
+    # пережить перелогин и хранить SWAYSOCK от прошлого сеанса Sway.
+    if not raw and source.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return HYPRLAND
+    if not raw and source.get("SWAYSOCK"):
+        return SWAY
     return OTHER
 
 

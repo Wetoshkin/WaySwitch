@@ -64,8 +64,19 @@ class HyprIpc:
         return sock
 
 
+# Наша виртуальная клавиатура uinput («WaySwitch Virtual Keyboard»): Hyprland
+# пишет имена в нижнем регистре через дефис.
+VIRTUAL = "wayswitch-virtual-keyboard"
+
+
+def _is_virtual(name) -> bool:
+    return str(name or "").lower().replace(" ", "-") == VIRTUAL
+
+
 def main_keyboard(devices: dict) -> dict | None:
-    keyboards = devices.get("keyboards") or []
+    # «main» в Hyprland — клавиатура, которая последней печатала или
+    # подключилась; наша виртуальная становится ею сразу при старте демона.
+    keyboards = [kb for kb in devices.get("keyboards") or [] if not _is_virtual(kb.get("name"))]
     for kb in keyboards:
         if kb.get("main"):
             return kb
@@ -128,11 +139,6 @@ class HyprlandBackend(LayoutBackend):
         self._options = [o for o in _clean(options).split(",") if o]
         self._expected: int | None = None
         self._callbacks: list[Callable[[int, bool], None]] = []
-        try:
-            kb = main_keyboard(ipc.json("devices"))
-        except (OSError, ValueError):
-            kb = None
-        self._kbd = kb.get("name") if kb else None
         self._current = self._query()
         self._unwatch = (watch or _glib_watch)(self._ipc, self._on_line)
 
@@ -166,7 +172,10 @@ class HyprlandBackend(LayoutBackend):
         except OSError as e:
             self._expected = None
             raise BackendError(f"Hyprland: переключение не удалось: {e}") from None
-        if reply.strip() != "ok":
+        if reply.strip() != "ok" and self._query() != index:
+            # С «all» Hyprland жалуется на клавиатуры с одной раскладкой
+            # («layout idx out of range»), хотя остальные уже переключил —
+            # отказом считаем только то, что наша раскладка не сменилась.
             self._expected = None
             raise BackendError(f"Hyprland отказал в переключении: {reply.strip()}")
         self._current = index
@@ -187,8 +196,10 @@ class HyprlandBackend(LayoutBackend):
         parsed = parse_event(line, lambda d: self._index_of_desc(d) is not None)
         if parsed is None:
             return
-        if self._kbd is not None and parsed[0] != self._kbd:
-            return  # другая клавиатура со своей раскладкой
+        if _is_virtual(parsed[0]):
+            return  # наша виртуальная клавиатура со своей раскладкой
+        # Раскладка в Hyprland у каждой клавиатуры своя: принимаем событие от
+        # любой настоящей — человек мог переключить на внешней клавиатуре.
         index = self._index_of_desc(parsed[1])
         if index is None or index == self._current and self._expected is None:
             return
