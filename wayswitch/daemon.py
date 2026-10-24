@@ -136,9 +136,10 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
                            lambda *_: restart("появилось расширение GNOME Shell"), None)
 
     service: DaemonService | None = None
-    # Сведения о фокусе (приложение, поле пароля) нужны только автоисправлению
-    # и только там, где есть at-spi: в Gnome/KDE он поднимается в сессии.
-    probe = cfgmod_a11y.make_probe(enabled=config.general.auto_correct)
+    # Сведения о фокусе (приложение, поле пароля) нужны и автоисправлению, и
+    # ручным жестам: пароль, исправленный двойным Shift, не должен уйти в
+    # историю окна. Поток опроса стартует лениво, на первой клавише.
+    probe = cfgmod_a11y.make_probe(enabled=True)
 
     last_beep = [0.0]
 
@@ -194,14 +195,7 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     def reload() -> None:
         try:
             new_config = cfgmod.load(config_path)
-            auto_before = controller.config.general.auto_correct
             controller.reload_config(new_config)
-            # Автоисправление включили или выключили — приводим опрос
-            # доступности в соответствие: выключено, значит и опрашивать нечего.
-            # Только при смене: иначе каждый щелчок в Параметрах пересоздавал бы
-            # поток опроса.
-            if new_config.general.auto_correct != auto_before:
-                controller.set_probe(cfgmod_a11y.make_probe(new_config.general.auto_correct))
             detector.exceptions.clear()
             detector.exceptions.update(cfgmod.load_exceptions())
             log.info("конфиг перечитан")

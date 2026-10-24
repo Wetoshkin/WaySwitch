@@ -144,15 +144,26 @@ log = logging.getLogger("wayswitch")
 class _Run:
     """Общее для обоих исполнителей: точка невозврата и возврат раскладки."""
 
-    def __init__(self, backend, abort: Callable[[], bool], restore_group: int | None):
+    def __init__(self, backend, abort: Callable[[], bool], restore_group: int | None,
+                 hold: Callable[[], bool] | None = None):
         self.backend = backend
         self._abort = abort
+        self._hold = hold
         self.restore_group = restore_group
         self.switched = False
         self.committed = False  # первый Backspace ушёл — назад дороги нет
 
     def aborted(self) -> bool:
         return not self.committed and self._abort()
+
+    def blocked(self) -> bool:
+        """Перед стирающей или печатающей клавишей: зажат физический Shift.
+
+        Модификаторы в Mutter/KWin общие для всех устройств сеанса — буквы
+        вышли бы заглавными. hold() ждёт отпускания; не дождались до точки
+        невозврата — прерываемся, после неё печатаем как есть.
+        """
+        return self._hold is not None and not self._hold() and not self.committed
 
     def switch(self, group: int, timeout: float) -> bool:
         self.switched = True
@@ -170,8 +181,9 @@ class _Run:
 
 def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: False,
             key_delay: float = 0.0, sleep=time.sleep, switch_timeout: float = 0.5,
-            restore_group: int | None = None) -> str:
-    run = _Run(backend, abort, restore_group)
+            restore_group: int | None = None,
+            hold: Callable[[], bool] | None = None) -> str:
+    run = _Run(backend, abort, restore_group, hold)
     if isinstance(typist, TextTypist):
         result = _execute_text(plan, typist, run, switch_timeout)
     else:
@@ -194,7 +206,7 @@ def _execute_keys(plan: Plan, typist, run: _Run, key_delay: float, sleep,
                 typist.syn()
             elif isinstance(step, Backspace):
                 for _ in range(step.count):
-                    if run.aborted():
+                    if run.aborted() or run.blocked():
                         return ABORTED
                     run.committed = True
                     session.press(kc.KEY_BACKSPACE)
@@ -204,7 +216,7 @@ def _execute_keys(plan: Plan, typist, run: _Run, key_delay: float, sleep,
                     return FAILED
             elif isinstance(step, Type):
                 for code, shift in step.keys:
-                    if run.aborted():
+                    if run.aborted() or run.blocked():
                         return ABORTED
                     if shift:
                         session.press(kc.KEY_LEFTSHIFT)
@@ -225,6 +237,8 @@ def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: flo
     try:
         for step in plan.steps:
             if run.aborted():
+                return ABORTED
+            if isinstance(step, (Backspace, Type)) and run.blocked():
                 return ABORTED
             if isinstance(step, Backspace):
                 run.committed = True

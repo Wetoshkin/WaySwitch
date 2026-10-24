@@ -374,3 +374,18 @@ def test_idle_stop_leaves_stale_snapshot():
     from wayswitch import a11y
 
     assert a11y.FocusSnapshot().age(1000.0) > a11y.MAX_AGE_SEC
+
+
+def test_manual_fix_with_stale_focus_is_not_reported():
+    # Снимок фокуса устарел (поток опроса только проснулся): не знаем, не поле
+    # ли это пароля, — текст исправления наружу не отдаём.
+    clock = Clock()
+    corrected = []
+    env = make_env(probe=FakeProbe(clock, app="firefox", age=a11y.MAX_AGE_SEC + 5))
+    env["ctrl"].on_corrected = lambda o, f, m: corrected.append((o, f, m))
+    env["ctrl"].clock = env["clock"] = clock
+    env["backend"].current_index = US
+    type_keys(env, keys_for_text(env["km"], "ghbdtn", US))
+    assert env["ctrl"].manual_word()
+    assert corrected == []
+    assert env["ctrl"].probe.pokes > 0  # клавиши будят опрос

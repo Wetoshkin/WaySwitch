@@ -76,3 +76,19 @@ def test_tap_key_validation(tmp_path: Path):
     p.write_text('[gesture]\nmanual = "tap_key"\ntap_key = "нетакойклавиши"\n', encoding="utf-8")
     with pytest.raises(cfgmod.ConfigError):
         cfgmod.load(p)
+
+
+def test_old_default_settle_ms_is_migrated():
+    from wayswitch.config import from_dict
+
+    assert from_dict({"typing": {"settle_ms": 30}}).typing.settle_ms == 120
+    assert from_dict({"typing": {"settle_ms": 200}}).typing.settle_ms == 200
+
+
+def test_lists_in_foreign_encoding_do_not_crash(tmp_path):
+    from wayswitch.config import load_apps, load_exceptions
+
+    path = tmp_path / "apps.txt"
+    path.write_bytes("телеграм\n".encode("cp1251"))
+    assert len(load_apps(path)) == 1
+    assert len(load_exceptions(path)) == 1
