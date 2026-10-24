@@ -51,7 +51,6 @@ ask()  { # вопрос да/нет; читаем с терминала, пот�
   case "$a" in ""|Y*|y*|Д*|д*) return 0 ;; *) return 1 ;; esac
 }
 have() { command -v "$1" >/dev/null 2>&1; }
-gui_running() { pgrep -u "$(id -u)" -f 'wayswitch-gui' >/dev/null 2>&1; }
 stop_gui() { pkill -u "$(id -u)" -f 'wayswitch-gui' >/dev/null 2>&1 || true; }
 
 [ "$(id -u)" = 0 ] && die "Запустите без sudo — пароль спросят, когда он понадобится." \
@@ -263,7 +262,12 @@ WAS=$(systemctl --user is-enabled wayswitch 2>/dev/null || true)
 # Уже стоял — значит, это обновление. Переход с исходников на пакет — нет:
 # uninstall.sh останавливает службу и убирает расширение, нужен новый вход.
 HAD=0; have wayswitch && [ ! -f "$SOURCE_UNINSTALL" ] && HAD=1
-GUI_WAS=0; gui_running && GUI_WAS=1
+# Перезапускаем после обновления только значок (--tray) и только из
+# графического сеанса: окно, открытое отдельно, и сеанс по SSH не трогаем.
+GUI_WAS=0
+if [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ] && pgrep -u "$(id -u)" -f 'wayswitch-gui --tray' >/dev/null 2>&1; then
+  GUI_WAS=1
+fi
 step "Устанавливаю" "Installing"
 need_sudo
 case "$FAMILY" in
@@ -302,12 +306,13 @@ if [ "$HAD" = 1 ] && [ "$ATOMIC" != 1 ]; then
   # клавиатуре был и раньше — перезагружаться не нужно.
   step "WaySwitch обновлён" "WaySwitch is updated"
   if [ "$GUI_WAS" = 1 ]; then
-    # Окно и значок — старый код в памяти: перезапускаем значок на новой версии.
-    stop_gui
+    # Значок — старый код в памяти: перезапускаем его на новой версии.
+    pkill -u "$(id -u)" -f 'wayswitch-gui --tray' >/dev/null 2>&1 || true
     if have setsid; then setsid wayswitch-gui --tray >/dev/null 2>&1 </dev/null &
     else nohup wayswitch-gui --tray >/dev/null 2>&1 </dev/null & fi
   fi
-  say "  Перезагружать компьютер не нужно." "  No restart needed."
+  say "  Перезагружать компьютер не нужно. Если окно WaySwitch было открыто — откройте его снова из меню приложений." \
+      "  No restart needed. If the WaySwitch window was open, open it again from the app menu."
   case "${XDG_CURRENT_DESKTOP:-}" in *GNOME*)
     say "  Новая версия расширения GNOME заработает после следующего входа в систему." \
         "  The new GNOME extension version takes effect at your next login." ;;
