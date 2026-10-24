@@ -651,7 +651,8 @@ class Controller:
             self._schedule_fix(keys, 0, other, target, manual=False, reason="url-early",
                                group_before=current, trigger=(device_id, code))
             return
-        if not self.config.general.early_switch or self.config.general.sensitivity == "careful":
+        general = self.config.general
+        if not general.early_switch or general.sensitivity == "conservative":
             return
         early = self.detector.early_word_target(keys, current, other)
         if early:
