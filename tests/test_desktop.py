@@ -41,6 +41,15 @@ def test_compositor_sockets_identify_sway_and_hyprland():
     assert detect_desktop({"HYPRLAND_INSTANCE_SIGNATURE": "abc"}) == d.HYPRLAND
 
 
+def test_stale_compositor_socket_does_not_override_desktop():
+    from wayswitch.backends import desktop as d
+
+    # Менеджер systemd пережил перелогин из Sway/Hyprland в GNOME или Xfce.
+    assert detect_desktop({"XDG_CURRENT_DESKTOP": "GNOME", "SWAYSOCK": "/x"}) == d.GNOME
+    assert detect_desktop({"XDG_CURRENT_DESKTOP": "XFCE",
+                           "HYPRLAND_INSTANCE_SIGNATURE": "abc"}) == d.XFCE
+
+
 def test_missing_env_is_other():
     assert detect_desktop({}) == OTHER
 

@@ -156,6 +156,41 @@ def test_hyprland_activelayout_event():
     assert seen == [(1, True)]
 
 
+class FakeHyprVirtualMain(FakeHypr):
+    """Наша виртуальная клавиатура стала «main», у макропада одна раскладка."""
+
+    def json(self, command):
+        if command == "devices":
+            return {"keyboards": [
+                {"name": "wayswitch-virtual-keyboard", "main": True,
+                 "active_keymap": "English (US)"},
+                {"name": "at-kbd", "main": False, "active_keymap": self.active}]}
+        return super().json(command)
+
+    def request(self, command):
+        super().request(command)
+        return "layout idx out of range of 1"
+
+
+def test_hyprland_ignores_own_virtual_keyboard():
+    fake = FakeHyprVirtualMain(active="Russian")
+    backend, events = make_hypr(fake)
+    assert backend.current() == 1  # раскладка настоящей клавиатуры
+    seen = []
+    backend.on_change(lambda i, ext: seen.append((i, ext)))
+    events["cb"]("activelayout>>wayswitch-virtual-keyboard,English (US)")
+    assert seen == []
+    events["cb"]("activelayout>>usb-external-keyboard,English (US)")
+    assert seen == [(0, True)]
+
+
+def test_hyprland_partial_switch_reply_is_not_failure():
+    fake = FakeHyprVirtualMain()
+    backend, _ = make_hypr(fake)
+    backend.set(1)  # настоящая клавиатура переключилась — не BackendError
+    assert backend.current() == 1
+
+
 def test_hyprland_event_parse():
     assert hyprland.parse_event("activelayout>>at-kbd,English (US)") == ("at-kbd", "English (US)")
     assert hyprland.parse_event("openwindow>>x") is None
