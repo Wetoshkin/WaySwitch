@@ -1,0 +1,24 @@
+pkgbase = wayswitch
+	pkgdesc = Fixes words typed in the wrong keyboard layout on Wayland (ru/en)
+	pkgver = 2.0.0a2
+	pkgrel = 1
+	url = https://github.com/Wetoshkin/WaySwitch
+	install = wayswitch.install
+	arch = any
+	license = MIT
+	license = CC-BY-SA-4.0
+	depends = python
+	depends = python-evdev
+	depends = python-gobject
+	depends = gtk4
+	depends = libadwaita
+	depends = libxkbcommon
+	optdepends = gnome-shell: расширение для переключения раскладки в GNOME
+	optdepends = gnome-shell-extension-appindicator: значок в верхней панели GNOME
+	optdepends = ibus: запасной способ переключения раскладки в GNOME
+	optdepends = pipewire: звук при исправлении (pw-play)
+	backup = etc/xdg/autostart/wayswitch-session.desktop
+	source = wayswitch-2.0.0a2.tar.gz::https://github.com/Wetoshkin/WaySwitch/archive/refs/tags/v2.0.0a2.tar.gz
+	sha256sums = 1307080f8dee9f95c6766cafec590113bb8d2453fa0b8038648c16a6a35953ae
+
+pkgname = wayswitch

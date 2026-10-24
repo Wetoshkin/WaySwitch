@@ -82,4 +82,9 @@
 
 ## Релизы
 
+- v2.0.0a2 (2026-10-24) — .deb и .rpm, все графические среды, установка одной
+  командой: https://github.com/Wetoshkin/WaySwitch/releases/tag/v2.0.0a2.
+  Проверено в контейнерах: get.sh с GitHub на Debian 13 и Fedora 41,
+  PKGBUILD из архива тега на Arch. Пакет AUR готов (sha256, .SRCINFO),
+  публикация ждёт открытия регистрации в AUR.
 - v2.0.0a1 (2026-09-23) — первый .deb: https://github.com/Wetoshkin/WaySwitch/releases/tag/v2.0.0a1 (не проверен на живой GNOME; см. чек-лист VM выше).
