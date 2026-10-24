@@ -407,9 +407,15 @@ class Controller:
         self._emit_status()
 
     def on_resync(self, device_id: int, held) -> None:
+        if self.busy:
+            # Снимок зажатых клавиш на входе в исправление устарел: досылать
+            # нажатия поверх него нельзя — сбросим буфер после исправления.
+            self._busy_reset = True
         self.buffer.resync(device_id, held)
 
     def on_device_gone(self, device_id: int) -> None:
+        if self.busy:
+            self._busy_reset = True
         self.buffer.device_gone(device_id)
 
     # --- авторежим --------------------------------------------------------------
