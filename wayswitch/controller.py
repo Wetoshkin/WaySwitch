@@ -78,6 +78,9 @@ class LastFix:
     # Исправлено ранним триггером по началу слова: после него человек
     # допечатывает слово, и ручной переворот всего слова — это отмена.
     early: bool = False
+    # Для раннего триггера — всё слово (буквы в исходной раскладке), когда
+    # его дописали: по нему потом сбрасывается счётчик отмен.
+    word: str = ""
 
 
 class Controller:
@@ -139,6 +142,9 @@ class Controller:
         # трогаем (ни авто, ни жестом) — иначе стёрли бы не столько, сколько надо.
         self._lost_input = False
         self._skip_word = False
+        # Слово только что вернули жестом после раннего триггера: на пробеле
+        # его не исправлять снова (иначе пинг-понг и обучение не наступит).
+        self._hold_word = False
         # Нажатия, пришедшие во время исправления: если оно прервано до первого
         # Backspace (экран не тронут), их досылаем в буфер — слово не теряется.
         self._busy_keys: list[tuple[int, int, int]] = []
@@ -342,6 +348,7 @@ class Controller:
         if event.kind == "reset":
             self.context.clear()
             self._skip_word = False
+            self._hold_word = False
             return
         if event.reset_before:
             self.context.clear()  # буфер очищен по таймауту перед этой клавишей
@@ -402,6 +409,7 @@ class Controller:
         self.buffer.click()
         self.context.clear()
         self._skip_word = False
+        self._hold_word = False
         # Клик посреди тапа жеста — не жест: иначе Ctrl+клик переворачивал бы слово.
         self.gesture.reset()
         for g, _action in self._selection_gestures:
@@ -528,13 +536,24 @@ class Controller:
         return False
 
     def _on_word(self, keys: list[KeyPress], device_id: int, code: int) -> None:
+        if self._hold_word:
+            self._hold_word = False
+            self.context.append(None)
+            return
         last = self._last_fix
-        if last is not None and self._undo_counts:
-            # Следующее слово набрано, а прошлое исправление не отменили —
-            # значит, оно было верным: счётчик отмен для слова начинаем заново.
-            word = "".join(c for c in self.keymap.decode(last.original_keys, last.group_before)
-                           if c.isalpha() or c in "-'").lower()
-            self._undo_counts.pop(word, None)
+        if last is not None:
+            def letters(source) -> str:
+                return "".join(c for c in self.keymap.decode(source, last.group_before)
+                               if c.isalpha() or c in "-'").lower()
+
+            if last.early and not last.word and keys[:len(last.target_keys)] == last.target_keys:
+                # Дописали слово, начало которого исправил ранний триггер:
+                # запоминаем его целиком — его ещё могут вернуть жестом.
+                last.word = letters(keys)
+            elif self._undo_counts:
+                # Начато следующее слово, а исправление не отменили — значит,
+                # оно было верным: счётчик отмен для слова начинаем заново.
+                self._undo_counts.pop(last.word or letters(last.original_keys), None)
         groups = self._groups()
         if groups is None:
             return
@@ -696,18 +715,22 @@ class Controller:
             return True
         text = self.keymap.decode(word, other)
         done = None
+        start = len(self.buffer.phrase()) - tail - len(word)
         if (last is not None and last.early and other == last.group_before
                 and self.clock() - last.time <= self.config.general.undo_window_sec
+                and start == last.end - len(last.target_keys)
                 and word[:len(last.target_keys)] == last.target_keys):
             # Слово начали, WaySwitch переключил раскладку по началу, человек
             # дописал и вернул всё слово назад — это отмена раннего триггера.
             letters = "".join(c for c in text if c.isalpha() or c in "-'").lower()
 
-            def done(ok: bool) -> None:
+            def done(ok: bool, before_space: bool = tail == 0) -> None:
                 if ok and letters:
                     self._last_fix = None
                     self.stats["undo"] += 1
                     self._note_undo(letters)
+                    if before_space:
+                        self._hold_word = True
 
         self._schedule_fix(word, tail, other, text + " " * tail, manual=True,
                            reason="manual", group_before=current, done=done)

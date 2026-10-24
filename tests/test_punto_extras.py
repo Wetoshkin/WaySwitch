@@ -261,3 +261,72 @@ def test_translit_ye_and_apostrophe():
     assert transliterate("Yegor") == "Егор"
     assert transliterate("Andreyev") == "Андреев"
     assert transliterate("Olya") == "Оля"
+
+
+def _early_then_revert(ctrl, km, clock_step=None):
+    for key in keys_for_text(km, "ghbd", US):
+        press(ctrl, key.code)
+    for key in keys_for_text(km, "ет", RU):
+        press(ctrl, key.code)
+    assert ctrl.manual_word()  # вернул слово до пробела
+    press(ctrl, kc.KEY_SPACE)  # пробел: снова не исправлять
+
+
+def test_early_revert_before_space_learns_with_default_two_undos(real):
+    km = real[0]
+    ctrl, backend, _t, corrected = make(real, US)
+    ctrl.schedule = lambda fn: fn()
+    clock = {"t": 100.0}
+    ctrl.clock = lambda: clock["t"]
+    for _round in range(2):
+        backend.current_index = US
+        _early_then_revert(ctrl, km)
+        assert corrected[-1][0] != "ghbdtn"  # на пробеле не перевернули обратно
+        clock["t"] += 10
+    assert "ghbdtn" in ctrl.detector.exceptions
+    backend.current_index = US
+    n = len(corrected)
+    for key in keys_for_text(km, "ghbd", US):
+        press(ctrl, key.code)
+    assert len(corrected) == n  # выучено — ранний триггер молчит
+
+
+def test_next_word_with_same_start_is_not_an_undo(real):
+    km = real[0]
+    cfg = Config()
+    cfg.general.learn_after_undos = 1
+    ctrl, backend, _t, _c = make(real, US, cfg)
+    ctrl.schedule = lambda fn: fn()
+    for key in keys_for_text(km, "ghbd", US):
+        press(ctrl, key.code)
+    for key in keys_for_text(km, "ет привычка", RU):
+        press(ctrl, key.code)
+    ctrl.manual_word()
+    assert not ctrl.detector.exceptions
+
+
+def test_translit_quotes_stay_quotes():
+    from wayswitch.textops import transliterate
+
+    assert transliterate("'hello'") == "'хелло'"
+    assert transliterate("Ol'ga") == "Ольга"
+
+
+def test_early_revert_after_space_learns_with_default_two_undos(real):
+    km = real[0]
+    ctrl, backend, _t, _c = make(real, US)
+    ctrl.schedule = lambda fn: fn()
+    clock = {"t": 100.0}
+    ctrl.clock = lambda: clock["t"]
+    for _round in range(2):
+        backend.current_index = US
+        for key in keys_for_text(km, "ghbd", US):
+            press(ctrl, key.code)
+        for key in keys_for_text(km, "ет ", RU):
+            press(ctrl, key.code)
+        assert ctrl.manual_word()  # вернул после пробела
+        clock["t"] += 10
+        for key in keys_for_text(km, "a ", US):  # следующее слово
+            press(ctrl, key.code)
+        clock["t"] += 10
+    assert "ghbdtn" in ctrl.detector.exceptions

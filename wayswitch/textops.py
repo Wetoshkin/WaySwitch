@@ -26,7 +26,7 @@ LAT_TO_RU = [
     ("z", "з"), ("i", "и"), ("k", "к"), ("l", "л"), ("m", "м"), ("n", "н"),
     ("o", "о"), ("p", "п"), ("r", "р"), ("s", "с"), ("t", "т"), ("u", "у"),
     ("f", "ф"), ("h", "х"), ("c", "к"), ("q", "к"), ("w", "в"), ("x", "кс"),
-    ("j", "дж"), ("'", "ь"),
+    ("j", "дж"),
 ]
 _RU_VOWELS = set("аеёиоуыэюя")
 MAX_TEXT = 2000
@@ -83,7 +83,10 @@ def to_cyrillic(text: str) -> str:
                 break
         else:
             ch = text[i]
-            if ch.lower() == "y":
+            if ch == "'" and 0 < i < len(text) - 1 and text[i - 1].isalpha() \
+                    and text[i + 1].isalpha():
+                out.append("ь")  # «Ol'ga» → «Ольга»; кавычки вокруг слов — как есть
+            elif ch.lower() == "y":
                 # После гласной — «й» («Sergey» → «Сергей»), иначе «ы» («ty» → «ты»).
                 prev = out[-1][-1].lower() if out and out[-1] else ""
                 out.append(_match_case("й" if prev in _RU_VOWELS else "ы", ch, upper))
