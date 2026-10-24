@@ -1,5 +1,5 @@
 from wayswitch import keycodes as kc
-from wayswitch.gesture import ShiftGesture
+from wayswitch.gesture import ShiftGesture, TapKeyGesture
 
 
 def press_release(g, code, t):
@@ -44,3 +44,39 @@ def test_shift_held_for_capital_letter_is_not_a_tap():
     g.on_key(kc.KEY_H, 0, 0.15)
     g.on_key(kc.KEY_LEFTSHIFT, 0, 0.2)
     assert press_release(g, kc.KEY_LEFTSHIFT, 0.3) is None
+
+
+def ctrl_tap(g, t, hold=0.1):
+    g.on_key(kc.KEY_LEFTCTRL, 1, t)
+    return g.on_key(kc.KEY_LEFTCTRL, 0, t + hold)
+
+
+def test_ctrl_tap_returns_word():
+    g = TapKeyGesture()
+    assert ctrl_tap(g, 0.0) == "word"
+
+
+def test_ctrl_tap_with_other_key_is_not_gesture():
+    g = TapKeyGesture()
+    g.on_key(kc.KEY_LEFTCTRL, 1, 0.0)
+    g.on_key(kc.KEY_C, 1, 0.05)     # Ctrl+C — сокращение, а не жест
+    g.on_key(kc.KEY_C, 0, 0.1)
+    assert g.on_key(kc.KEY_LEFTCTRL, 0, 0.15) is None
+
+
+def test_ctrl_hold_is_not_gesture():
+    g = TapKeyGesture(window=0.5)
+    assert ctrl_tap(g, 0.0, hold=0.9) is None
+
+
+def test_ctrl_tap_two_times_in_a_row():
+    g = TapKeyGesture()
+    assert ctrl_tap(g, 0.0) == "word"
+    assert ctrl_tap(g, 1.0) == "word"
+
+
+def test_ctrl_reset_breaks_tap():
+    g = TapKeyGesture()
+    g.on_key(kc.KEY_LEFTCTRL, 1, 0.0)
+    g.reset()  # клик мышью посреди тапа
+    assert g.on_key(kc.KEY_LEFTCTRL, 0, 0.1) is None

@@ -42,7 +42,119 @@ def test_install_updates_apt_index_before_install():
     assert text.index("apt-get update") < text.index("apt-get install")
 
 
+def test_install_supports_arch_pacman():
+    text = (ROOT / "install.sh").read_text(encoding="utf-8")
+    assert "command -v pacman" in text
+    assert "pacman -S --needed --noconfirm" in text
+    # Имена пакетов в Arch другие, чем в apt/dnf.
+    assert "python-evdev" in text and "libadwaita" in text
+
+
+def test_install_warns_when_uinput_module_missing():
+    # После обновления ядра модули старого ядра удалены, modprobe падает —
+    # установка не должна обрываться, но обязана сказать про перезагрузку.
+    text = (ROOT / "install.sh").read_text(encoding="utf-8")
+    assert "modprobe uinput" in text
+    assert "перезагрузк" in text
+
+
 def test_scripts_use_env_for_xdg_runtime_dir():
     for name in ("install.sh", "uninstall.sh"):
         text = (ROOT / name).read_text(encoding="utf-8")
         assert "env XDG_RUNTIME_DIR=" in text, name
+
+
+def test_install_pins_absolute_python():
+    """Обёртки не должны зависеть от PATH: venv без PyGObject ломает запуск."""
+    from pathlib import Path
+
+    script = (Path(__file__).resolve().parent.parent / "packaging" / "install.sh").read_text(
+        encoding="utf-8")
+    assert "PY=/usr/bin/python3" in script
+    assert "exec $PY -m wayswitch" in script
+    assert "exec python3 -m wayswitch" not in script
+
+
+# --- ярлык и значок ---------------------------------------------------------
+
+def _desktop_text() -> str:
+    return (ROOT / "ru.siberia.WaySwitch.Settings.desktop").read_text(encoding="utf-8")
+
+
+def _app_id() -> str:
+    """APP_ID окна без импорта GUI: импорт тянет GTK, которого в CI нет."""
+    import re
+
+    text = (ROOT.parent / "wayswitch" / "gui" / "app.py").read_text(encoding="utf-8")
+    return re.search(r'APP_ID = "([^"]+)"', text).group(1)
+
+
+def test_desktop_file_name_matches_app_id():
+    """Имя ярлыка обязано совпадать с APP_ID окна.
+
+    Иначе GNOME не связывает запущенное окно с записью: в доке и в списке
+    приложений рисуется заглушка «нет значка», а иногда появляется второй значок.
+    """
+    assert (ROOT / "ru.siberia.WaySwitch.Settings.desktop").exists()
+    assert (ROOT / f"{_app_id()}.desktop").exists()
+
+
+def test_desktop_entry_points_to_own_icon():
+    text = _desktop_text()
+    assert "Icon=ru.siberia.WaySwitch" in text
+    assert "StartupWMClass=" + _app_id() in text
+    assert (ROOT / "icons" / "ru.siberia.WaySwitch.svg").exists()
+
+
+def test_icon_is_scalable_svg():
+    text = (ROOT / "icons" / "ru.siberia.WaySwitch.svg").read_text(encoding="utf-8")
+    assert text.lstrip().startswith("<svg")
+    assert 'viewBox="0 0 128 128"' in text
+    # Буквы — контурами: текст в SVG без нужного шрифта разваливается.
+    assert "<text" not in text
+
+
+def test_symbolic_tray_icons_use_fill_only():
+    """GTK и AppIndicator перекрашивают symbolic-значки по fill; обводка
+    осталась бы тёмной на тёмной панели."""
+    for name in ("ru.siberia.WaySwitch-symbolic.svg",
+                 "ru.siberia.WaySwitch-paused-symbolic.svg"):
+        text = (ROOT / "icons" / name).read_text(encoding="utf-8")
+        assert 'viewBox="0 0 16 16"' in text
+        assert "stroke" not in text and "<text" not in text
+
+
+def test_installer_installs_icon_and_removes_old_entry():
+    text = (ROOT / "install.sh").read_text(encoding="utf-8")
+    assert "share/icons/hicolor" in text and "scalable/apps" in text
+    assert "symbolic/apps" in text
+    assert "ru.siberia.WaySwitch.svg" in text
+    # старое имя ярлыка (до 2.0) не должно оставаться вторым пунктом в меню
+    assert "rm -f /usr/local/share/applications/ru.siberia.WaySwitch.desktop" in text
+
+
+def test_autostart_uses_same_name_as_desktop_entry():
+    from wayswitch.gui import autostart
+
+    assert autostart.DESKTOP_NAME == "ru.siberia.WaySwitch.Settings.desktop"
+    assert "Icon=ru.siberia.WaySwitch" in autostart.tray_desktop_text()
+
+
+def test_versions_agree():
+    """Версия одна на всех: pyproject, пакет, расширение (version-name)."""
+    import json
+    import re
+
+    from wayswitch import __version__
+
+    repo = ROOT.parent
+    pyproject = (repo / "pyproject.toml").read_text(encoding="utf-8")
+    assert re.search(r'^version = "([^"]+)"', pyproject, re.M).group(1) == __version__
+    meta = json.loads((repo / "extension" / "wayswitch@siberia.ru" / "metadata.json")
+                      .read_text(encoding="utf-8"))
+    assert meta["version-name"] == __version__
+    plasmoid = json.loads((repo / "packaging" / "kde" / "ru.siberia.wayswitch" / "metadata.json")
+                          .read_text(encoding="utf-8"))
+    assert plasmoid["KPlugin"]["Version"] == __version__
+    pkgbuild = (repo / "packaging" / "arch" / "PKGBUILD").read_text(encoding="utf-8")
+    assert f"pkgver={__version__}" in pkgbuild

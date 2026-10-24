@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- WaySwitch: клавиша, на которой живут Q и Й. Буквы нарисованы линиями,
+       а не текстом — значок не зависит от установленных шрифтов. -->
+  <rect x="12" y="22" width="104" height="96" rx="24" fill="#8f4a20"/>
+  <rect x="12" y="12" width="104" height="96" rx="24" fill="#c67139"/>
+  <rect x="21" y="17" width="86" height="78" rx="17" fill="#f5ead8"/>
+  <rect x="21" y="17" width="86" height="6" rx="3" fill="#ffffff" opacity=".45"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Q -->
+    <g stroke="#7a8a5e" stroke-width="5">
+      <ellipse cx="40" cy="42" rx="8.5" ry="10.5"/>
+      <path d="M44 48l6.5 7.5"/>
+    </g>
+    <!-- Й -->
+    <g stroke="#c67139" stroke-width="5.5">
+      <path d="M74 68v21M92 68v21M74 89l18-21"/>
+      <path d="M78 60q5 4.5 10 0"/>
+    </g>
+    <!-- стрелка Q → Й -->
+    <g stroke="#201e1d" stroke-width="5">
+      <path d="M56 40c14 0 22 4 23 12"/>
+      <path d="M73 47l6 7 6-7"/>
+    </g>
+  </g>
+</svg>

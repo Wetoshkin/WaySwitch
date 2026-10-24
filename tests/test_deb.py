@@ -102,6 +102,8 @@ def test_scripts_are_executable_in_git_index(relpath: str):
 
 
 def test_build_deb_rewrites_exec_start():
-    text = (ROOT / "tools" / "build_deb.sh").read_text(encoding="utf-8")
+    # Файлы пакета раскладывает общий tools/stage.sh (deb, rpm, AUR).
+    assert "tools/stage.sh" in (ROOT / "tools" / "build_deb.sh").read_text(encoding="utf-8")
+    text = (ROOT / "tools" / "stage.sh").read_text(encoding="utf-8")
     assert "ExecStart=/usr/local/bin/wayswitch run" in text
     assert "ExecStart=/usr/bin/wayswitch run" in text

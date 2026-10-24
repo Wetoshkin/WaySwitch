@@ -9,6 +9,9 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable
+from typing import NamedTuple
+
+from wayswitch.gui import texts
 
 log = logging.getLogger("wayswitch.gui")
 
@@ -89,27 +92,58 @@ MENU_PATH = "/ru/siberia/WaySwitch/Menu"
 ITEM_PATH = "/StatusNotifierItem"
 
 
-def menu_layout(status: dict | None) -> list[tuple[str, str, bool]]:
-    """Пункты меню: (id, подпись, активен). Зависит от состояния демона."""
+class MenuItem(NamedTuple):
+    ident: str
+    label: str = ""
+    enabled: bool = True
+    kind: str = "standard"          # "standard" | "separator"
+    toggle: bool | None = None      # галочка у пункта-переключателя
+    icon: str = ""
+
+
+def menu_layout(status: dict | None, update: str | None = None) -> list[MenuItem]:
+    """Пункты меню значка. Зависят от состояния демона и наличия обновления."""
     running = status is not None
     auto = bool(status and status.get("auto_correct"))
     paused = bool(status and status.get("paused"))
-    return [
-        ("auto", ("✓ " if auto else "   ") + "Автоисправление", running),
-        ("pause", "Возобновить" if paused else "Пауза", running),
-        ("fix", "Исправить последнее слово", running),
-        ("settings", "Настройки…", True),
-        ("quit", "Выход", True),
+    items = [
+        MenuItem("summary", "WaySwitch — " + texts.tray_summary(status), False),
+        MenuItem("sep1", kind="separator"),
+        MenuItem("auto", "Автоисправление", running, toggle=auto),
+        MenuItem("pause", "Возобновить" if paused else "Пауза", running,
+                 icon="media-playback-start-symbolic" if paused
+                 else "media-playback-pause-symbolic"),
+        MenuItem("fix_selection", "Исправить выделенное", running,
+                 icon="edit-select-all-symbolic"),
+        MenuItem("sep2", kind="separator"),
     ]
+    if update:
+        items.append(MenuItem("update", f"Вышла версия {update}…",
+                              icon="software-update-available-symbolic"))
+    items += [
+        MenuItem("settings", "Открыть WaySwitch", icon="window-new-symbolic"),
+        MenuItem("quit", "Выйти", icon="application-exit-symbolic"),
+    ]
+    return items
+
+
+# Постоянные номера пунктов dbusmenu (0 — корень).
+MENU_IDS = {ident: n for n, ident in enumerate(
+    ("summary", "sep1", "auto", "pause", "fix_selection", "sep2", "update",
+     "settings", "quit"), start=1)}
+
+# Имена значков из packaging/icons: ставятся установщиком в hicolor.
+INSTALLED_ICON = "ru.siberia.WaySwitch"
+TRAY_ICON = "ru.siberia.WaySwitch-symbolic"
+TRAY_PAUSED_ICON = "ru.siberia.WaySwitch-paused-symbolic"
 
 
 class StatusNotifier:
-    def __init__(self, on_toggle_auto: Callable[[], None], on_pause: Callable[[], None],
-                 on_fix: Callable[[], None], on_settings: Callable[[], None],
-                 on_quit: Callable[[], None]):
-        self._actions = {"auto": on_toggle_auto, "pause": on_pause, "fix": on_fix,
-                         "settings": on_settings, "quit": on_quit}
+    def __init__(self, actions: dict[str, Callable[[], None]]):
+        # ident пункта меню → действие; «settings» ещё и щелчок по значку.
+        self._actions = actions
         self._status: dict | None = None
+        self._update: str | None = None
         self._revision = 1
         self._conn = None
 
@@ -122,8 +156,15 @@ class StatusNotifier:
         self._conn.register_object(ITEM_PATH, sni, self._sni_call, self._sni_get, None)
         self._conn.register_object(MENU_PATH, menu, self._menu_call, self._menu_get, None)
         name = f"org.kde.StatusNotifierItem-{os.getpid()}-1"
+        self._name = name
         Gio.bus_own_name_on_connection(self._conn, name, Gio.BusNameOwnerFlags.NONE,
                                        lambda *_: self._register(name), None)
+        # Панель (plasmashell, waybar, расширение AppIndicator) могла стартовать
+        # позже нас или перезапуститься — регистрируемся при каждом появлении
+        # StatusNotifierWatcher, иначе значок пропал бы до перезапуска WaySwitch.
+        Gio.bus_watch_name_on_connection(self._conn, "org.kde.StatusNotifierWatcher",
+                                         Gio.BusNameWatcherFlags.NONE,
+                                         lambda *_: self._register(self._name), None)
 
     def _register(self, name: str) -> None:
         from gi.repository import Gio, GLib
@@ -139,16 +180,34 @@ class StatusNotifier:
     # --- SNI ---------------------------------------------------------------------
 
     def _icon(self) -> str:
-        if self._status is None:
-            return "input-keyboard-symbolic"
-        return "changes-prevent-symbolic" if self._status.get("paused") \
-            else "input-keyboard-symbolic"
+        """Имя значка: монохромный свой, если тема его знает, иначе системный.
+
+        Цветной значок приложения в панели GNOME теряется — там все значки
+        symbolic, поэтому для панели есть отдельная монохромная пара.
+        """
+        if self._status is None or self._status.get("paused"):
+            return (TRAY_PAUSED_ICON if self._theme_has(TRAY_PAUSED_ICON)
+                    else "media-playback-pause-symbolic")
+        return TRAY_ICON if self._theme_has(TRAY_ICON) else "input-keyboard-symbolic"
+
+    @staticmethod
+    def _theme_has(name: str) -> bool:
+        """Есть ли значок в теме: не у всех он установлен (запуск из исходников)."""
+        try:
+            from gi.repository import Gdk, Gtk
+
+            display = Gdk.Display.get_default()
+            if display is None:
+                return False
+            theme = Gtk.IconTheme.get_for_display(display)
+            return theme.has_icon(name)
+        except Exception:  # noqa: BLE001 — без GTK просто берём системный значок
+            return False
 
     def _sni_get(self, _c, _s, _p, _i, prop: str):
         from gi.repository import GLib
 
-        tooltip = "WaySwitch: " + ("демон не запущен" if self._status is None else
-                                   "пауза" if self._status.get("paused") else "работает")
+        tooltip = texts.tray_summary(self._status, self._update)
         values = {
             "Category": GLib.Variant("s", "ApplicationStatus"),
             "Id": GLib.Variant("s", "wayswitch"),
@@ -163,7 +222,7 @@ class StatusNotifier:
 
     def _sni_call(self, _c, _s, _p, _i, method: str, _params, invocation) -> None:
         if method == "Activate":
-            self._actions["settings"]()
+            self._activate("settings")
         invocation.return_value(None)
 
     # --- dbusmenu ----------------------------------------------------------------
@@ -172,10 +231,25 @@ class StatusNotifier:
         from gi.repository import GLib
 
         out = []
-        for i, (ident, label, enabled) in enumerate(menu_layout(self._status), start=1):
-            props = {"label": GLib.Variant("s", label), "enabled": GLib.Variant("b", enabled)}
-            out.append((i, ident, props))
+        for item in menu_layout(self._status, self._update):
+            i = MENU_IDS[item.ident]
+            if item.kind == "separator":
+                props = {"type": GLib.Variant("s", "separator")}
+            else:
+                props = {"label": GLib.Variant("s", item.label),
+                         "enabled": GLib.Variant("b", item.enabled)}
+                if item.toggle is not None:
+                    props["toggle-type"] = GLib.Variant("s", "checkmark")
+                    props["toggle-state"] = GLib.Variant("i", 1 if item.toggle else 0)
+                if item.icon:
+                    props["icon-name"] = GLib.Variant("s", item.icon)
+            out.append((i, item.ident, props))
         return out
+
+    def _activate(self, ident: str) -> None:
+        action = self._actions.get(ident)
+        if action is not None:
+            action()
 
     def _menu_get(self, _c, _s, _p, _i, prop: str):
         from gi.repository import GLib
@@ -208,14 +282,14 @@ class StatusNotifier:
             if event_id == "clicked":
                 for i, ident, _ in items:
                     if i == item_id:
-                        self._actions[ident]()
+                        self._activate(ident)
             invocation.return_value(None)
         elif method == "EventGroup":
             for item_id, event_id, _d, _t in params.unpack()[0]:
                 if event_id == "clicked":
                     for i, ident, _ in items:
                         if i == item_id:
-                            self._actions[ident]()
+                            self._activate(ident)
             invocation.return_value(GLib.Variant("(ai)", ([],)))
         elif method == "AboutToShow":
             invocation.return_value(GLib.Variant("(b)", (False,)))
@@ -224,10 +298,11 @@ class StatusNotifier:
         else:
             invocation.return_dbus_error("org.freedesktop.DBus.Error.UnknownMethod", method)
 
-    def update(self, status: dict | None) -> None:
+    def update(self, status: dict | None, update: str | None = None) -> None:
         from gi.repository import GLib
 
         self._status = status
+        self._update = update
         self._revision += 1
         if self._conn:
             self._conn.emit_signal(None, MENU_PATH, "com.canonical.dbusmenu", "LayoutUpdated",

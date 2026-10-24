@@ -11,11 +11,14 @@ import tomllib
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
-from wayswitch.keycodes import KEY_NAMES
+from wayswitch.keycodes import GESTURE_KEY_NAMES, KEY_NAMES
 
 SENSITIVITY_NAMES = ("conservative", "normal", "aggressive")
-MANUAL_MODES = ("double_shift", "pause_key", "none")
-BACKEND_PREFS = ("auto", "shell", "ibus", "hotkey")
+MANUAL_MODES = ("double_shift", "tap_key", "pause_key", "none")
+BACKEND_PREFS = ("auto", "shell", "kde", "ibus", "hotkey", "sway", "hyprland", "compositor")
+# Чем печатать символы при shell-бэкенде: клавишами расширения (keysym-ы, не
+# зависят от раскладки) или сканерами через uinput (как настоящая клавиатура).
+SHELL_TYPING = ("extension", "uinput")
 
 
 class ConfigError(ValueError):
@@ -28,23 +31,64 @@ class General:
     sensitivity: str = "normal"
     phrase_timeout_sec: float = 8.0
     undo_window_sec: float = 5.0
+    # Пауза автоисправления после Backspace/стрелок/Delete и после ручной смены
+    # раскладки, секунды. 0 — не замирать.
+    edit_guard_sec: float = 1.0
+    # «пирогб» → «пирог,»: последняя буква — знак из другой раскладки.
+    punct_fix: bool = True
+    # «чтото» → «что-то», «кембы» → «кем бы».
+    particles_fix: bool = True
+    # Не трогать поля паролей (at-spi видит их ролью password text).
+    skip_password_fields: bool = True
+    # Короткий сигнал после автоисправления (как в Punto Switcher).
+    sound_on_fix: bool = False
+    # «сонатуБаха» → «сонату Баха»: потерянный пробел виден по регистру.
+    split_words_fix: bool = True
+    # Исправлять слово, законченное Tab или Enter. По умолчанию нет: в
+    # терминале и IDE Tab выбирает автодополнение, и перепечатка после него
+    # попадёт уже в другое место.
+    fix_on_tab: bool = False
+    fix_on_enter: bool = False
+    # «ПРивет» → «Привет»: Shift отпущен на букву позже.
+    two_capitals_fix: bool = True
+    # Раз в сутки спрашивать GitHub о новой версии (только GUI, демон в сеть
+    # не ходит). Отключается в Параметрах и на последнем шаге первого запуска.
+    check_updates: bool = True
 
 
 @dataclass
 class Gesture:
     manual: str = "double_shift"
+    # Клавиша для жеста manual = "tap_key": одиночный тап переворачивает
+    # последнее слово (по умолчанию левый Ctrl, как в Punto Switcher).
+    tap_key: str = "leftctrl"
     pause_hotkey: str = ""
+    # Клавиша «Исправить выделенное» (одиночное нажатие); пусто — только меню
+    # значка и команда `wayswitch fix-selection` на системное сочетание.
+    selection_key: str = ""
+
+
+OLD_SETTLE_MS = 30  # умолчание до 2.0.0a2
 
 
 @dataclass
 class Typing:
-    settle_ms: int = 30
+    # Пауза после переключения раскладки, прежде чем печатать. Приложению нужно
+    # время принять новый keymap: при 30 мс последняя клавиша серии (пробел
+    # после исправленного слова) до поля не доходила - проверено на GNOME 51,
+    # 120 мс дают стабильный результат.
+    settle_ms: int = 120
     key_delay_ms: int = 0
 
 
 @dataclass
 class Backend:
     prefer: str = "auto"
+    shell_typing: str = "extension"
+    # labwc/Wayfire (Xfce, MATE, Budgie, LXQt): текущую раскладку ведём
+    # счётчиком нажатий сочетания. Он ошибается при смене раскладки мышью,
+    # поэтому автоисправление там включается только по желанию.
+    track_hotkey: bool = False
 
 
 @dataclass
@@ -69,6 +113,54 @@ def default_path() -> Path:
 
 def exceptions_path() -> Path:
     return config_dir() / "exceptions.txt"
+
+
+def apps_path() -> Path:
+    """Список исключённых приложений (по строке на приложение)."""
+    return config_dir() / "apps.txt"
+
+
+def load_apps(path: Path | None = None) -> list[str]:
+    """Прочитать исключённые приложения; файла нет — пустой список."""
+    path = path or apps_path()
+    if not path.exists():
+        return []
+    # errors="replace": файл правят руками, и в cp1251 он не должен ронять демон.
+    return [line.strip() for line in path.read_text(encoding="utf-8", errors="replace").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")]
+
+
+def save_apps(apps: list[str], path: Path | None = None) -> None:
+    """Записать список приложений (по одному в строке, без дублей)."""
+    path = path or apps_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    seen: list[str] = []
+    for app in apps:
+        name = app.strip()
+        if name and name.lower() not in {s.lower() for s in seen}:
+            seen.append(name)
+    text = "\n".join(seen) + ("\n" if seen else "")
+    path.write_text(text, encoding="utf-8")
+
+
+def add_app(app: str, path: Path | None = None) -> bool:
+    """Добавить приложение; False — уже было."""
+    apps = load_apps(path)
+    if any(app.strip().lower() == a.lower() for a in apps):
+        return False
+    apps.append(app.strip())
+    save_apps(apps, path)
+    return True
+
+
+def remove_app(app: str, path: Path | None = None) -> bool:
+    """Убрать приложение; False — такого не было."""
+    apps = load_apps(path)
+    left = [a for a in apps if a.lower() != app.strip().lower()]
+    if len(left) == len(apps):
+        return False
+    save_apps(left, path)
+    return True
 
 
 def _section_from_dict(cls, data: dict):
@@ -101,8 +193,26 @@ def _validate(cfg: Config) -> None:
         raise ConfigError("phrase_timeout_sec: 1..300")
     if not 0.0 <= g.undo_window_sec <= 60.0:
         raise ConfigError("undo_window_sec: 0..60")
+    if not 0.0 <= g.edit_guard_sec <= 10.0:
+        raise ConfigError("edit_guard_sec: 0..10")
     if ge.manual not in MANUAL_MODES:
         raise ConfigError(f"manual: допустимо {MANUAL_MODES}")
+    if ge.tap_key.lower() not in GESTURE_KEY_NAMES:
+        # Не только «неизвестная»: буква или цифра сломали бы жест — он бы
+        # срабатывал на каждой набранной букве.
+        raise ConfigError(
+            f"tap_key: недопустимая клавиша жеста {ge.tap_key!r}, "
+            f"можно: leftctrl, rightctrl, scrolllock, pause, f1…f12 и подобные")
+    sel, tap, pause = (ge.selection_key.lower(), ge.tap_key.lower(),
+                       ge.pause_hotkey.lower())
+    if sel:
+        if sel not in GESTURE_KEY_NAMES:
+            raise ConfigError(f"selection_key: недопустимая клавиша {ge.selection_key!r}")
+        conflict = selection_key_conflict(ge, sel)
+        if conflict:
+            raise ConfigError(f"selection_key: {conflict}")
+    if pause and ge.manual == "tap_key" and tap == pause:
+        raise ConfigError("tap_key совпадает с клавишей паузы")
     if ge.pause_hotkey and ge.pause_hotkey.lower() not in KEY_NAMES:
         raise ConfigError(f"pause_hotkey: неизвестная клавиша {ge.pause_hotkey!r}")
     if not 0 <= t.settle_ms <= 2000:
@@ -111,6 +221,29 @@ def _validate(cfg: Config) -> None:
         raise ConfigError("key_delay_ms: 0..100")
     if b.prefer not in BACKEND_PREFS:
         raise ConfigError(f"prefer: допустимо {BACKEND_PREFS}")
+    if b.shell_typing not in SHELL_TYPING:
+        raise ConfigError(f"shell_typing: допустимо {SHELL_TYPING}")
+
+
+def selection_key_conflict(ge: Gesture, name: str, manual: str | None = None) -> str | None:
+    """С чем клавиша «Исправить выделенное» столкнулась бы (или None).
+
+    manual — жест, который собираются выбрать (по умолчанию текущий). Общая
+    проверка для конфига и окна «Параметры»: окно не должно принимать то,
+    что конфиг потом откажется сохранить.
+    """
+    name, manual = name.lower(), manual or ge.manual
+    if not name:
+        return None
+    if manual == "tap_key" and name == ge.tap_key.lower():
+        return "эта клавиша уже исправляет последнее слово"
+    if manual == "double_shift" and name in ("leftshift", "rightshift"):
+        return "Shift уже занят жестом «двойной Shift»"
+    if manual == "pause_key" and name == "pause":
+        return "Pause уже занята жестом «клавиша Pause»"
+    if ge.pause_hotkey and name == ge.pause_hotkey.lower():
+        return "эта клавиша ставит WaySwitch на паузу"
+    return None
 
 
 def from_dict(data: dict) -> Config:
@@ -123,6 +256,10 @@ def from_dict(data: dict) -> Config:
             raise ConfigError(f"[{name}] должна быть секцией")
         kwargs[name] = _section_from_dict(cls, section)
     cfg = Config(**kwargs)
+    if cfg.typing.settle_ms == OLD_SETTLE_MS:
+        # Прежние версии записывали в файл все ключи, и старое умолчание
+        # 30 мс закрепилось бы навсегда — а с ним терялся пробел после слова.
+        cfg.typing.settle_ms = Typing.settle_ms
     _validate(cfg)
     return cfg
 
@@ -178,7 +315,7 @@ def load_exceptions(path: Path | None = None) -> set[str]:
     if not path.exists():
         return set()
     words = set()
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         word = line.strip().lower()
         if word and not word.startswith("#"):
             words.add(word)

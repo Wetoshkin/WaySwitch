@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from tests.fakes import RU, US, make_keymap
 from wayswitch import keycodes as kc
-from wayswitch.keymap import LayoutSpec
+from wayswitch.keymap import LayoutSpec, TableKeymap
 
 
 @dataclass
@@ -42,6 +42,24 @@ def test_key_for_prefers_unshifted():
     assert km.key_for(",", US) == (kc.KEY_COMMA, False)
     assert km.key_for("ж", US) is None
     assert km.key_for(" ", US) == (kc.KEY_SPACE, False)
+
+
+def test_key_for_prefers_main_keyboard_over_numpad():
+    # На реальной xkb-раскладке «.» и «/» есть ещё на цифровом блоке
+    # (KEY_KPCOMMA, KEY_KPSLASH): печатать ими нельзя, основная клавиша важнее.
+    km = TableKeymap([{
+        kc.KEY_DOT: (".", ">"),
+        kc.KEY_KPCOMMA: (".", "."),
+        kc.KEY_SLASH: ("/", "?"),
+        kc.KEY_KPSLASH: ("/", "/"),
+    }])
+    assert km.key_for(".", 0) == (kc.KEY_DOT, False)
+    assert km.key_for("/", 0) == (kc.KEY_SLASH, False)
+
+
+def test_key_for_keeps_numpad_if_it_is_the_only_one():
+    km = TableKeymap([{kc.KEY_KPCOMMA: ("±", "±")}])
+    assert km.key_for("±", 0) == (kc.KEY_KPCOMMA, False)
 
 
 def test_letter_keys_are_union_of_groups():

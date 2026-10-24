@@ -48,8 +48,17 @@ def parse_gnome_binding(binding: str) -> list[int]:
 
 
 def _settings(schema: str):
+    """Gio.Settings со схемой — только если схема установлена.
+
+    Gio.Settings.new() с неизвестной схемой не бросает исключение, а убивает
+    процесс (g_error): в KDE или Sway без схем GNOME демон падал бы в цикле
+    перезапусков вместо понятной ошибки.
+    """
     from gi.repository import Gio
 
+    source = Gio.SettingsSchemaSource.get_default()
+    if source is None or source.lookup(schema, True) is None:
+        raise BackendError(f"нет схемы настроек {schema} (это не GNOME?)")
     return Gio.Settings.new(schema)
 
 
@@ -67,6 +76,33 @@ def read_sources() -> list[LayoutSpec]:
 
 def read_xkb_options() -> list[str]:
     return list(_settings(SCHEMA_SOURCES).get_strv("xkb-options"))
+
+
+def index_of_mru(raw: list[tuple[str, str]], specs: list[LayoutSpec]) -> int | None:
+    """Индекс текущей раскладки по mru-sources (первый элемент — текущий).
+
+    Чистая часть read_current_index: GNOME Shell обновляет mru-sources при
+    смене источника ввода, поэтому первый элемент — то, что реально видит
+    компоузитор.
+    """
+    if not raw:
+        return None
+    kind, ident = raw[0]
+    if kind != "xkb":
+        return None
+    try:
+        spec = LayoutSpec.parse(ident)
+    except BackendError:
+        return None
+    for i, s in enumerate(specs):
+        if (s.layout, s.variant) == (spec.layout, spec.variant):
+            return i
+    return None
+
+
+def read_current_index(specs: list[LayoutSpec]) -> int | None:
+    """Текущая раскладка компоузитора (для сверки с бэкендом IBus)."""
+    return index_of_mru(_settings(SCHEMA_SOURCES).get_value("mru-sources").unpack(), specs)
 
 
 def read_switch_bindings() -> list[list[int]]:

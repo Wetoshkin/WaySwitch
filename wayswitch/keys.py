@@ -24,16 +24,20 @@ def classify(name: str, key_caps: set[int]) -> str | None:
         return None
     if KEYBOARD_KEYS <= key_caps:
         return "keyboard"
-    if kc.BTN_LEFT in key_caps:
-        return "pointer"
+    if kc.BTN_LEFT in key_caps or kc.BTN_TOUCH in key_caps:
+        return "pointer"  # мышь, тачпад, сенсорный экран
     return None
 
 
 class DeviceWatcher:
     def __init__(self, on_key: Callable[[int, int, int], None], on_click: Callable[[], None],
                  on_resync: Callable[[int, list[int]], None], on_gone: Callable[[int], None],
-                 on_caps: Callable[[bool], None]):
+                 on_caps: Callable[[bool], None],
+                 on_scroll: Callable[[], None] | None = None):
         self.on_key, self.on_click = on_key, on_click
+        # Колесо мыши: само слово не трогает, но разрывает тап-жест (Ctrl+колесо
+        # — это масштаб, а не «перевернуть слово»).
+        self.on_scroll = on_scroll
         self.on_resync, self.on_gone, self.on_caps = on_resync, on_gone, on_caps
         self._devices: dict[str, tuple] = {}  # путь → (dev, device_id, kind, source_id)
         self._next_id = 1
@@ -165,6 +169,10 @@ class DeviceWatcher:
                 except OSError:
                     self._close(path)
                     return False
+                continue
+            if ev.type == ecodes.EV_REL:
+                if ev.code in kc.WHEEL_AXES and self.on_scroll is not None:
+                    self.on_scroll()
                 continue
             if ev.type != ecodes.EV_KEY:
                 continue

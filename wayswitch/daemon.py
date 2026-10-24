@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import logging
 import signal
+import threading
+import time
 from pathlib import Path
 
+from wayswitch import a11y as cfgmod_a11y
 from wayswitch import config as cfgmod
 from wayswitch.actuator import UInputTypist
+from wayswitch.backends.base import BackendError
+from wayswitch.backends.desktop import detect_desktop, session_summary
 from wayswitch.backends.select import choose_backend
 from wayswitch.controller import Controller
 from wayswitch.dbus_service import DaemonService
@@ -15,8 +20,13 @@ from wayswitch.detector import SENSITIVITY, Detector, LanguageModel
 from wayswitch.keymap import XkbKeymap
 from wayswitch.keys import DeviceWatcher
 from wayswitch.session import SessionGuard
+from wayswitch.sound import ensure_and_play
 
 log = logging.getLogger("wayswitch")
+
+STARTUP_ATTEMPTS = 12
+STARTUP_DELAY = 5
+RESTART = 75  # не в RestartPreventExitStatus: systemd перезапустит службу
 
 
 def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
@@ -30,15 +40,57 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     except OSError as e:
         log.error("не открыть /dev/uinput: %s (правило udev? см. wayswitch doctor)", e)
         return 1
-    backend = choose_backend(config.backend.prefer, typist, config.typing.settle_ms)
+    # При входе служба может стартовать раньше, чем KWin опубликовал раскладки
+    # или Shell включил расширение: даём среде минуту, прежде чем сдаться.
+    backend = None
+    for attempt in range(STARTUP_ATTEMPTS):
+        try:
+            backend = choose_backend(config.backend.prefer, typist, config.typing.settle_ms,
+                                     track_hotkey=config.backend.track_hotkey)
+            break
+        except BackendError as e:
+            if attempt == STARTUP_ATTEMPTS - 1:
+                # Перезапуск не поможет: среда та же. Код 4 — в RestartPreventExitStatus.
+                log.error("%s. Подробности: wayswitch doctor", e)
+                typist.close()
+                return 4
+            log.info("бэкенд пока недоступен (%s), повтор через %d с", e, STARTUP_DELAY)
+            time.sleep(STARTUP_DELAY)
+    log.info("среда: %s", session_summary())
     log.info("бэкенд раскладки: %s, источники: %s", backend.name,
              [s.xkb_id for s in backend.layouts()])
-    if backend.name == "shell":
+    if backend.name in ("kde", "sway", "hyprland"):
+        # Расширения нет: печатаем сканкодами через uinput. Раскладку
+        # переключает композитор, паузу после переключения ждёт wait_applied.
+        log.info("печать символов: uinput (бэкенд %s)", backend.name)
+        typist_for_controller = typist
+    elif backend.name == "shell" and config.backend.shell_typing == "uinput":
+        # Печать сканкодами через uinput, хотя раскладку переключает расширение:
+        # обход того, что виртуальное устройство Mutter теряет последнюю клавишу
+        # серии (пробел после исправленного слова). Сканкоды требуют уже
+        # применённой раскладки — SetLayout синхронен внутри Shell.
+        log.info("печать символов: uinput (shell_typing=uinput)")
+        typist_for_controller = typist
+    elif backend.name == "shell":
         from wayswitch.backends.gnome_shell import ShellTypist
 
         typist_for_controller = ShellTypist(backend)
     else:
         typist_for_controller = typist
+        if backend.name == "ibus" and not backend.verify_layout():
+            # На GNOME 46+ глобальный движок IBus — не то же самое, что
+            # раскладка компоузитора: set_global_engine() меняет движок, а
+            # раскладка ввода остаётся прежней. Демон тогда уверен, что
+            # переключил, стирает слово и печатает его в старой раскладке —
+            # на экране не меняется ничего.
+            log.error(
+                "IBus-движок расходится с раскладкой GNOME (источники: %s): на этом "
+                "GNOME IBus не переключает раскладку, автоисправление сломало бы "
+                "текст. Включите расширение wayswitch@siberia.ru "
+                "(gnome-extensions enable wayswitch@siberia.ru) и перезапустите "
+                "демон: systemctl --user restart wayswitch",
+                [s.xkb_id for s in backend.layouts()])
+            backend.supports_auto = False
     keymap = XkbKeymap.from_names(backend.layouts(), backend.xkb_options())
     models = {}
     for group in range(keymap.num_groups):
@@ -65,12 +117,56 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         exit_code = code
         loop.quit()
 
+    def restart(reason: str) -> None:
+        """Выйти с кодом RESTART: systemd (Restart=on-failure) поднимет службу
+        заново, и она выберет бэкенд и раскладки с нуля."""
+        log.info("перезапуск: %s", reason)
+        on_fatal(RESTART)
+
+    # Список раскладок поменялся — индексы сдвинулись, keymap устарел.
+    backend.on_layouts_changed = lambda: restart("список раскладок изменился")
+    if backend.name in ("ibus", "hotkey") and detect_desktop() == "gnome":
+        # Стартовали раньше расширения GNOME Shell: когда оно появится —
+        # перейти на него (без него на GNOME 46+ автоисправления нет).
+        from gi.repository import Gio
+
+        from wayswitch.backends.gnome_shell import BUS_NAME as SHELL_NAME
+
+        Gio.bus_watch_name(Gio.BusType.SESSION, SHELL_NAME, Gio.BusNameWatcherFlags.NONE,
+                           lambda *_: restart("появилось расширение GNOME Shell"), None)
+
     service: DaemonService | None = None
+    # Сведения о фокусе (приложение, поле пароля) нужны и автоисправлению, и
+    # ручным жестам: пароль, исправленный двойным Shift, не должен уйти в
+    # историю окна. Поток опроса стартует лениво, на первой клавише.
+    probe = cfgmod_a11y.make_probe(enabled=True)
+
+    last_beep = [0.0]
+
+    def _corrected(old: str, new: str, manual: bool) -> None:
+        """Событие исправления с текстом — наружу в D-Bus (окно, история)."""
+        if service is not None:
+            service.emit_corrected(old, new, manual)
+
+    def _fixed(manual: bool) -> None:
+        """Исправление выполнено — звук, в том числе в поле пароля."""
+        # controller.config, а не config из замыкания: после Reload настройка
+        # звука должна действовать сразу, без перезапуска демона.
+        now = time.monotonic()
+        if controller.config.general.sound_on_fix and not manual \
+                and now - last_beep[0] >= 0.1:
+            last_beep[0] = now
+            # Сигнал в отдельном потоке: плеер не должен задерживать ввод.
+            threading.Thread(
+                target=ensure_and_play, args=(cfgmod.config_dir(),), daemon=True).start()
     controller = Controller(
         config, keymap, detector, backend, typist_for_controller, pump=pump, dry_run=dry_run,
-        on_corrected=lambda o, f, m: service and service.emit_corrected(o, f, m),
+        on_corrected=lambda o, f, m: _corrected(o, f, m),
+        on_fixed=_fixed,
         on_status=lambda s: service and service.emit_status(s),
         persist_exception=cfgmod.add_exception,
+        probe=probe,
+        apps_provider=cfgmod.load_apps,
         # Исполнение фикса — вне диспатча evdev-источника: он не реентрантен, и
         # пока его колбэк не вернулся, события той же клавиатуры (отпускание
         # клавиш, прерывающее нажатие) не доставляются. См. Controller.__init__.
@@ -85,7 +181,8 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         controller.on_key(code, value, device_id)
 
     watcher = DeviceWatcher(on_key, controller.on_click, controller.on_resync,
-                            controller.on_device_gone, controller.set_caps)
+                            controller.on_device_gone, controller.set_caps,
+                            on_scroll=controller.on_scroll)
     watcher.start()
     if not any(kind == "keyboard" for _, _, kind in watcher.devices()):
         log.error("ни одной клавиатуры не открыто (права на /dev/input?)")
@@ -101,7 +198,8 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
 
     def reload() -> None:
         try:
-            controller.reload_config(cfgmod.load(config_path))
+            new_config = cfgmod.load(config_path)
+            controller.reload_config(new_config)
             detector.exceptions.clear()
             detector.exceptions.update(cfgmod.load_exceptions())
             log.info("конфиг перечитан")

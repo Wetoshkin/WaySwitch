@@ -9,8 +9,9 @@ def test_defaults_when_file_missing(tmp_path: Path):
     cfg = cfgmod.load(tmp_path / "nope.toml")
     assert cfg.general.auto_correct is True
     assert cfg.general.sensitivity == "normal"
-    assert cfg.typing.settle_ms == 30
+    assert cfg.typing.settle_ms == 120
     assert cfg.backend.prefer == "auto"
+    assert cfg.backend.shell_typing == "extension"
 
 
 def test_round_trip(tmp_path: Path):
@@ -55,3 +56,51 @@ def test_exceptions_file(tmp_path: Path):
     assert cfgmod.load_exceptions(p) == {"ghbdtn", "hello"}
     cfgmod.remove_exception("HELLO", p)
     assert cfgmod.load_exceptions(p) == {"ghbdtn"}
+
+
+def test_shell_typing_validation(tmp_path: Path):
+    p = tmp_path / "c.toml"
+    p.write_text('[backend]\nshell_typing = "uinput"\n', encoding="utf-8")
+    assert cfgmod.load(p).backend.shell_typing == "uinput"
+
+    p.write_text('[backend]\nshell_typing = "magic"\n', encoding="utf-8")
+    with pytest.raises(cfgmod.ConfigError):
+        cfgmod.load(p)
+
+
+def test_tap_key_validation(tmp_path: Path):
+    p = tmp_path / "c.toml"
+    p.write_text('[gesture]\nmanual = "tap_key"\ntap_key = "scrolllock"\n', encoding="utf-8")
+    assert cfgmod.load(p).gesture.tap_key == "scrolllock"
+
+    p.write_text('[gesture]\nmanual = "tap_key"\ntap_key = "нетакойклавиши"\n', encoding="utf-8")
+    with pytest.raises(cfgmod.ConfigError):
+        cfgmod.load(p)
+
+
+def test_old_default_settle_ms_is_migrated():
+    from wayswitch.config import from_dict
+
+    assert from_dict({"typing": {"settle_ms": 30}}).typing.settle_ms == 120
+    assert from_dict({"typing": {"settle_ms": 200}}).typing.settle_ms == 200
+
+
+def test_lists_in_foreign_encoding_do_not_crash(tmp_path):
+    from wayswitch.config import load_apps, load_exceptions
+
+    path = tmp_path / "apps.txt"
+    path.write_bytes("телеграм\n".encode("cp1251"))
+    assert len(load_apps(path)) == 1
+    assert len(load_exceptions(path)) == 1
+
+
+def test_selection_key_conflict_matches_validation():
+    from wayswitch.config import Gesture, selection_key_conflict
+
+    g = Gesture()  # двойной Shift
+    assert selection_key_conflict(g, "leftshift")
+    assert selection_key_conflict(g, "rightctrl") is None
+    assert selection_key_conflict(g, "pause", manual="pause_key")
+    g.tap_key, g.pause_hotkey = "rightctrl", "scrolllock"
+    assert selection_key_conflict(g, "rightctrl", manual="tap_key")
+    assert selection_key_conflict(g, "scrolllock")

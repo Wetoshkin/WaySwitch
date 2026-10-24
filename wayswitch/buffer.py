@@ -29,10 +29,13 @@ class BufferEvent:
 
 
 class InputBuffer:
-    def __init__(self, keymap: Keymap, phrase_timeout: float = 8.0, max_keys: int = 512):
+    def __init__(self, keymap: Keymap, phrase_timeout: float = 8.0, max_keys: int = 512,
+                 terminators: Iterable[int] = ()):
         self._keymap = keymap
         self.phrase_timeout = phrase_timeout
         self.max_keys = max_keys
+        # Клавиши, которые тоже заканчивают слово (Tab/Enter, если включено).
+        self._terminators = frozenset(terminators)
         self._keys: list[KeyPress] = []
         self._held: set[tuple[int, int]] = set()  # (device_id, code)
         self.caps = False
@@ -71,6 +74,14 @@ class InputBuffer:
 
     # --- сброс ----------------------------------------------------------------
 
+    def expire(self, now: float) -> bool:
+        """Сбросить фразу, если с последнего нажатия прошло больше phrase_timeout."""
+        if self._keys and self._last_time is not None \
+                and now - self._last_time > self.phrase_timeout:
+            self._keys.clear()
+            return True
+        return False
+
     def is_empty(self) -> bool:
         return not self._keys
 
@@ -84,6 +95,13 @@ class InputBuffer:
 
     def click(self) -> None:
         self.reset()
+
+    def held_snapshot(self) -> frozenset:
+        """Зажатые клавиши — чтобы потом повторить нажатия с тем же состоянием."""
+        return frozenset(self._held)
+
+    def restore_held(self, held: frozenset) -> None:
+        self._held = set(held)
 
     def resync(self, device_id: int, held_codes: Iterable[int]) -> None:
         """После SYN_DROPPED: заменить зажатые клавиши устройства снимком, буфер сбросить."""
@@ -133,6 +151,13 @@ class InputBuffer:
             event = None
         elif self.command_held():
             event = self._reset_event()  # Ctrl+X, Alt+Tab и т. п.
+        elif code in self._terminators and self._keys:
+            # Tab/Enter как конец слова: включается настройкой fix_on_tab /
+            # fix_on_enter. По умолчанию выключено — после Tab в терминале и
+            # IDE фокус уезжает в автодополнение, и перепечатка попала бы не туда.
+            word = self.current_word()
+            self.reset()
+            event = BufferEvent("word", word) if word else None
         elif code in kc.RESET_KEYS:
             event = self._reset_event()
         elif code == kc.KEY_BACKSPACE:
@@ -158,6 +183,10 @@ class InputBuffer:
         return event
 
     # --- чтение ---------------------------------------------------------------
+
+    def set_terminators(self, codes: Iterable[int]) -> None:
+        """Обновить клавиши-терминаторы (после правки настроек)."""
+        self._terminators = frozenset(codes)
 
     def current_word(self) -> list[KeyPress]:
         i = len(self._keys)
@@ -186,6 +215,11 @@ class InputBuffer:
         while start > 0 and self._keys[start - 1].code != kc.KEY_SPACE:
             start -= 1
         self._keys[start:end] = list(keys)
+
+    def replace_tail(self, count: int, keys: list[KeyPress]) -> None:
+        """Заменить последние count нажатий (откат исправления с пробелом внутри)."""
+        count = min(count, len(self._keys))
+        self._keys[len(self._keys) - count:] = list(keys)
 
     def replace_all(self, keys: list[KeyPress]) -> None:
         self._keys = list(keys)
