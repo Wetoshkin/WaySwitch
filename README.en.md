@@ -19,9 +19,9 @@
 
 WaySwitch fixes a word typed in the wrong layout (`ghbdtn` instead of
 «привет») right away, on Space — no hotkeys, no manual layout switching. It
-works on Wayland in GNOME, KDE Plasma, Sway, Hyprland, Xfce, MATE,
-Budgie, LXQt and (experimentally) Cinnamon, where classic tools of this kind can neither listen to the
-keyboard nor type for you. The interface is in Russian: WaySwitch currently
+works on Wayland in GNOME, KDE Plasma, Sway, Hyprland, Xfce, MATE, Budgie
+and LXQt, where classic tools of this kind can neither listen to the
+keyboard nor type for you. Linux Mint (Cinnamon) is not supported yet. The interface is in Russian: WaySwitch currently
 supports the Russian ↔ English pair.
 
 <p align="center">
@@ -69,9 +69,10 @@ Manjaro and most other modern distributions are fine.
 3. The script detects your distribution, says what it is going to do and
    asks for confirmation, then for your password (it is not shown while you
    type — that's normal).
-4. **Log out and back in.** WaySwitch starts by itself (on Sway and
-   Hyprland — once `exec wayswitch run` is in the config, see below); the first time you
-   open its window it checks the system and tells you if anything is missing.
+4. **Restart the computer** (save your documents first). WaySwitch then
+   starts by itself (on Sway and Hyprland — once `exec wayswitch run` is in
+   the config, see below); the first time you open its window it checks the
+   system and tells you if anything is missing.
 
 | Distribution | What happens |
 |---|---|
