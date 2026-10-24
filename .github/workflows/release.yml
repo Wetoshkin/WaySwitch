@@ -9,20 +9,59 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Индекс apt
-        run: sudo apt-get update
-      - name: Сборка .deb
-        # Тег обязан совпадать с версией в pyproject.toml (v2.0.0a1 ↔ 2.0.0a1),
-        # иначе релиз получит чужой номер версии в имени пакета.
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Проверки перед релизом
+        run: |
+          sudo apt-get update && sudo apt-get install -y libxkbcommon0 xkb-data
+          pip install pytest ruff evdev
+          python -m ruff check .
+          python -m pytest -q
+          node --input-type=module --check < extension/wayswitch@siberia.ru/extension.js
+      - name: Версии совпадают с тегом
+        # Тег обязан совпадать с версией в pyproject.toml и PKGBUILD
+        # (v2.0.0a2 ↔ 2.0.0a2), иначе пакеты получат чужой номер версии.
         run: |
           tag="${GITHUB_REF_NAME#v}"
           grep -q "^version = \"${tag}\"" pyproject.toml \
             || { echo "тег v${tag} не совпадает с version в pyproject.toml"; exit 1; }
+          grep -q "^pkgver=${tag}$" packaging/arch/PKGBUILD \
+            || { echo "тег v${tag} не совпадает с pkgver в packaging/arch/PKGBUILD"; exit 1; }
+      - name: Сборка .deb и .rpm
+        run: |
+          sudo apt-get install -y rpm
           bash tools/build_deb.sh
+          bash tools/build_rpm.sh
       - name: Публикация релиза
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/*.deb \
-            --generate-notes \
-            --title "WaySwitch $GITHUB_REF_NAME"
+          # a/b/rc в теге — предрелиз: проверка обновлений предлагает его
+          # только тем, у кого уже стоит предрелиз.
+          pre=""
+          case "$GITHUB_REF_NAME" in *a[0-9]*|*b[0-9]*|*rc[0-9]*) pre="--prerelease" ;; esac
+          cat > notes.md <<'EOF'
+          ## Установка и обновление
+
+          Одна команда в терминале (вставить — Ctrl+Shift+V):
+
+          ```bash
+          curl -fsSL https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/get.sh | sh
+          ```
+
+          Скрипт сам определит дистрибутив, покажет план и спросит подтверждение.
+          Для обновления — та же команда; настройки сохраняются. После установки
+          или обновления выйдите из сеанса и войдите снова.
+
+          Вручную: `.deb` — Ubuntu 24.04+, Debian 13+ (`sudo apt install ./wayswitch_*.deb`),
+          `.rpm` — Fedora (`sudo dnf install ./wayswitch-*.rpm`) и openSUSE
+          (`sudo zypper install --allow-unsigned-rpm ./wayswitch-*.rpm`).
+          EOF
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            # Повторный запуск workflow: перезалить пакеты, а не падать.
+            gh release upload "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm $pre \
+              --notes-file notes.md --generate-notes \
+              --title "WaySwitch $GITHUB_REF_NAME"
+          fi

@@ -1,5 +1,10 @@
 from wayswitch import keycodes as kc
-from wayswitch.backends.gnome_common import engine_name_for, index_of_engine, parse_gnome_binding
+from wayswitch.backends.gnome_common import (
+    engine_name_for,
+    index_of_engine,
+    index_of_mru,
+    parse_gnome_binding,
+)
 from wayswitch.backends.hotkey import HotkeyBackend
 from wayswitch.keymap import LayoutSpec
 
@@ -52,3 +57,34 @@ def test_hotkey_observe_physical_both_directions():
     backend.observe_physical(kc.KEY_LEFTMETA, 1)
     backend.observe_physical(kc.KEY_SPACE, 1)
     assert backend.current() == 0
+
+
+def test_index_of_mru_points_to_current_layout():
+    specs = [LayoutSpec("us"), LayoutSpec("ru")]
+    assert index_of_mru([("xkb", "us"), ("xkb", "ru")], specs) == 0
+    assert index_of_mru([("xkb", "ru"), ("xkb", "us")], specs) == 1
+    # Вариант раскладки — тот же источник, сопоставляем по паре layout+variant.
+    specs_v = [LayoutSpec("us", "dvorak"), LayoutSpec("ru")]
+    assert index_of_mru([("xkb", "ru"), ("xkb", "us+dvorak")], specs_v) == 1
+    assert index_of_mru([], specs) is None
+    assert index_of_mru([("ibus", "mozc")], specs) is None
+    assert index_of_mru([("xkb", "de")], specs) is None
+
+
+def test_shell_wait_applied_waits_settle(monkeypatch):
+    """После SetLayout композитору нужно время: пауза обязательна до печати."""
+    from wayswitch.backends import gnome_shell
+
+    backend = object.__new__(gnome_shell.GnomeShellBackend)
+    backend._settle = 25
+    backend._current = 1
+
+    slept = []
+    monkeypatch.setattr(gnome_shell.time, "sleep", lambda s: slept.append(s))
+
+    assert backend.wait_applied(1, 2.0) is True
+    assert slept == [0.025]
+
+    slept.clear()
+    assert backend.wait_applied(0, 2.0) is False
+    assert slept == [0.025]

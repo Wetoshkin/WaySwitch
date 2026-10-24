@@ -1,0 +1,24 @@
+# Maintainer: Wetoshkin <wetoshkin@gmail.com>
+# Пакет для Arch, CachyOS, EndeavourOS, Manjaro. Готов к публикации в AUR;
+# собрать локально: cd packaging/arch && makepkg -si
+pkgname=wayswitch
+pkgver=2.0.0a2
+pkgrel=1
+pkgdesc="Fixes words typed in the wrong keyboard layout on Wayland (ru/en)"
+arch=('any')
+url="https://github.com/Wetoshkin/WaySwitch"
+license=('MIT' 'CC-BY-SA-4.0')
+depends=('python' 'python-evdev' 'python-gobject' 'gtk4' 'libadwaita' 'libxkbcommon')
+optdepends=('gnome-shell: расширение для переключения раскладки в GNOME'
+            'gnome-shell-extension-appindicator: значок в верхней панели GNOME'
+            'ibus: запасной способ переключения раскладки в GNOME'
+            'pipewire: звук при исправлении (pw-play)')
+backup=('etc/xdg/autostart/wayswitch-session.desktop')
+install=wayswitch.install
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+    cd "WaySwitch-$pkgver"
+    bash tools/stage.sh "$pkgdir" /usr/lib/wayswitch
+}

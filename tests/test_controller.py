@@ -92,6 +92,16 @@ def test_dictionary_word_kept(env):
     assert env["typist"].events == [] and env["backend"].set_calls == []
 
 
+def test_fix_skipped_when_backend_layout_is_untrusted(env):
+    # IBus на GNOME 46+ меняет свой движок, а раскладка компоузитора остаётся
+    # прежней: перепечатка легла бы в старую раскладку, поэтому не трогаем текст.
+    env["backend"].layout_trusted = False
+    type_text(env, "ghbdtn ")
+    assert env["typist"].events == [] and env["backend"].set_calls == []
+    assert env["corrected"] == []
+    assert env["ctrl"].status()["corrections_total"] == 0
+
+
 def test_manual_double_shift_without_space(env):
     type_text(env, "ghbdtn")
     double_shift(env)
@@ -163,7 +173,8 @@ def test_abort_on_physical_key_during_fix(env):
     env["ctrl"].typist = env["typist"]
     type_text(env, "ghbdtn ")
     assert env["typist"].stuck() == set()
-    assert env["ctrl"].buffer.is_empty()
+    # Экран не тронут: буфер — то, что на нём, вместе с нажатой «a».
+    assert env["km"].decode(env["ctrl"].buffer.phrase(), US) == "ghbdtn a"
     assert env["corrected"] == []
 
 
@@ -408,12 +419,57 @@ def test_shift_press_during_fix_does_not_abort(env):
     assert env["typist"].stuck() == set()
 
 
-def test_shift_held_across_fix_end_is_still_tracked(env):
+def test_shift_held_during_fix_is_not_typed_through(env, monkeypatch):
+    # Shift следующего слова («ghbdtn Dfcz») зажат до первого Backspace:
+    # модификаторы общие для сеанса, и «привет» вышло бы «ПРИВЕТ». Не дождались
+    # отпускания — исправление прерывается, ничего не стёрто.
+    monkeypatch.setattr(controller_mod, "RELEASE_WAIT", 0.02)
     ctrl = env["ctrl"]
     reenter_during_fix(env, lambda: ctrl.on_key(kc.KEY_LEFTSHIFT, 1, 1))
     type_text(env, "ghbdtn ")
-    assert env["corrected"] == [("ghbdtn", "привет", False)]
+    assert env["corrected"] == []
+    assert kc.KEY_BACKSPACE not in [c for c, _ in env["typist"].taps()]
     assert ctrl.buffer.shift_held()  # нажат во время фикса, не отпущен — зажат
+
+
+def test_key_typed_before_first_backspace_is_kept_in_buffer(env):
+    # Буква следующего слова, нажатая до первого Backspace, прерывает
+    # исправление: экран не тронут, и нажатие досылается в буфер. Иначе
+    # «gjrf» осталось бы в буфере как «jrf», и исправление стёрло бы на
+    # символ меньше («gока»).
+    ctrl = env["ctrl"]
+
+    def press_g():
+        ctrl.on_key(kc.KEY_G, 1, 1)
+        ctrl.on_key(kc.KEY_G, 0, 1)
+
+    reenter_during_fix(env, press_g)
+    type_text(env, "ghbdtn ")
+    assert env["corrected"] == []
+    assert kc.KEY_BACKSPACE not in [c for c, _ in env["typist"].taps()]
+    type_text(env, "jrf ")
+    assert env["corrected"] == [("gjrf", "пока", False)]
+    assert [c for c, _ in env["typist"].taps()].count(kc.KEY_BACKSPACE) == len("gjrf ")
+
+
+def test_key_typed_after_first_backspace_skips_rest_of_word(env):
+    # После точки невозврата буква легла посреди перепечатки: слово на экране
+    # и в буфере разошлись — до пробела его не трогаем ни авто, ни жестом.
+    ctrl = env["ctrl"]
+
+    def press_g():
+        ctrl.on_key(kc.KEY_G, 1, 1)
+        ctrl.on_key(kc.KEY_G, 0, 1)
+
+    reenter_during_fix(env, press_g, at_event=60)
+    type_text(env, "ghbdtn ")
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+    before = len(env["typist"].taps())
+    type_text(env, "кот")  # раскладка уже русская
+    assert not ctrl.manual_word()
+    type_text(env, " ")
+    assert len(env["typist"].taps()) == before  # слово не тронуто
+    assert ctrl.buffer.is_empty()  # на пробеле буфер начат заново
 
 
 def test_third_shift_tap_during_word_fix_execution_yields_phrase(env):
@@ -505,3 +561,158 @@ def test_fix_waits_for_physical_shift_release(env):
     ctrl.pump = lambda: ctrl.on_key(kc.KEY_LEFTSHIFT, 0, 2)  # отпускание приходит в ожидании
     type_text(env, " ")
     assert typed_text(env) == "\b" * 7 + "привет "
+
+
+def enable_ctrl_gesture(env):
+    """Переключить жест на одиночный тап левого Ctrl (через reload_config)."""
+    cfg = Config()
+    cfg.gesture.manual = "tap_key"
+    env["ctrl"].reload_config(cfg)
+
+
+def ctrl_tap(env, times=1):
+    for _ in range(times):
+        env["ctrl"].on_key(kc.KEY_LEFTCTRL, 1, 1)
+        env["ctrl"].on_key(kc.KEY_LEFTCTRL, 0, 1)
+        env["clock"].now += 0.1
+
+
+def test_ctrl_tap_fixes_last_word(env):
+    enable_ctrl_gesture(env)
+    type_text(env, "ghbdtn")
+    ctrl_tap(env)
+    assert typed_text(env) == "\b" * 6 + "привет"
+    assert env["corrected"][-1][2] is True
+
+
+def test_ctrl_tap_undoes_auto_fix(env):
+    enable_ctrl_gesture(env)
+    type_text(env, "ghbdtn ")
+    env["typist"].events.clear()
+    ctrl_tap(env)
+    assert typed_text(env) == "\b" * 7 + "ghbdtn "
+    assert env["ctrl"].status()["undo_total"] == 1
+    assert env["exceptions"] == ["ghbdtn"]
+
+
+def test_ctrl_with_letter_is_shortcut_not_gesture(env):
+    enable_ctrl_gesture(env)
+    type_text(env, "ghbdtn")
+    env["typist"].events.clear()
+    env["ctrl"].on_key(kc.KEY_LEFTCTRL, 1, 1)
+    env["ctrl"].on_key(kc.KEY_A, 1, 1)
+    env["ctrl"].on_key(kc.KEY_A, 0, 1)
+    env["ctrl"].on_key(kc.KEY_LEFTCTRL, 0, 1)
+    assert [e for e in env["typist"].events if e[0] == kc.KEY_BACKSPACE] == []
+
+
+def test_ctrl_tap_with_empty_buffer_just_switches(env):
+    enable_ctrl_gesture(env)
+    ctrl_tap(env)
+    assert env["backend"].set_calls == [RU]
+
+
+def test_gesture_rebuilt_by_reload_config(env):
+    from wayswitch.gesture import ShiftGesture, TapKeyGesture
+
+    assert isinstance(env["ctrl"].gesture, ShiftGesture)
+    enable_ctrl_gesture(env)
+    assert isinstance(env["ctrl"].gesture, TapKeyGesture)
+    env["ctrl"].reload_config(Config())
+    assert isinstance(env["ctrl"].gesture, ShiftGesture)
+
+
+def test_tap_key_custom_key_works(env):
+    """Клавиша жеста настраивается: проверяем на ScrollLock."""
+    cfg = Config()
+    cfg.gesture.manual = "tap_key"
+    cfg.gesture.tap_key = "scrolllock"
+    env["ctrl"].reload_config(cfg)
+    type_text(env, "ghbdtn")
+    env["ctrl"].on_key(kc.KEY_SCROLLLOCK, 1, 1)
+    env["ctrl"].on_key(kc.KEY_SCROLLLOCK, 0, 1)
+    assert typed_text(env) == "\b" * 6 + "привет"
+
+
+def test_left_ctrl_is_not_gesture_when_another_key_mapped(env):
+    cfg = Config()
+    cfg.gesture.manual = "tap_key"
+    cfg.gesture.tap_key = "scrolllock"
+    env["ctrl"].reload_config(cfg)
+    type_text(env, "ghbdtn")
+    env["typist"].events.clear()
+    ctrl_tap(env)  # левый Ctrl больше не жест
+    assert [e for e in env["typist"].events if e[0] == kc.KEY_BACKSPACE] == []
+
+
+def test_enter_after_lost_key_releases_gesture(env):
+    # Буква легла посреди перепечатки — слово пропускаем, но Enter его
+    # заканчивает: жест на пустом буфере снова просто переключает раскладку.
+    ctrl = env["ctrl"]
+
+    def press_g():
+        ctrl.on_key(kc.KEY_G, 1, 1)
+        ctrl.on_key(kc.KEY_G, 0, 1)
+
+    reenter_during_fix(env, press_g, at_event=60)
+    type_text(env, "ghbdtn ")
+    ctrl.on_key(kc.KEY_ENTER, 1, 1)
+    ctrl.on_key(kc.KEY_ENTER, 0, 1)
+    sets = list(env["backend"].set_calls)
+    double_shift(env)
+    assert env["backend"].set_calls != sets
+
+
+def test_space_typed_during_fix_does_not_skip_next_word(env):
+    ctrl = env["ctrl"]
+
+    def type_word():
+        for code in (kc.KEY_G, kc.KEY_SPACE):
+            ctrl.on_key(code, 1, 1)
+            ctrl.on_key(code, 0, 1)
+
+    reenter_during_fix(env, type_word, at_event=60)
+    type_text(env, "ghbdtn ")
+    assert not ctrl._skip_word
+
+
+def test_fixed_callback_fires_even_when_text_is_secret(env):
+    from wayswitch.a11y import FocusSnapshot
+
+    class PasswordProbe:
+        def snapshot(self):
+            return FocusSnapshot("firefox", True, env["clock"]())
+
+        def poke(self):
+            pass
+
+    fixed = []
+    ctrl = env["ctrl"]
+    ctrl.probe = PasswordProbe()
+    ctrl.config.general.skip_password_fields = False  # исправлять, но молчать
+    ctrl.on_fixed = fixed.append
+    type_text(env, "ghbdtn ")
+    assert env["corrected"] == [] and fixed == [False]
+
+
+def test_device_gone_during_fix_does_not_resurrect_held_shift(env, monkeypatch):
+    # Shift зажат на второй клавиатуре, её выдернули посреди ожидания: снимок
+    # зажатых клавиш на входе в исправление устарел и не должен вернуться.
+    monkeypatch.setattr(controller_mod, "RELEASE_WAIT", 0.05)
+    ctrl = env["ctrl"]
+    type_text(env, "ghbdtn")
+    ctrl.on_key(kc.KEY_LEFTSHIFT, 1, 2)
+    fired = []
+
+    def pump():
+        if not fired:
+            fired.append(1)
+            ctrl.on_device_gone(2)
+            ctrl.on_key(kc.KEY_G, 1, 1)
+            ctrl.on_key(kc.KEY_G, 0, 1)
+
+    ctrl.pump = pump
+    ctrl.on_key(kc.KEY_SPACE, 1, 1)
+    ctrl.on_key(kc.KEY_SPACE, 0, 1)
+    assert fired
+    assert (2, kc.KEY_LEFTSHIFT) not in ctrl.buffer.held_physical()

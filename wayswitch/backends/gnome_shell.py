@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 
 from wayswitch.backends import gnome_common
@@ -25,14 +26,28 @@ def shell_extension_present() -> bool:
     return bool(reply.unpack()[0])
 
 
+def extension_version() -> int | None:
+    """Версия протокола загруженного расширения (None — старое, без GetVersion)."""
+    from gi.repository import Gio, GLib
+
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+    try:
+        reply = bus.call_sync(BUS_NAME, OBJECT_PATH, INTERFACE, "GetVersion", None,
+                              GLib.VariantType("(u)"), Gio.DBusCallFlags.NONE, 1000, None)
+    except GLib.Error:
+        return 1
+    return int(reply.unpack()[0])
+
+
 class GnomeShellBackend(LayoutBackend):
     name = "shell"
     supports_auto = True
 
-    def __init__(self):
+    def __init__(self, settle_ms: int = 30):
         from gi.repository import Gio, GLib
 
         self._GLib = GLib
+        self._settle = settle_ms
         self._specs = gnome_common.read_sources()
         self._proxy = Gio.DBusProxy.new_for_bus_sync(
             Gio.BusType.SESSION, Gio.DBusProxyFlags.NONE, None, BUS_NAME, OBJECT_PATH,
@@ -48,6 +63,13 @@ class GnomeShellBackend(LayoutBackend):
         # переопрашиваем раскладку — пользователь мог сменить её на экране входа.
         self._proxy.connect("notify::g-name-owner", self._on_owner_changed)
         self._current = self._query()
+        # Человек добавил или переставил раскладку — индексы сдвинулись.
+        try:
+            self._sources_settings = gnome_common._settings(gnome_common.SCHEMA_SOURCES)
+            self._sources_settings.connect("changed::sources",
+                                           lambda *_: self.layouts_changed())
+        except BackendError:
+            self._sources_settings = None
 
     def _query(self) -> int | None:
         index, _ident = self._proxy.call_sync("GetLayout", None, 0, 1000, None).unpack()
@@ -99,10 +121,27 @@ class GnomeShellBackend(LayoutBackend):
         self._current = index
 
     def wait_applied(self, index: int, timeout: float) -> bool:
-        return self._current == index  # SetLayout синхронен внутри Shell
+        # SetLayout внутри Shell синхронен, но композитору нужно несколько
+        # миллисекунд, чтобы новые события с клавиатуры уже раскладывались по
+        # новому keymap: иначе первый символ уходит в прежнюю раскладку.
+        if self._settle > 0:
+            time.sleep(self._settle / 1000)
+        return self._current == index
 
     def on_change(self, cb: Callable[[int, bool], None]) -> None:
         self._callbacks.append(cb)
+
+    def get_selection(self) -> str | None:
+        """Выделенный текст (PRIMARY) — через расширение, буфер обмена не трогаем."""
+        try:
+            (text,) = self._proxy.call_sync("GetSelection", None, 0, 1000, None).unpack()
+        except self._GLib.Error as exc:
+            if "UnknownMethod" in str(exc):
+                # Shell держит загруженной старую копию расширения до перелогина.
+                raise BackendError("расширение старой версии: выйдите из сеанса и "
+                                   "войдите снова") from exc
+            raise
+        return text or None
 
     def backspace(self, count: int) -> None:
         self._proxy.call_sync("Backspace", self._GLib.Variant("(u)", (count,)), 0, 2000, None)

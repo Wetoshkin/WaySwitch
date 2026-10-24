@@ -1,7 +1,7 @@
 import pytest
 
 from wayswitch import keycodes as kc
-from wayswitch.keymap import LayoutSpec, XkbKeymap
+from wayswitch.keymap import NUMPAD_KEYS, LayoutSpec, XkbKeymap
 
 pytestmark = pytest.mark.skipif(not XkbKeymap.available(), reason="нет libxkbcommon")
 
@@ -25,3 +25,14 @@ def test_xkb_dvorak_variant():
     km = XkbKeymap.from_names([LayoutSpec("us", "dvorak"), LayoutSpec("ru")], [])
     assert km.char(kc.KEY_Q, 0) == "'"
     assert km.key_for("q", 0) == (kc.KEY_X, False)
+
+
+@pytest.mark.parametrize("ch", [".", "/"])
+def test_xkb_points_to_main_keyboard_not_numpad(ch):
+    """Символы, которые есть и на цифровом блоке, печатаются основной клавишей."""
+    km = XkbKeymap.from_names([LayoutSpec("us"), LayoutSpec("ru")], [])
+    for group in (0, 1):
+        result = km.key_for(ch, group)
+        assert result is not None, (ch, group)
+        code, _shift = result
+        assert code not in NUMPAD_KEYS, (ch, group, code)

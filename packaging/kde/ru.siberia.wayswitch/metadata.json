@@ -1,0 +1,18 @@
+{
+    "KPlugin": {
+        "Authors": [{ "Name": "Wetoshkin", "Email": "wetoshkin@gmail.com" }],
+        "Category": "System Information",
+        "Description": "Fixes words typed in the wrong keyboard layout",
+        "Description[ru]": "Исправляет слова, набранные не в той раскладке",
+        "Icon": "ru.siberia.WaySwitch",
+        "Id": "ru.siberia.wayswitch",
+        "License": "MIT",
+        "Name": "WaySwitch",
+        "Version": "2.0.0a2",
+        "Website": "https://github.com/Wetoshkin/WaySwitch"
+    },
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "X-Plasma-NotificationArea": "true",
+    "X-Plasma-NotificationAreaCategory": "Hardware"
+}
