@@ -8,7 +8,7 @@
         "Id": "ru.siberia.wayswitch",
         "License": "MIT",
         "Name": "WaySwitch",
-        "Version": "2.0.0a3",
+        "Version": "2.0.0a4",
         "Website": "https://github.com/Wetoshkin/WaySwitch"
     },
     "KPackageStructure": "Plasma/Applet",
