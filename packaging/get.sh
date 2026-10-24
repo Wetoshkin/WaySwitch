@@ -78,17 +78,25 @@ need_sudo() {
   sudo -v || die "sudo не сработал: ваша учётная запись не может выполнять команды администратора. Добавьте её в группу sudo (или wheel) от имени root и войдите снова." \
                  "sudo failed: your account cannot run admin commands. Add it to the sudo (or wheel) group as root and log in again."
 }
-asset_url() { # $1 = расширение: deb | rpm
-  have curl || die "Нужен curl." "curl is required."
-  curl -fsSL "$API" | grep -o "https://[^\"]*\.$1\"" | tr -d '"' | head -n1
-}
 fetch() { # скачать пакет релиза во временную папку, напечатать путь
-  url=$(asset_url "$1") || url=""
-  [ -n "$url" ] || die "Не удалось получить пакет .$1 с GitHub (нет сети или релиза)." \
-                       "Could not get the .$1 package from GitHub (no network or release)."
-  curl -fL --progress-bar -o "$TMP/${url##*/}" "$url" \
-    || die "Не удалось скачать $url" "Could not download $url"
+  # Код возврата: 0 — скачан, 2 — в последнем релизе нет такого пакета,
+  # 1 — GitHub недоступен.
+  have curl || die "Нужен curl." "curl is required."
+  api=$(curl -fsSL "$API") || return 1
+  url=$(printf '%s' "$api" | grep -o "https://[^\"]*\.$1\"" | tr -d '"' | head -n1)
+  [ -n "$url" ] || return 2
+  curl -fL --progress-bar -o "$TMP/${url##*/}" "$url" || return 1
   printf '%s' "$TMP/${url##*/}"
+}
+get_package() { # $1 = deb | rpm; путь в $PKG, пусто — ставить из исходников
+  PKG=$(fetch "$1") && rc=0 || rc=$?
+  case "$rc" in
+    0) ;;
+    2) PKG=""
+       [ "$ATOMIC" = 1 ] && die "В последнем релизе нет пакета .$1 — на этой системе без него не поставить. Попробуйте позже."                                 "The latest release has no .$1 package; this system cannot install without it. Try again later."
+       warn "В последнем релизе нет пакета .$1 — ставлю из исходников."             "The latest release has no .$1 package — installing from source." ;;
+    *) die "Не удалось связаться с GitHub. Проверьте интернет и запустите команду снова."            "Could not reach GitHub. Check your internet connection and run the command again." ;;
+  esac
 }
 from_source() { # $1 = install.sh | uninstall.sh
   if [ -n "${WAYSWITCH_SRC:-}" ]; then
@@ -123,8 +131,8 @@ enable_extension() { # GNOME: расширение из пакета включ�
   cur=$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null || echo "@as []")
   case "$cur" in
     *wayswitch@siberia.ru*) ;;
-    "@as []"|"[]") gsettings set org.gnome.shell enabled-extensions "['wayswitch@siberia.ru']" ;;
-    *) gsettings set org.gnome.shell enabled-extensions "${cur%]}, 'wayswitch@siberia.ru']" ;;
+    "@as []"|"[]") gsettings set org.gnome.shell enabled-extensions "['wayswitch@siberia.ru']" 2>/dev/null ;;
+    *) gsettings set org.gnome.shell enabled-extensions "${cur%]}, 'wayswitch@siberia.ru']" 2>/dev/null ;;
   esac
 }
 A11Y_PREV="${XDG_CONFIG_HOME:-$HOME/.config}/wayswitch/a11y-prev"
@@ -158,7 +166,7 @@ if [ "$MODE" = uninstall ]; then
   ask "Удалить WaySwitch?" "Remove WaySwitch?" || exit 0
   need_sudo
   systemctl --user disable --now wayswitch 2>/dev/null || true
-  if   have dpkg   && dpkg -s wayswitch >/dev/null 2>&1; then sudo apt remove -y wayswitch
+  if   have dpkg   && dpkg -s wayswitch >/dev/null 2>&1; then sudo apt purge -y wayswitch
   elif [ "$ATOMIC" = 1 ] && rpm -q wayswitch >/dev/null 2>&1; then sudo rpm-ostree uninstall wayswitch
   elif have rpm    && rpm -q wayswitch >/dev/null 2>&1;  then
        if have dnf; then sudo dnf remove -y wayswitch; else sudo zypper --non-interactive remove wayswitch; fi
@@ -217,14 +225,19 @@ ask "Продолжить?" "Continue?" || exit 0
 step "Устанавливаю" "Installing"
 need_sudo
 case "$FAMILY" in
-  deb)    f=$(fetch deb); drop_source_copy; sudo apt install -y "$f"
+  deb)    get_package deb
+          if [ -n "$PKG" ]; then drop_source_copy; sudo apt install -y "$PKG"; else from_source install.sh; fi
           # Значок в верхней панели GNOME — через AppIndicator (в Ubuntu уже есть).
           case "${XDG_CURRENT_DESKTOP:-}" in *GNOME*)
             sudo apt install -y gnome-shell-extension-appindicator >/dev/null 2>&1 || true ;;
           esac ;;
-  fedora) f=$(fetch rpm); drop_source_copy
-          if [ "$ATOMIC" = 1 ]; then sudo rpm-ostree install -y "$f"; else sudo dnf install -y "$f"; fi ;;
-  suse)   f=$(fetch rpm); drop_source_copy; sudo zypper --non-interactive install --allow-unsigned-rpm "$f" ;;
+  fedora) get_package rpm
+          if [ -z "$PKG" ]; then from_source install.sh
+          elif [ "$ATOMIC" = 1 ]; then drop_source_copy; sudo rpm-ostree install -y "$PKG"
+          else drop_source_copy; sudo dnf install -y "$PKG"; fi ;;
+  suse)   get_package rpm
+          if [ -n "$PKG" ]; then drop_source_copy; sudo zypper --non-interactive install --allow-unsigned-rpm "$PKG"
+          else from_source install.sh; fi ;;
   arch)   if [ -n "$h" ]; then drop_source_copy; "$h" -S --needed --noconfirm wayswitch; else from_source install.sh; fi ;;
   *)      from_source install.sh ;;
 esac

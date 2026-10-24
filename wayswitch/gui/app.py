@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 
 from wayswitch import __version__, updates
@@ -22,6 +23,8 @@ from wayswitch.gui.tray import StatusNotifier
 # и падает с «Failed to register», не показав окна. С отдельным именем окно
 # открывается, а демон остаётся доступен через DaemonProxy.
 APP_ID = "ru.siberia.WaySwitch.Settings"
+
+log = logging.getLogger("wayswitch")
 
 # Первая проверка обновлений — не сразу после входа: сеть ещё поднимается.
 UPDATE_FIRST_DELAY_SEC = 20
@@ -237,7 +240,11 @@ def main(argv: list[str] | None = None) -> int:
             except cfgmod.ConfigError:
                 return
             cfg.general.auto_correct = not cfg.general.auto_correct
-            cfgmod.save(cfg)
+            try:
+                cfgmod.save(cfg)
+            except (cfgmod.ConfigError, OSError) as exc:
+                log.warning("настройка не сохранена: %s", exc)
+                return
             self.proxy.call("Reload")
 
         # --- обновления ----------------------------------------------------------
