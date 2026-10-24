@@ -198,7 +198,8 @@ class MainWindow:
         box.append(self.history_box)
         note = Gtk.Label(
             label="Кнопка «↶» запоминает слово: WaySwitch больше не будет его исправлять. "
-                  "Вернуть текст, исправленный только что, можно тем же жестом.",
+                  "Если слово исправилось зря — сразу нажмите жест исправления (по "
+                  "умолчанию дважды Shift), и оно вернётся.",
             xalign=0.0, wrap=True, margin_top=10, margin_start=2)
         note.add_css_class("dim-label")
         note.add_css_class("caption")
@@ -210,8 +211,9 @@ class MainWindow:
 
         page = Adw.StatusPage(icon_name="system-shutdown-symbolic",
                               title="WaySwitch не запущен",
-                              description="Слова сейчас не исправляются. Служба могла "
-                                          "завершиться с ошибкой или ещё не включена.")
+                              description="Слова сейчас не исправляются. Нажмите "
+                                          "«Запустить». Если не поможет — перезагрузите "
+                                          "компьютер.")
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10,
                       halign=Gtk.Align.CENTER)
         start = Gtk.Button(label="Запустить")
@@ -286,14 +288,15 @@ class MainWindow:
         from gi.repository import GLib
 
         if not autostart.start_service():
-            self.toast("Не удалось запустить службу — откройте журнал")
+            self.toast("Не получилось запустить. Перезагрузите компьютер и откройте "
+                       "WaySwitch снова")
             return
 
         def check():
             # Служба могла стартовать и сразу выйти (например, не нашла,
             # чем переключать раскладку): подсказать, где искать причину.
             if self.app.proxy.status is None:
-                self.toast("Служба не запустилась", "Журнал",
+                self.toast("WaySwitch не запустился. Причина — в журнале", "Журнал",
                            lambda: dialogs.journal_dialog(self.window))
             return GLib.SOURCE_REMOVE
 

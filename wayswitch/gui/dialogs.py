@@ -244,8 +244,8 @@ def selection_row(cfg) -> tuple[str, str, list[str]]:
     """Строка «Выделенный текст» для «Жесты и клавиши»."""
     if cfg.gesture.selection_key:
         return ("Выделенный текст", "", [gesture_keys.human_name(cfg.gesture.selection_key)])
-    return ("Выделенный текст", "Клавиша не выбрана: меню значка или команда "
-            "wayswitch fix-selection", [])
+    return ("Выделенный текст", "Клавиша не выбрана. Выберите её в Параметрах → "
+            "Исправление → «Исправить выделенное»", [])
 
 
 def shortcuts_dialog(parent, cfg):

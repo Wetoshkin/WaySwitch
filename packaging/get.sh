@@ -171,7 +171,7 @@ check_adwaita_deb() { # окну нужна libadwaita 1.5+ (Ubuntu 24.04+, Debi
   have apt-cache || return 0
   v=$(apt-cache policy gir1.2-adw-1 2>/dev/null | awk '/Candidate:/ {print $2}')
   if [ -z "$v" ] || [ "$v" = "(none)" ] || ! dpkg --compare-versions "$v" ge 1.5; then
-    die "Эта версия системы слишком старая: WaySwitch нужны Ubuntu 24.04 или новее (Linux Mint 22+, Debian 13+)." \
+    die "Эта версия системы слишком старая: WaySwitch нужны Ubuntu 24.04 или новее (Debian 13+). Ничего не установлено. Обновите систему через «Обновление приложений» и запустите команду снова." \
         "This system is too old: WaySwitch needs Ubuntu 24.04 or newer (Linux Mint 22+, Debian 13+)."
   fi
 }
@@ -209,15 +209,18 @@ case "${XDG_CURRENT_DESKTOP:-}" in
   *sway*|*Sway*) say "  Композитор: Sway" "  Compositor: Sway" ;;
   *XFCE*)     say "  Рабочий стол: Xfce" "  Desktop: Xfce" ;;
   *MATE*)     say "  Рабочий стол: MATE" "  Desktop: MATE" ;;
-  *Cinnamon*) say "  Рабочий стол: Cinnamon (поддержка экспериментальная)" "  Desktop: Cinnamon (experimental support)" ;;
+  *Cinnamon*) warn "Рабочий стол Cinnamon (Linux Mint) WaySwitch пока не поддерживает: установить можно, но слова, скорее всего, исправляться не будут." \
+                   "The Cinnamon desktop (Linux Mint) is not supported yet: you can install, but words will most likely not be fixed." ;;
   *Budgie*)   say "  Рабочий стол: Budgie" "  Desktop: Budgie" ;;
   *LXQt*)     say "  Рабочий стол: LXQt" "  Desktop: LXQt" ;;
   *)       warn "Рабочий стол «${XDG_CURRENT_DESKTOP:-неизвестно}»: WaySwitch его не знает. Поддерживаются GNOME, KDE, Xfce, MATE, Cinnamon, Budgie, LXQt, Sway, Hyprland." \
                 "Desktop \"${XDG_CURRENT_DESKTOP:-unknown}\": WaySwitch does not know it. Supported: GNOME, KDE, Xfce, MATE, Cinnamon, Budgie, LXQt, Sway, Hyprland." ;;
 esac
+NOT_WAYLAND=0
 if [ "${XDG_SESSION_TYPE:-}" != wayland ]; then
-  warn "Сеанс не Wayland (${XDG_SESSION_TYPE:-неизвестно}). На экране входа выберите сеанс Wayland." \
-       "Not a Wayland session (${XDG_SESSION_TYPE:-unknown}). Pick a Wayland session on the login screen."
+  NOT_WAYLAND=1
+  warn "Сейчас включён старый режим графики (${XDG_SESSION_TYPE:-неизвестно}) — в нём WaySwitch работать НЕ будет. Как переключить: выйдите из системы, на экране входа нажмите на своё имя, затем на значок шестерёнки в правом нижнем углу и выберите «Ubuntu» или «GNOME» (не «on Xorg»); в KDE — «Plasma (Wayland)». Потом запустите эту команду снова." \
+       "The old graphics mode (${XDG_SESSION_TYPE:-unknown}) is on — WaySwitch will NOT work in it. Log out, click your name on the login screen, then the gear icon at the bottom right, and pick a session without «Xorg»; in KDE — «Plasma (Wayland)». Then run this command again."
 fi
 case "$FAMILY" in deb|fedora|suse)
   have curl || die "Нужен curl: установите его менеджером пакетов и запустите снова." \
@@ -239,7 +242,11 @@ case "$FAMILY" in
   *)      PLAN_RU="установить из исходников (packaging/install.sh)";       PLAN_EN="install from source (packaging/install.sh)" ;;
 esac
 say "  План: $PLAN_RU." "  Plan: $PLAN_EN."
-ask "Продолжить?" "Continue?" || exit 0
+if [ "$NOT_WAYLAND" = 1 ]; then
+  ask "Всё равно установить?" "Install anyway?" || exit 0
+else
+  ask "Продолжить?" "Continue?" || exit 0
+fi
 
 # --- Установка ---------------------------------------------------------------
 # Обновление: автозапуск службы, выключенный человеком, не включаем снова.
@@ -282,10 +289,10 @@ if [ "$ATOMIC" = 1 ]; then
   say "  Осталось перезагрузить компьютер. После перезагрузки откройте WaySwitch из меню приложений — он проверит систему и включит службу." \
       "  Now restart the computer. After the restart open WaySwitch from the app menu — it will check the system and enable the service."
 else
-  say "  Осталось выйти из системы и войти снова — так WaySwitch получит доступ к клавиатуре." \
-      "  Now log out and log back in — this gives WaySwitch access to the keyboard."
-  say "  После входа откройте WaySwitch из меню приложений: он проверит систему и подскажет, если чего-то не хватает." \
-      "  After logging in, open WaySwitch from the app menu: it checks the system and tells you if anything is missing."
+  say "  Осталось сохранить открытые документы и перезагрузить компьютер — так WaySwitch получит доступ к клавиатуре." \
+      "  Now save your open documents and restart the computer — this gives WaySwitch access to the keyboard."
+  say "  После перезагрузки откройте WaySwitch из меню приложений: он проверит систему и подскажет, если чего-то не хватает." \
+      "  After the restart, open WaySwitch from the app menu: it checks the system and tells you if anything is missing."
 fi
 case "${XDG_CURRENT_DESKTOP:-}" in *Hyprland*|*sway*|*Sway*)
   say "  Автозапуск в Sway и Hyprland: добавьте в конфиг exec wayswitch run (Hyprland: exec-once = wayswitch run)." \
@@ -293,4 +300,5 @@ case "${XDG_CURRENT_DESKTOP:-}" in *Hyprland*|*sway*|*Sway*)
   say "  Модуль для Waybar: wayswitch gui → Параметры → Система." \
       "  Waybar module: wayswitch gui → Preferences → System." ;;
 esac
-say "  Проверить, что всё в порядке: wayswitch doctor" "  To check that everything is fine: wayswitch doctor"
+say "  Если что-то не работает — в окне WaySwitch откройте меню ☰ → «О WaySwitch» → «Устранение неполадок»: там полный отчёт." \
+    "  If something does not work, open the WaySwitch window → menu ☰ → «About» → «Troubleshooting» for a full report."
