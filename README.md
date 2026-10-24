@@ -75,6 +75,32 @@ Sway, Hyprland, а также в Xfce, MATE, Budgie и LXQt — там, где �
   <img src="docs/screenshots/prefs-light.png" width="400" alt="Параметры WaySwitch">
 </p>
 
+### В других окружениях
+
+**KDE Plasma** — виджет в системном лотке: состояние, раскладка, пауза одним
+переключателем. Параметры открываются в том же окне WaySwitch.
+
+<p align="center">
+  <img src=".github/assets/de-kde.png" width="520" alt="Виджет WaySwitch в системном лотке KDE Plasma">
+</p>
+
+**Xfce, MATE, LXQt, Budgie** — значок в области уведомлений, меню у него
+одинаковое во всех средах.
+
+<p align="center">
+  <img src=".github/assets/de-panels.png" width="100%" alt="Меню значка WaySwitch в Xfce, MATE и LXQt">
+</p>
+
+**Sway и Hyprland** — модуль для Waybar: показывает раскладку и на
+мгновение — что исправлено; щелчок ставит паузу, правый — открывает окно.
+
+<p align="center">
+  <img src=".github/assets/de-hyprland.png" width="100%" alt="WaySwitch в Hyprland: модуль Waybar, wayswitch doctor в терминале и окно WaySwitch">
+</p>
+<p align="center">
+  <img src=".github/assets/de-waybar.png" width="560" alt="Состояния модуля Waybar: работает, исправлено, отменено, пауза, не запущен">
+</p>
+
 ## <img src=".github/assets/sec-install.png" width="28" align="top"> Установка
 
 **Что нужно:** Ubuntu 24.04 или новее (или Kubuntu, Debian 13, Fedora 41+,
