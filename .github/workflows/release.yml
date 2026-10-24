@@ -43,7 +43,8 @@ jobs:
           cat > notes.md <<'EOF'
           ## Установка и обновление
 
-          Одна команда в терминале (вставить — Ctrl+Shift+V):
+          Откройте терминал (клавиша с логотипом Windows → наберите «Терминал»),
+          вставьте команду сочетанием Ctrl+Shift+V и нажмите Enter:
 
           ```bash
           curl -fsSL https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/get.sh | sh
@@ -51,11 +52,15 @@ jobs:
 
           Скрипт сам определит дистрибутив, покажет план и спросит подтверждение.
           Для обновления — та же команда; настройки сохраняются. После установки
-          или обновления выйдите из сеанса и войдите снова.
+          перезагрузите компьютер.
 
-          Вручную: `.deb` — Ubuntu 24.04+, Debian 13+ (`sudo apt install ./wayswitch_*.deb`),
-          `.rpm` — Fedora (`sudo dnf install ./wayswitch-*.rpm`) и openSUSE
-          (`sudo zypper install --allow-unsigned-rpm ./wayswitch-*.rpm`).
+          Вручную: скачайте файл ниже — `.deb` для Ubuntu 24.04+ и Debian 13+,
+          `.rpm` для Fedora и openSUSE — и выполните в терминале:
+          `sudo apt install "$(xdg-user-dir DOWNLOAD)"/wayswitch_*.deb` (Ubuntu, Debian),
+          `sudo dnf install "$(xdg-user-dir DOWNLOAD)"/wayswitch-*.rpm` (Fedora) или
+          `sudo zypper install --allow-unsigned-rpm "$(xdg-user-dir DOWNLOAD)"/wayswitch-*.rpm` (openSUSE).
+
+          ## Для разработчиков: список изменений
           EOF
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             # Повторный запуск workflow: перезалить пакеты, а не падать.
