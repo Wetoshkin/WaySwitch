@@ -135,6 +135,7 @@ class AtspiProbe:
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._ok = True
+        self._last_activity = 0.0
 
     # --- публичное ----------------------------------------------------------
 
@@ -143,6 +144,9 @@ class AtspiProbe:
             return self._snap
 
     def poke(self) -> None:
+        # Активность отмечаем всегда, даже если будить не стали: иначе поток
+        # погас бы по простою посреди набора.
+        self._last_activity = self._clock()
         alive = self._thread is not None and self._thread.is_alive()
         if alive and self.snapshot().age(self._clock()) < POKE_FRESH_SEC:
             return
@@ -172,14 +176,13 @@ class AtspiProbe:
         self._thread.start()
 
     def _run(self) -> None:
-        last_poke = self._clock()
+        self._last_activity = self._clock()
         while not self._stop.is_set():
             self._refresh()
             # Ждём либо таймаут, либо «опроси пораньше» от контроллера.
             if self._wake.wait(self._poll):
                 self._wake.clear()
-                last_poke = self._clock()
-            elif self._clock() - last_poke > IDLE_STOP_SEC:
+            elif self._clock() - self._last_activity > IDLE_STOP_SEC:
                 # Ввода давно нет — гасим поток; следующий poke() поднимет снова.
                 # Снимок помечаем старым (taken_at=0): «свежее» пустое значение
                 # три секунды выдавало бы себя за «ограничений нет».

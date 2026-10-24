@@ -114,11 +114,17 @@ from_source() { # $1 = install.sh | uninstall.sh
            "Could not download the source from GitHub (no network?)."
   sudo bash "$TMP/src/packaging/$1"
 }
+TRAY_AUTOSTART="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/ru.siberia.WaySwitch.Settings.desktop"
 drop_source_copy() { # копия из исходников мешает пакету: её служба и расширение перекрывают пакетные
   if [ -f "$SOURCE_UNINSTALL" ]; then
     say "  Убираю прежнюю установку из исходников (/usr/local)…" \
         "  Removing the previous from-source installation (/usr/local)…"
+    # Значок при входе сохраняем сами: старые копии uninstall.sh его удаляли.
+    tray=""; [ -f "$TRAY_AUTOSTART" ] && tray=$(cat "$TRAY_AUTOSTART")
     sudo WAYSWITCH_MIGRATE=1 bash "$SOURCE_UNINSTALL" >/dev/null
+    if [ -n "$tray" ] && [ ! -f "$TRAY_AUTOSTART" ]; then
+      printf '%s\n' "$tray" > "$TRAY_AUTOSTART"
+    fi
   fi
 }
 aur_helper() { for h in paru yay; do have "$h" && { echo "$h"; return; }; done; }

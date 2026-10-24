@@ -693,3 +693,26 @@ def test_fixed_callback_fires_even_when_text_is_secret(env):
     ctrl.on_fixed = fixed.append
     type_text(env, "ghbdtn ")
     assert env["corrected"] == [] and fixed == [False]
+
+
+def test_device_gone_during_fix_does_not_resurrect_held_shift(env, monkeypatch):
+    # Shift зажат на второй клавиатуре, её выдернули посреди ожидания: снимок
+    # зажатых клавиш на входе в исправление устарел и не должен вернуться.
+    monkeypatch.setattr(controller_mod, "RELEASE_WAIT", 0.05)
+    ctrl = env["ctrl"]
+    type_text(env, "ghbdtn")
+    ctrl.on_key(kc.KEY_LEFTSHIFT, 1, 2)
+    fired = []
+
+    def pump():
+        if not fired:
+            fired.append(1)
+            ctrl.on_device_gone(2)
+            ctrl.on_key(kc.KEY_G, 1, 1)
+            ctrl.on_key(kc.KEY_G, 0, 1)
+
+    ctrl.pump = pump
+    ctrl.on_key(kc.KEY_SPACE, 1, 1)
+    ctrl.on_key(kc.KEY_SPACE, 0, 1)
+    assert fired
+    assert (2, kc.KEY_LEFTSHIFT) not in ctrl.buffer.held_physical()
