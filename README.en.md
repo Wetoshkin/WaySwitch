@@ -55,6 +55,14 @@ supports the Russian ↔ English pair.
 - **Exceptions.** Words and programs to leave alone. Password fields are skipped.
 
 <p align="center">
+  <img src=".github/assets/de-kde.png" width="420" alt="WaySwitch widget in the KDE Plasma system tray">
+  <br>
+  <img src=".github/assets/de-panels.png" width="100%" alt="WaySwitch tray menu in Xfce, MATE and LXQt">
+  <br>
+  <img src=".github/assets/de-hyprland.png" width="100%" alt="WaySwitch on Hyprland: Waybar module and the WaySwitch window">
+</p>
+
+<p align="center">
   <img src="docs/screenshots/main-dark.png" width="400" alt="WaySwitch main window">
   &nbsp;
   <img src="docs/screenshots/prefs-light.png" width="400" alt="WaySwitch preferences">
