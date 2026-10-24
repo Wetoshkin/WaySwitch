@@ -159,14 +159,16 @@ class ShellTypist:
         # keysym-ами и Caps Lock не трогает).
         self._keys = keys
 
-    def toggle_caps(self) -> None:
+    def toggle_caps(self) -> bool:
+        """Нажать Caps Lock; False — нечем (нет uinput-устройства)."""
         if self._keys is None:
-            return
+            return False
         from wayswitch import keycodes as kc
 
         for value in (1, 0):
             self._keys.key(kc.KEY_CAPSLOCK, value)
             self._keys.syn()
+        return True
 
     def backspace(self, count: int) -> None:
         self._backend.backspace(count)

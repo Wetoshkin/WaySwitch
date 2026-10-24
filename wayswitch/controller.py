@@ -75,6 +75,9 @@ class LastFix:
     # Человек мог стереть его и набрать то же слово заново — это уже не
     # «откатить исправление», а новое слово.
     end: int = -1
+    # Исправлено ранним триггером по началу слова: после него человек
+    # допечатывает слово, и ручной переворот всего слова — это отмена.
+    early: bool = False
 
 
 class Controller:
@@ -432,6 +435,21 @@ class Controller:
 
     # --- авторежим --------------------------------------------------------------
 
+    def _caps_remapped(self) -> bool:
+        """Caps Lock занят другим делом (переключение раскладки, Esc, Ctrl):
+        нажимать его, чтобы выключить регистр, нельзя — и светодиод может
+        означать вовсе не регистр."""
+        try:
+            options = self.backend.xkb_options()
+        except Exception:  # noqa: BLE001 — бэкенд не знает опций
+            return False
+        for opt in options:
+            o = opt.lower()
+            if o.startswith("caps:") or ("caps" in o and o.split(":")[0] in
+                                         ("grp", "grp_led", "ctrl", "lv3", "lv5", "shift")):
+                return True
+        return False
+
     def _auto_allowed(self) -> bool:
         return (self.config.general.auto_correct and not self.paused and not self.locked
                 and getattr(self.backend, "supports_auto", False))
@@ -510,6 +528,13 @@ class Controller:
         return False
 
     def _on_word(self, keys: list[KeyPress], device_id: int, code: int) -> None:
+        last = self._last_fix
+        if last is not None and self._undo_counts:
+            # Следующее слово набрано, а прошлое исправление не отменили —
+            # значит, оно было верным: счётчик отмен для слова начинаем заново.
+            word = "".join(c for c in self.keymap.decode(last.original_keys, last.group_before)
+                           if c.isalpha() or c in "-'").lower()
+            self._undo_counts.pop(word, None)
         groups = self._groups()
         if groups is None:
             return
@@ -560,7 +585,8 @@ class Controller:
                                trigger=(device_id, code))
             return
         caps = self.detector.caps_lock_fix(keys, current, other) \
-            if self.config.general.caps_fix and self.buffer.caps else None
+            if self.config.general.caps_fix and self.buffer.caps \
+            and not self._caps_remapped() else None
         if caps:
             text, group = caps
             self._schedule_fix(keys, 1, group, text + " ", manual=False, reason="caps-lock",
@@ -611,6 +637,7 @@ class Controller:
         if early:
             self._schedule_fix(keys, 0, other, early, manual=False, reason="early",
                                group_before=current, trigger=(device_id, code))
+            return
 
     # --- ручной режим -----------------------------------------------------------
 
@@ -668,8 +695,22 @@ class Controller:
                                span=True)
             return True
         text = self.keymap.decode(word, other)
+        done = None
+        if (last is not None and last.early and other == last.group_before
+                and self.clock() - last.time <= self.config.general.undo_window_sec
+                and word[:len(last.target_keys)] == last.target_keys):
+            # Слово начали, WaySwitch переключил раскладку по началу, человек
+            # дописал и вернул всё слово назад — это отмена раннего триггера.
+            letters = "".join(c for c in text if c.isalpha() or c in "-'").lower()
+
+            def done(ok: bool) -> None:
+                if ok and letters:
+                    self._last_fix = None
+                    self.stats["undo"] += 1
+                    self._note_undo(letters)
+
         self._schedule_fix(word, tail, other, text + " " * tail, manual=True,
-                           reason="manual", group_before=current)
+                           reason="manual", group_before=current, done=done)
         return True
 
     def _note_undo(self, word: str) -> None:
@@ -973,6 +1014,7 @@ class Controller:
         self._busy_keys = []
         self._busy_held = self.buffer.held_snapshot()
         self._busy_reset = False
+        outcome: dict = {}
         started = self.clock()
         try:
             if not self._wait_release(trigger):
@@ -983,12 +1025,16 @@ class Controller:
                                  key_delay=self.config.typing.key_delay_ms / 1000.0,
                                  sleep=self.sleep,
                                  restore_group=group_before if switch else None,
-                                 hold=self._wait_shift_released)
+                                 hold=self._wait_shift_released, outcome=outcome)
         except Exception as exc:  # noqa: BLE001 — execute сам ловит, это страховка
             log.error("исправление %s: ошибка %s", reason, exc)
             result = "failed"
         finally:
             self.busy = False
+        if outcome.get("caps_off"):
+            # Caps Lock нажат и не возвращён — выключен, чем бы ни кончилось
+            # исправление (светодиод подтвердит событием клавиатуры).
+            self.buffer.set_caps(False)
         lost, self._lost_input = self._lost_input, False
         busy_keys, self._busy_keys = self._busy_keys, []
         interrupted, self._busy_reset = self._busy_reset, False
@@ -1025,8 +1071,6 @@ class Controller:
         # хранит его неделями) исправленным словам делать нечего. text — через
         # %r как есть: по нему видно, ушёл ли пробел в конце.
         log.info("%s: исправлено за %.0f мс", reason, (self.clock() - started) * 1000)
-        if caps_off:
-            self.buffer.set_caps(False)  # светодиод подтвердит событием клавиатуры
         if not secret:
             log.debug("%s: %r → %r", reason, original, text)
         new_keys = [KeyPress(code, shift) for code, shift in
@@ -1049,7 +1093,8 @@ class Controller:
             self.stats["corrections"] += 1
             if not lost:
                 self._last_fix = LastFix(list(keys), word_keys, group_before, self.clock(),
-                                         end=len(self.buffer.phrase()) - tail)
+                                         end=len(self.buffer.phrase()) - tail,
+                                         early=reason == "early")
         if self.on_fixed:
             self.on_fixed(manual)
         if self.on_corrected and not secret:

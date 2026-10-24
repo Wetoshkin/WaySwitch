@@ -258,19 +258,26 @@ def selection_key_conflict(ge: Gesture, name: str, manual: str | None = None,
     совпадать). Общая проверка для конфига и окна «Параметры»: окно не должно
     принимать то, что конфиг потом откажется сохранить.
     """
-    name, manual = name.lower(), manual or ge.manual
+    manual = manual or ge.manual
+
+    def code(key_name: str):
+        # Сравниваем коды, а не имена: «esc» и «escape» — одна клавиша.
+        key_name = key_name.lower()
+        return KEY_NAMES.get(key_name, key_name) if key_name else None
+
     if not name:
         return None
+    name = code(name)
     for other, does in SELECTION_KEY_FIELDS.items():
-        if other != field and name == getattr(ge, other).lower():
+        if other != field and name == code(getattr(ge, other)):
             return f"эта клавиша уже {does}"
-    if manual == "tap_key" and name == ge.tap_key.lower():
+    if manual == "tap_key" and name == code(ge.tap_key):
         return "эта клавиша уже исправляет последнее слово"
-    if manual == "double_shift" and name in ("leftshift", "rightshift"):
+    if manual == "double_shift" and name in (code("leftshift"), code("rightshift")):
         return "Shift уже занят жестом «двойной Shift»"
-    if manual == "pause_key" and name == "pause":
+    if manual == "pause_key" and name == code("pause"):
         return "Pause уже занята жестом «клавиша Pause»"
-    if ge.pause_hotkey and name == ge.pause_hotkey.lower():
+    if ge.pause_hotkey and name == code(ge.pause_hotkey):
         return "эта клавиша ставит WaySwitch на паузу"
     return None
 

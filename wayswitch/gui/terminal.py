@@ -54,6 +54,14 @@ PREFERRED = {
 }
 
 
+# Что выполнит sh, если скачать скрипт не удалось: понятное сообщение, а не
+# пустота после ошибки curl.
+NO_NETWORK = ('echo; echo "Не удалось скачать WaySwitch с GitHub. Проверьте, что '
+              'интернет работает, и нажмите кнопку ещё раз."')
+NO_CURL = ('echo "Нужна программа curl. Установите её через «Центр приложений» '
+           '(или: sudo apt install curl / sudo dnf install curl) и нажмите кнопку ещё раз."')
+
+
 def script(uninstall: bool) -> str:
     """Скрипт для терминала: скачать get.sh, запустить, дождаться Enter."""
     args = " -s -- --uninstall" if uninstall else ""
@@ -61,9 +69,9 @@ def script(uninstall: bool) -> str:
     return (
         f'printf "\\n  {title}\\n\\n"; '
         f'URL={shlex.quote(GET_SH_URL)}; '
-        'if command -v curl >/dev/null 2>&1; then curl -fsSL "$URL"; '
-        'elif command -v wget >/dev/null 2>&1; then wget -qO- "$URL"; '
-        'else echo "Нужна программа curl: sudo apt install curl" >&2; fi'
+        'if command -v curl >/dev/null 2>&1; then '
+        f'curl -fsSL "$URL" || echo {shlex.quote(NO_NETWORK)}; '
+        f'else echo {shlex.quote(NO_CURL)}; fi'
         f' | sh{args}; '
         'printf "\\nНажмите Enter, чтобы закрыть это окно. "; read _'
     )

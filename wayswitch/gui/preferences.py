@@ -170,8 +170,13 @@ class Preferences:
         manual.add(self.row_key)
         # Клавиши действий над выделенным текстом: своя строка у каждой.
         self.sel_caps = {}
+        from wayswitch.backends.desktop import GNOME, detect_desktop
+
+        # Выделенный текст читает расширение GNOME Shell — в других средах
+        # клавиши ничего не сделают, о чём честно и пишем.
+        only_gnome = "" if detect_desktop() == GNOME else " (пока только в GNOME)"
         for field_name, title, subtitle, hint in texts.SELECTION_KEY_ROWS:
-            row = Adw.ActionRow(title=title, subtitle=subtitle, activatable=True)
+            row = Adw.ActionRow(title=title, subtitle=subtitle + only_gnome, activatable=True)
             cap = keycap("")
             row.add_suffix(cap)
             row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))

@@ -377,7 +377,10 @@ class Detector:
         for text, lang in ((a, cur), (b, oth)):
             if any(c.lower() not in LETTERS[lang] for c in text) or not text[1:].islower():
                 return None  # знаки, цифры, «ПРив», аббревиатуры — не трогаем
-        if a.lower() in self.exceptions or self.models[cur].has_prefix(a.lower()):
+        start = a.lower()
+        if any(e.startswith(start) for e in self.exceptions):
+            return None  # «ghbdtn» в исключениях — не трогать и его начало
+        if self.models[cur].has_prefix(start):
             return None
         if self.models[oth].prefix_count(b.lower(), EARLY_MIN_WORDS) < EARLY_MIN_WORDS:
             return None
