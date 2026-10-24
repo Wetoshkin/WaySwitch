@@ -73,6 +73,8 @@ jobs:
           cp -r . "/tmp/src/WaySwitch-$ver"
           tar -C /tmp/src -czf "/pkg/wayswitch-$ver.tar.gz" "WaySwitch-$ver"
           sed -i "s|^source=.*|source=(\"wayswitch-$ver.tar.gz\")|" /pkg/PKGBUILD
+          # Архив собран из ветки, а не скачан с тега: сумма из PKGBUILD к нему не относится.
+          sed -i "s|^sha256sums=.*|sha256sums=('SKIP')|" /pkg/PKGBUILD
           chown -R b /pkg
           su b -c "cd /pkg && makepkg --nodeps"
           pacman -U --noconfirm /pkg/wayswitch-*.pkg.tar.zst
