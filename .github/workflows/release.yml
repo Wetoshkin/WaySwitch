@@ -54,7 +54,8 @@ jobs:
           или обновления выйдите из сеанса и войдите снова.
 
           Вручную: `.deb` — Ubuntu 24.04+, Debian 13+ (`sudo apt install ./wayswitch_*.deb`),
-          `.rpm` — Fedora и openSUSE (`sudo dnf install ./wayswitch-*.rpm`).
+          `.rpm` — Fedora (`sudo dnf install ./wayswitch-*.rpm`) и openSUSE
+          (`sudo zypper install --allow-unsigned-rpm ./wayswitch-*.rpm`).
           EOF
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             # Повторный запуск workflow: перезалить пакеты, а не падать.
