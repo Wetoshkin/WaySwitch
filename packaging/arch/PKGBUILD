@@ -16,7 +16,7 @@ optdepends=('gnome-shell: расширение для переключения �
 backup=('etc/xdg/autostart/wayswitch-session.desktop')
 install=wayswitch.install
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('1307080f8dee9f95c6766cafec590113bb8d2453fa0b8038648c16a6a35953ae')
 
 package() {
     cd "WaySwitch-$pkgver"
