@@ -15,7 +15,11 @@
   <a href="README.md">Русский</a> · <b>English</b>
 </p>
 
-**A modern Punto Switcher and Caramba Switcher alternative for Linux on Wayland.**
+**Automatic Russian–English keyboard layout correction for Linux on Wayland.**
+
+> [!NOTE]
+> Alpha software: test it in your applications before relying on it.
+> See the [desktop testing status](#status) below.
 
 WaySwitch fixes a word typed in the wrong layout (`ghbdtn` instead of
 «привет») right away, on Space — no hotkeys, no manual layout switching. It
@@ -54,6 +58,9 @@ supports the Russian ↔ English pair.
   a missing space before a capitalised word (`сонатуБаха` → «сонату Баха»).
 - **Exceptions.** Words and programs to leave alone. Password fields are skipped.
 
+The following desktop integrations are illustrated with mockups. Full testing
+with a physical keyboard is still needed; see [Status](#status).
+
 <p align="center">
   <img src=".github/assets/de-kde.png" width="420" alt="WaySwitch widget in the KDE Plasma system tray">
   <br>
@@ -71,8 +78,9 @@ supports the Russian ↔ English pair.
 ## Install
 
 **You need** a Wayland session (not X11) and two layouts — Russian and a
-Latin one. Ubuntu, Debian, Fedora, openSUSE, Arch, CachyOS, EndeavourOS,
-Manjaro and most other modern distributions are fine.
+Latin one. Supported installation targets include Ubuntu 24.04+, Debian 13+,
+Fedora 41+, openSUSE Tumbleweed, Arch and their compatible derivatives.
+The installer checks the system before making changes.
 
 1. Open a terminal (in KDE it is **Konsole**).
 2. Paste the command with <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> and press <kbd>Enter</kbd>:
@@ -141,15 +149,26 @@ on Silverblue and Kinoite — after a reboot). Preferences → System → **Remo
 
 A word was fixed by mistake — press <kbd>Shift</kbd> <kbd>Shift</kbd> right
 away. Still stuck — [open an issue](https://github.com/Wetoshkin/WaySwitch/issues/new)
-with the output of these commands (the window has it under About →
-Troubleshooting).
+with diagnostic output (also available under About → Troubleshooting).
+Remove private information before posting: verbose and dry-run logs may
+contain typed text. See [Contributing](CONTRIBUTING.md).
 
 ## FAQ
 
-**Is it safe?** WaySwitch reads key presses — otherwise it could not fix
-words. Typed text is never written anywhere or sent anywhere; corrected words
-do not even reach the log. The only network request is an anonymous “what is
-the latest version” (can be turned off). The code is open.
+**What happens to my data?** Correction runs locally; typed text is not sent
+over the network. Recent corrections are held in memory. Word exceptions,
+including those learned from undoing corrections, are saved to
+`~/.config/wayswitch/exceptions.txt`. Normal logs omit corrected words,
+but `--verbose` and `dry-run` can print typed text.
+
+Update checks contact the GitHub API. GitHub receives your IP address and
+the WaySwitch version in the `User-Agent`, but no typed text. You can turn
+update checks off in Preferences.
+
+Password-field detection depends on the application exposing that information.
+Pause WaySwitch before entering sensitive text in a field whose protection
+you have not verified. The udev rule grants keyboard access to other processes
+running as the active user as well.
 
 **X11?** No, WaySwitch is built for Wayland.
 
@@ -171,7 +190,9 @@ python -m ruff check .
 ```
 
 Packages: `bash tools/build_deb.sh`, `bash tools/build_rpm.sh`,
-`cd packaging/arch && makepkg -si`. Module map: [CLAUDE.md](CLAUDE.md).
+`cd packaging/arch && makepkg -si`.
+See [Contributing](CONTRIBUTING.md), the [architecture](docs/architecture.md)
+and the [live-session checklist](docs/testing-vm.md).
 
 ## License
 

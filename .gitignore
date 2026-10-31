@@ -19,6 +19,13 @@ dist/
 .pytest_cache/
 .ruff_cache/
 .claude/
+.codex/
+.remember/
+/AGENTS.md
+/[Cc][Ll][Aa][Uu][Dd][Ee].[Mm][Dd]
+* (conflicted copy *).*
+.env
+.env.*
 
 # Лендинг wayswitch.wetoshkin.ru — публикуется на свой сервер, в репозиторий не попадает.
 /site/
