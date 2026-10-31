@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Wetoshkin/WaySwitch/releases"><img src="https://img.shields.io/github/v/release/Wetoshkin/WaySwitch?include_prereleases&style=flat-square&color=c67139" alt="Release"></a>
+  <a href="https://github.com/Wetoshkin/WaySwitch/releases"><img src="https://img.shields.io/github/v/release/Wetoshkin/WaySwitch?style=flat-square&color=c67139" alt="Release"></a>
   <a href="https://github.com/Wetoshkin/WaySwitch/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Wetoshkin/WaySwitch/ci.yml?style=flat-square&label=tests" alt="Tests"></a>
   <img src="https://img.shields.io/badge/GNOME-46–51-7a8a5e?style=flat-square" alt="GNOME 46–51">
   <img src="https://img.shields.io/badge/KDE_Plasma-6-3daee9?style=flat-square" alt="KDE Plasma 6">
@@ -17,9 +17,7 @@
 
 **Automatic Russian–English keyboard layout correction for Linux on Wayland.**
 
-> [!NOTE]
-> Alpha software: test it in your applications before relying on it.
-> See the [desktop testing status](#status) below.
+**Version 1.0.0 — the first stable public release.**
 
 WaySwitch fixes a word typed in the wrong layout (`ghbdtn` instead of
 «привет») right away, on Space — no hotkeys, no manual layout switching. It
@@ -177,7 +175,7 @@ which a sandbox does not give.
 
 ## Status
 
-Alpha. Tested on CachyOS with GNOME 51. KDE Plasma 6, Sway, Hyprland and the
+WaySwitch 1.0.0. Tested on CachyOS with GNOME 51. KDE Plasma 6, Sway, Hyprland and the
 labwc/Wayfire desktops are covered by tests but not yet tried live — reports
 are welcome.
 

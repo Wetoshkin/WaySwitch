@@ -1,5 +1,5 @@
 Package: wayswitch
-Version: @VERSION@
+Version: 1:@VERSION@
 Architecture: all
 Section: utils
 Priority: optional

@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Wetoshkin/WaySwitch/releases"><img src="https://img.shields.io/github/v/release/Wetoshkin/WaySwitch?include_prereleases&style=flat-square&color=c67139&label=%D1%80%D0%B5%D0%BB%D0%B8%D0%B7" alt="Релиз"></a>
+  <a href="https://github.com/Wetoshkin/WaySwitch/releases"><img src="https://img.shields.io/github/v/release/Wetoshkin/WaySwitch?style=flat-square&color=c67139&label=%D1%80%D0%B5%D0%BB%D0%B8%D0%B7" alt="Релиз"></a>
   <a href="https://github.com/Wetoshkin/WaySwitch/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Wetoshkin/WaySwitch/ci.yml?style=flat-square&label=%D1%82%D0%B5%D1%81%D1%82%D1%8B" alt="Тесты"></a>
   <img src="https://img.shields.io/badge/GNOME-46–51-7a8a5e?style=flat-square" alt="GNOME 46–51">
   <img src="https://img.shields.io/badge/KDE_Plasma-6-3daee9?style=flat-square" alt="KDE Plasma 6">
@@ -26,9 +26,7 @@
 
 **Автоматическое исправление русско-английской раскладки для Linux на Wayland.**
 
-> [!NOTE]
-> Альфа-версия: перед постоянным использованием проверьте исправление в своих
-> приложениях. Статус проверки рабочих столов — [ниже](#статус-и-ограничения).
+**Версия 1.0.0 — первый стабильный публичный релиз.**
 
 WaySwitch чинит слово, набранное не в той раскладке (`ghbdtn` вместо
 «привет»), сразу же, на пробеле — без горячих клавиш и без переключения
@@ -558,7 +556,7 @@ curl -fsSL https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/
 
 ## Статус и ограничения
 
-WaySwitch v2 — **альфа**. Проверено на CachyOS, GNOME 51. KDE Plasma 6,
+WaySwitch 1.0.0. Проверено на CachyOS, GNOME 51. KDE Plasma 6,
 Sway, Hyprland и среды на labwc/Wayfire покрыты тестами, но живьём пока не
 проверялись — будем рады отчётам.
 

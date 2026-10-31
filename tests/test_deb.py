@@ -54,7 +54,7 @@ def test_debversion_cli(capsys):
 def test_control_in_has_required_fields():
     text = (DEB_DIR / "control.in").read_text(encoding="utf-8")
     assert "Architecture: all" in text
-    assert "Version: @VERSION@" in text
+    assert "Version: 1:@VERSION@" in text
     for pkg in DEPENDS:
         assert pkg in text, pkg
 

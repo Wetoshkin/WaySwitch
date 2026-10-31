@@ -158,3 +158,14 @@ def test_versions_agree():
     assert plasmoid["KPlugin"]["Version"] == __version__
     pkgbuild = (repo / "packaging" / "arch" / "PKGBUILD").read_text(encoding="utf-8")
     assert f"pkgver={__version__}" in pkgbuild
+
+
+def test_package_epoch_survives_version_renumbering():
+    from tools.aur_update import srcinfo
+
+    repo = ROOT.parent
+    assert "Version: 1:@VERSION@" in (ROOT / "deb/control.in").read_text(encoding="utf-8")
+    assert "Epoch:          1" in (ROOT / "rpm/wayswitch.spec").read_text(encoding="utf-8")
+    pkgbuild = (ROOT / "arch/PKGBUILD").read_text(encoding="utf-8")
+    assert "\tepoch = 1\n" in srcinfo(pkgbuild)
+    assert (repo / "packaging/arch/.SRCINFO").read_text(encoding="utf-8") == srcinfo(pkgbuild)

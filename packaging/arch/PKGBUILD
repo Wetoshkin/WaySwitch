@@ -2,7 +2,8 @@
 # Пакет для Arch, CachyOS, EndeavourOS, Manjaro. Готов к публикации в AUR;
 # собрать локально: cd packaging/arch && makepkg -si
 pkgname=wayswitch
-pkgver=2.0.0a4
+epoch=1
+pkgver=1.0.0
 pkgrel=1
 pkgdesc="Fixes words typed in the wrong keyboard layout on Wayland (ru/en)"
 arch=('any')

@@ -6,6 +6,7 @@
 # libadwaita, в openSUSE их typelib-ы называются typelib-1_0-*.
 
 Name:           wayswitch
+Epoch:          1
 Version:        %{ws_version}
 Release:        1%{?dist}
 Summary:        Fixes words typed in the wrong keyboard layout on Wayland (ru/en)

@@ -22,7 +22,7 @@ PKGBUILD = ARCH / "PKGBUILD"
 SRCINFO = ARCH / ".SRCINFO"
 
 # Поля .SRCINFO в порядке, в котором их пишет makepkg --printsrcinfo.
-PKGBASE_FIELDS = ("pkgdesc", "pkgver", "pkgrel", "url", "install", "arch", "license",
+PKGBASE_FIELDS = ("pkgdesc", "pkgver", "pkgrel", "epoch", "url", "install", "arch", "license",
                   "depends", "optdepends", "backup", "source", "sha256sums")
 
 
