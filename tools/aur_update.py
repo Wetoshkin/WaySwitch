@@ -6,13 +6,17 @@
 Делает то же, что `updpkgsums && makepkg --printsrcinfo > .SRCINFO` на Arch,
 но работает где угодно: архив релиза скачивается с GitHub, .SRCINFO
 собирается из простых присваиваний PKGBUILD (у нас других нет).
+При новой версии сначала обновите _commit в PKGBUILD: версия архива проверяется.
 """
 
 from __future__ import annotations
 
 import hashlib
+import io
 import re
 import sys
+import tarfile
+import tomllib
 import urllib.request
 from pathlib import Path
 
@@ -74,9 +78,18 @@ def srcinfo(text: str) -> str:
     return "\n".join(lines)
 
 
-def tarball_sha256(url: str) -> str:
+def tarball_sha256(url: str, version: str) -> str:
     with urllib.request.urlopen(url, timeout=60) as resp:  # noqa: S310 — https GitHub
-        return hashlib.sha256(resp.read()).hexdigest()
+        data = resp.read()
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
+        projects = [m for m in archive if m.isfile() and m.name.count("/") == 1
+                    and m.name.endswith("/pyproject.toml")]
+        if len(projects) != 1:
+            raise ValueError("В архиве должен быть один корневой pyproject.toml")
+        project = tomllib.loads(archive.extractfile(projects[0]).read().decode("utf-8"))
+    if project["project"]["version"] != version:
+        raise ValueError(f"Версия исходников не совпадает с {version}: обновите _commit в PKGBUILD")
+    return hashlib.sha256(data).hexdigest()
 
 
 def main(argv: list[str]) -> int:
@@ -89,7 +102,7 @@ def main(argv: list[str]) -> int:
                         .read_text(encoding="utf-8"), re.M).group(1)
     text = re.sub(r"^pkgver=.*$", f"pkgver={version}", text, flags=re.M)
     url = expand(parse(text)["source"][0].split("::", 1)[-1], parse(text))
-    digest = tarball_sha256(url)
+    digest = tarball_sha256(url, version)
     text = re.sub(r"^sha256sums=\(.*\)$", f"sha256sums=('{digest}')", text, flags=re.M)
     PKGBUILD.write_text(text, encoding="utf-8", newline="\n")
     SRCINFO.write_text(srcinfo(text), encoding="utf-8", newline="\n")
