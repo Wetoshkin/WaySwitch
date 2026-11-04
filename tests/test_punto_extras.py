@@ -31,6 +31,7 @@ def make(real, group, config=None, selection=""):
     typist, corrected = RecordingTypist(), []
     ctrl = Controller(config or Config(), km, Detector(km, models), backend, typist,
                       on_corrected=lambda o, f, m: corrected.append((o, f, m)), probe=SafeProbe())
+    ctrl.probe.clock = lambda: ctrl.clock()
     return ctrl, backend, typist, corrected
 
 
