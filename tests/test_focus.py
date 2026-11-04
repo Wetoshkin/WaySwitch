@@ -137,6 +137,40 @@ def test_shell_identity_does_not_claim_password_detection(monkeypatch):
     assert snap.app_ids == ("jetbrains-idea",)
 
 
+@pytest.mark.parametrize("role,password", [(61, False), (40, True)])
+def test_old_shell_extension_preserves_atspi_focus(monkeypatch, role, password):
+    calls = []
+
+    def call_sync(_bus, _path, _iface, method, *_args):
+        calls.append(method)
+        raise RuntimeError("org.freedesktop.DBus.Error.UnknownMethod: GetFocusedApp")
+
+    repository = SimpleNamespace(
+        Gio=SimpleNamespace(BusType=SimpleNamespace(SESSION=0),
+                            DBusCallFlags=SimpleNamespace(NONE=0),
+                            bus_get_sync=lambda *_: SimpleNamespace(call_sync=call_sync)),
+        GLib=SimpleNamespace(VariantType=lambda signature: signature))
+    monkeypatch.setitem(sys.modules, "gi", SimpleNamespace(repository=repository))
+    monkeypatch.setitem(sys.modules, "gi.repository", repository)
+    tree = DictTree({
+        a11y.ROOT: {"kids": ["editor"]},
+        "editor": {"name": "Editor", "kids": ["window"]},
+        "window": {"state": [a11y.ACTIVE], "kids": ["field"]},
+        "field": {"state": [a11y.FOCUSED], "role": role},
+    })
+    monkeypatch.setattr(a11y, "_a11y_connection", lambda: object())
+    monkeypatch.setattr(a11y, "_DbusTree", lambda _connection: tree)
+
+    snap = a11y.query_focus()
+
+    assert calls == ["GetFocusedApp"]
+    assert snap == FocusSnapshot("Editor", password, field="field")
+    probe = SimpleNamespace(snapshot=lambda: snap._replace(taken_at=100.0))
+    assert a11y.skip_reason(probe, [], True, 100.0) == (
+        "защищённый ввод" if password else None)
+    assert a11y.skip_reason(probe, ["editor"], False, 100.0) == "приложение Editor"
+
+
 def test_skip_reason_no_probe_never_blocks():
     clock = Clock()
     assert a11y.skip_reason(a11y.NullProbe(), ["telegram"], True, clock()) is None

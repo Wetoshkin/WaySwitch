@@ -271,10 +271,13 @@ Packages: `bash tools/build_deb.sh`, `bash tools/build_rpm.sh`,
 `python3 tools/build_appimage.py build/appimage` on x86_64 Linux with
 squashfs-tools and dpkg-deb.
 
-After publishing a commit containing these changes,
-`python3 tools/prepare_flathub.py <full-40-character-commit> build/flathub-submission`
-prepares files pinned to that commit. It does not publish. Metadata validation,
-real screenshots and publication approval are still required before submission.
+The Flatpak is distributed through GitHub Releases and is not published on Flathub.
+Its required native host service needs individual consideration by Flathub reviewers.
+[Flathub requirements](https://docs.flathub.org/docs/for-app-authors/requirements)
+prohibit AI-generated or AI-assisted manifests and submission PRs by AI agents.
+Any potential submission requires the owner to prepare compliant materials manually
+and discuss eligibility of the required host service with the reviewers.
+
 See [Contributing](CONTRIBUTING.md), the [architecture](docs/architecture.md)
 and the [live-session checklist](docs/testing-vm.md).
 
