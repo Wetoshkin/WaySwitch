@@ -38,13 +38,19 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def call_daemon(method: str):
-    from gi.repository import Gio
+    from gi.repository import Gio, GLib
 
     from wayswitch.dbus_service import BUS_NAME, INTERFACE, OBJECT_PATH
 
     bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-    reply = bus.call_sync(BUS_NAME, OBJECT_PATH, INTERFACE, method, None, None,
-                          Gio.DBusCallFlags.NONE, 3000, None)
+    try:
+        reply = bus.call_sync(BUS_NAME, OBJECT_PATH, INTERFACE, method, None, None,
+                              Gio.DBusCallFlags.NONE, 3000, None)
+    except GLib.Error as exc:
+        if Gio.DBusError.get_remote_error(exc) == BUS_NAME + ".ScreenLocked":
+            Gio.DBusError.strip_remote_error(exc)
+            raise PermissionError(exc.message) from exc
+        raise
     return reply.unpack() if reply is not None else None
 
 
@@ -200,6 +206,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(status_line(status))
                 for k, v in sorted(status.items()):
                     print(f"  {k}: {v}")
+    except PermissionError as e:
+        print(e, file=sys.stderr)
+        return 2
     except Exception as e:  # noqa: BLE001
         if getattr(ns, "json", False):
             print('{"running": false}')

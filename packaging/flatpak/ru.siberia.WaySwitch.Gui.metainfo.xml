@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>ru.siberia.WaySwitch.Gui</id>
+  <name>WaySwitch Settings</name>
+  <summary>Control the native WaySwitch keyboard correction service</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT AND CC-BY-SA-4.0</project_license>
+  <developer id="io.github.Wetoshkin"><name>Wetoshkin</name></developer>
+  <description>
+    <p>Configure Russian and English keyboard layout correction, gestures, exceptions,
+    pause and resume the native WaySwitch service, and check for updates.</p>
+    <p>This package contains the settings window only. Install the native WaySwitch
+    package separately on the host. The native service requires explicit keyboard
+    and uinput access. This settings window communicates with the service and
+    does not read keyboard devices.</p>
+    <p>The first-run window explains native installation and recovery. Removing
+    this window does not remove or stop the native correction service.</p>
+  </description>
+  <launchable type="desktop-id">ru.siberia.WaySwitch.Gui.desktop</launchable>
+  <url type="homepage">https://github.com/Wetoshkin/WaySwitch</url>
+  <url type="bugtracker">https://github.com/Wetoshkin/WaySwitch/issues</url>
+  <url type="help">https://github.com/Wetoshkin/WaySwitch#readme</url>
+  <content_rating type="oars-1.1"/>
+  <releases><release version="1.1.0" date="2026-11-04"/></releases>
+  <supports><control>keyboard</control><control>pointing</control></supports>
+</component>

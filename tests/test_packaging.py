@@ -1,5 +1,9 @@
 from pathlib import Path
 
+import pytest
+
+from tests.test_get_sh import shell as shell
+
 ROOT = Path(__file__).resolve().parents[1] / "packaging"
 
 
@@ -71,8 +75,36 @@ def test_install_pins_absolute_python():
     script = (Path(__file__).resolve().parent.parent / "packaging" / "install.sh").read_text(
         encoding="utf-8")
     assert "PY=/usr/bin/python3" in script
-    assert "exec $PY -m wayswitch" in script
+    assert "exec $PY -P -m wayswitch" in script
     assert "exec python3 -m wayswitch" not in script
+
+
+@pytest.mark.parametrize("name,marker", [("wayswitch", "TRUSTED_CLI"),
+                                         ("wayswitch-gui", "TRUSTED_GUI")])
+def test_generated_source_wrapper_ignores_caller_checkout(shell, tmp_path, name, marker):
+    import subprocess
+    import sys
+
+    binary = tmp_path / "bin"
+    library = tmp_path / "installed"
+    hostile = tmp_path / "checkout"
+    binary.mkdir()
+    (library / "wayswitch/gui").mkdir(parents=True)
+    hostile.mkdir()
+    (library / "wayswitch/__init__.py").write_text("")
+    (library / "wayswitch/__main__.py").write_text("print('TRUSTED_CLI')\n")
+    (library / "wayswitch/gui/__init__.py").write_text("")
+    (library / "wayswitch/gui/app.py").write_text("def main():\n    print('TRUSTED_GUI')\n")
+    (hostile / "wayswitch.py").write_text("raise SystemExit(67)\n")
+    source = (ROOT / "install.sh").read_text(encoding="utf-8")
+    start = source.index('cat > "$BIN/wayswitch" <<EOF')
+    end = source.index('chmod +x "$BIN/wayswitch"', start)
+    generation = 'BIN=$1\nLIB=$2\nPY=$3\n' + source[start:end]
+    subprocess.run([shell, "-c", generation, "test", binary.as_posix(), library.as_posix(),
+                    Path(sys.executable).as_posix()], check=True, capture_output=True)
+    result = subprocess.run([shell, (binary / name).as_posix()], cwd=hostile,
+                            capture_output=True, text=True)
+    assert result.returncode == 0 and result.stdout.strip() == marker, result.stderr
 
 
 # --- ярлык и значок ---------------------------------------------------------
@@ -82,11 +114,12 @@ def _desktop_text() -> str:
 
 
 def _app_id() -> str:
-    """APP_ID окна без импорта GUI: импорт тянет GTK, которого в CI нет."""
-    import re
+    """Экспортированный ID нативного окна; GTK импортируется только при запуске."""
+    from wayswitch.gui.app import APP_ID
+    from wayswitch.gui.portable import NATIVE_ID
 
-    text = (ROOT.parent / "wayswitch" / "gui" / "app.py").read_text(encoding="utf-8")
-    return re.search(r'APP_ID = "([^"]+)"', text).group(1)
+    assert APP_ID == NATIVE_ID == "ru.siberia.WaySwitch.Settings"
+    return APP_ID
 
 
 def test_desktop_file_name_matches_app_id():

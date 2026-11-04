@@ -153,9 +153,10 @@ class _Run:
     """Общее для обоих исполнителей: точка невозврата и возврат раскладки."""
 
     def __init__(self, backend, abort: Callable[[], bool], restore_group: int | None,
-                 hold: Callable[[], bool] | None = None):
+                 hold: Callable[[], bool] | None, stop: Callable[[], bool]):
         self.backend = backend
         self._abort = abort
+        self._stop = stop
         self._hold = hold
         self._gave_up = False  # после точки невозврата ждём Shift один раз
         self.restore_group = restore_group
@@ -164,7 +165,8 @@ class _Run:
         self.committed = False  # первый Backspace ушёл — назад дороги нет
 
     def aborted(self) -> bool:
-        return not self.committed and self._abort()
+        # _abort прокручивает GLib: и после первого Backspace нужны события lock/layout.
+        return (self._abort() and not self.committed) or self._stop()
 
     def blocked(self) -> bool:
         """Перед стирающей или печатающей клавишей: зажат физический Shift.
@@ -194,26 +196,26 @@ class _Run:
                 self.caps_toggle()  # Caps Lock выключили зря — включить обратно
                 self.caps_toggle = None
             except Exception as exc:  # noqa: BLE001 — откат по возможности
-                log.warning("не удалось вернуть Caps Lock: %s", exc)
+                log.warning("не удалось вернуть Caps Lock: %s", type(exc).__name__)
         if self.switched and not self.committed and self.restore_group is not None:
             try:
                 self.backend.set(self.restore_group)
             except Exception as exc:  # noqa: BLE001 — откат по возможности
-                log.warning("не удалось вернуть раскладку: %s", exc)
+                log.warning("не удалось вернуть раскладку: %s", type(exc).__name__)
 
 
 def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: False,
             key_delay: float = 0.0, sleep=time.sleep, switch_timeout: float = 0.5,
             restore_group: int | None = None,
             hold: Callable[[], bool] | None = None,
-            outcome: dict | None = None) -> str:
+            outcome: dict | None = None, stop: Callable[[], bool] = lambda: False) -> str:
     """outcome (если передан) получает caps_off: Caps Lock в итоге выключен нами."""
-    run = _Run(backend, abort, restore_group, hold)
+    run = _Run(backend, abort, restore_group, hold, stop)
     if isinstance(typist, TextTypist):
         result = _execute_text(plan, typist, run, switch_timeout)
     else:
         result = _execute_keys(plan, typist, run, key_delay, sleep, switch_timeout)
-    if result != DONE:
+    if result != DONE and not stop():
         run.rollback()
     if outcome is not None:
         outcome["caps_off"] = run.caps_toggle is not None
@@ -256,16 +258,18 @@ def _execute_keys(plan: Plan, typist, run: _Run, key_delay: float, sleep,
                     # Первая напечатанная буква меняет экран, как и Backspace
                     # (у «Исправить выделенное» Backspace нет вовсе): дальше
                     # фразу не обрываем.
-                    run.committed = True
                     if shift:
                         session.press(kc.KEY_LEFTSHIFT)
+                        if run.aborted():
+                            return ABORTED
+                    run.committed = True
                     session.press(code)
                     session.release(code)
                     if shift:
                         session.release(kc.KEY_LEFTSHIFT)
         return DONE
     except Exception as exc:  # noqa: BLE001 — OSError uinput, BackendError, GLib.Error
-        log.error("исправление прервано ошибкой: %s", exc)
+        log.error("исправление прервано ошибкой: %s", type(exc).__name__)
         return FAILED
     finally:
         session.release_all()
@@ -296,9 +300,9 @@ def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: flo
                 typist.type_text(step.text)
         return DONE
     except Exception as exc:  # noqa: BLE001 — GLib.Error таймаута D-Bus и прочее
-        log.error("исправление прервано ошибкой: %s", exc)
+        log.error("исправление прервано ошибкой: %s", type(exc).__name__)
         timed_out = "timed out" in str(exc).lower() or "timeout" in str(exc).lower()
-        if run.committed and isinstance(step, Type) and not timed_out:
+        if run.committed and isinstance(step, Type) and not timed_out and not run.aborted():
             # По таймауту не повторяем: расширение могло напечатать слово, а
             # ответ просто не успел — повтор задвоил бы его.
             # Слово уже стёрто: одна повторная попытка напечатать лучше, чем
@@ -307,7 +311,7 @@ def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: flo
                 typist.type_text(step.text)
                 return DONE
             except Exception as again:  # noqa: BLE001
-                log.error("повторная печать не удалась: %s", again)
+                log.error("повторная печать не удалась: %s", type(again).__name__)
         return FAILED
 
 

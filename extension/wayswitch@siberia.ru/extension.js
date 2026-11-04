@@ -31,6 +31,7 @@ const IFACE_XML = `
       <arg type="u" name="index" direction="out"/>
       <arg type="s" name="id" direction="out"/>
     </method>
+    <method name="GetFocusedApp"><arg type="as" name="ids" direction="out"/></method>
     <method name="SetLayout"><arg type="u" name="index" direction="in"/></method>
     <method name="TypeText"><arg type="s" name="text" direction="in"/></method>
     <method name="Backspace"><arg type="u" name="count" direction="in"/></method>
@@ -134,6 +135,14 @@ export default class WaySwitchExtension extends Extension {
 
     GetVersion() {
         return PROTOCOL_VERSION;
+    }
+
+    GetFocusedApp() {
+        const window = global.display.focus_window;
+        if (!window)
+            return [];
+        return [...new Set([window.get_wm_class(), window.get_gtk_application_id(),
+            window.get_sandboxed_app_id()].filter(Boolean))];
     }
 
     SetLayoutAsync([index], invocation) {

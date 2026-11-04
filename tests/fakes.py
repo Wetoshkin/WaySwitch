@@ -1,11 +1,24 @@
 """Фейки для тестов: табличная раскладка us/ru, бэкенд, печатающая машинка."""
 
 from dataclasses import dataclass
+from time import monotonic
 
 from wayswitch import keycodes as kc
+from wayswitch.a11y import FocusSnapshot
 from wayswitch.keymap import LayoutSpec, TableKeymap
 
 US, RU = 0, 1
+
+
+class SafeProbe:
+    def __init__(self, clock=monotonic):
+        self.clock = clock
+
+    def snapshot(self):
+        return FocusSnapshot("editor", False, self.clock())
+
+    def poke(self):
+        pass
 
 _US_ROWS = [
     (2, "1!"), (3, "2@"), (4, "3#"), (5, "4$"), (6, "5%"), (7, "6^"), (8, "7&"),

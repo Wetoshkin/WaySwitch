@@ -1,3 +1,5 @@
+import pytest
+
 from wayswitch import keycodes as kc
 from wayswitch.backends.gnome_common import (
     engine_name_for,
@@ -88,3 +90,27 @@ def test_shell_wait_applied_waits_settle(monkeypatch):
     slept.clear()
     assert backend.wait_applied(0, 2.0) is False
     assert slept == [0.025]
+
+
+@pytest.mark.parametrize("current,expected,index,changes", [
+    (0, None, 0, []),
+    (0, None, 1, [(1, True)]),
+    (0, 0, 0, [(0, False)]),
+    (1, 0, 0, [(0, False)]),
+    (0, 1, 0, [(0, True)]),
+])
+def test_shell_layout_signal_ignores_only_unsolicited_duplicates(current, expected, index, changes):
+    from types import SimpleNamespace
+
+    from wayswitch.backends.gnome_shell import GnomeShellBackend
+
+    backend = object.__new__(GnomeShellBackend)
+    backend._specs = [LayoutSpec("us"), LayoutSpec("ru")]
+    backend._current = current
+    backend._expected = expected
+    observed = []
+    backend._callbacks = [lambda group, external: observed.append((group, external))]
+    backend._on_signal(None, None, "LayoutChanged", SimpleNamespace(unpack=lambda: (index,)))
+    assert observed == changes
+    assert backend.current() == index
+    assert backend._expected is None

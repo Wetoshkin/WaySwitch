@@ -11,7 +11,7 @@ import os
 from collections.abc import Callable
 from typing import NamedTuple
 
-from wayswitch.gui import texts
+from wayswitch.gui import portable, texts
 
 log = logging.getLogger("wayswitch.gui")
 
@@ -105,12 +105,14 @@ def menu_layout(status: dict | None, update: str | None = None) -> list[MenuItem
     """Пункты меню значка. Зависят от состояния демона и наличия обновления."""
     running = status is not None
     auto = bool(status and status.get("auto_correct"))
-    paused = bool(status and status.get("paused"))
+    paused = bool(status and texts.pause_method(status) == "Resume")
+    pause_enabled = running and not bool(status and status.get("lock_confirmation_required")
+                                        and status.get("locked"))
     items = [
         MenuItem("summary", "WaySwitch — " + texts.tray_summary(status), False),
         MenuItem("sep1", kind="separator"),
         MenuItem("auto", "Автоисправление", running, toggle=auto),
-        MenuItem("pause", "Возобновить" if paused else "Пауза", running,
+        MenuItem("pause", "Возобновить" if paused else "Пауза", pause_enabled,
                  icon="media-playback-start-symbolic" if paused
                  else "media-playback-pause-symbolic"),
         MenuItem("fix_selection", "Исправить выделенное", running,
@@ -133,9 +135,16 @@ MENU_IDS = {ident: n for n, ident in enumerate(
      "settings", "quit"), start=1)}
 
 # Имена значков из packaging/icons: ставятся установщиком в hicolor.
-INSTALLED_ICON = "ru.siberia.WaySwitch"
-TRAY_ICON = "ru.siberia.WaySwitch-symbolic"
-TRAY_PAUSED_ICON = "ru.siberia.WaySwitch-paused-symbolic"
+INSTALLED_ICON = (portable.FLATPAK_ID if portable.package_kind() == "flatpak"
+                  else "ru.siberia.WaySwitch")
+TRAY_ICON = INSTALLED_ICON + "-symbolic"
+TRAY_PAUSED_ICON = INSTALLED_ICON + "-paused-symbolic"
+
+
+def notifier_name(pid: int) -> str:
+    if portable.package_kind() == "flatpak":
+        return portable.FLATPAK_ID + ".Tray"
+    return f"org.kde.StatusNotifierItem-{pid}-1"
 
 
 class StatusNotifier:
@@ -155,7 +164,7 @@ class StatusNotifier:
         menu = Gio.DBusNodeInfo.new_for_xml(MENU_XML).interfaces[0]
         self._conn.register_object(ITEM_PATH, sni, self._sni_call, self._sni_get, None)
         self._conn.register_object(MENU_PATH, menu, self._menu_call, self._menu_get, None)
-        name = f"org.kde.StatusNotifierItem-{os.getpid()}-1"
+        name = notifier_name(os.getpid())
         self._name = name
         Gio.bus_own_name_on_connection(self._conn, name, Gio.BusNameOwnerFlags.NONE,
                                        lambda *_: self._register(name), None)

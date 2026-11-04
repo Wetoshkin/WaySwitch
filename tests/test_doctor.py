@@ -2,6 +2,15 @@ from wayswitch import doctor
 from wayswitch.doctor import Check, exit_code, format_report
 
 
+def test_cosmic_backend_selected(monkeypatch):
+    from wayswitch.backends import cosmic
+    from wayswitch.backends.select import choose_backend, order_for
+
+    monkeypatch.setattr(cosmic, "CosmicBackend", lambda: "native")
+    assert order_for("cosmic", "auto") == ["cosmic"]
+    assert choose_backend("auto", None, 0, desktop="cosmic") == "native"
+
+
 def test_report_and_exit_code():
     checks = [Check("Сессия Wayland", True), Check("uinput", False, "правило udev", True),
               Check("Расширение", False, "необязательно", False)]
@@ -9,6 +18,41 @@ def test_report_and_exit_code():
     assert "✓ Сессия Wayland" in text and "✗ uinput" in text and "правило udev" in text
     assert exit_code(checks) == 1
     assert exit_code([Check("x", True), Check("y", False, required=False)]) == 0
+
+
+def test_cosmic_report_does_not_recommend_labwc(monkeypatch):
+    from wayswitch.backends import cosmic
+    from wayswitch.backends.base import BackendError
+
+    def unavailable(**_kwargs):
+        raise BackendError("нет сеанса")
+
+    monkeypatch.setattr(cosmic, "CosmicBackend", unavailable)
+    monkeypatch.setattr(doctor, "detect_desktop", lambda: "cosmic")
+    checks = doctor.run_checks()
+    support = next(c for c in checks if c.key == "switch")
+    assert not support.ok and support.required
+    assert "COSMIC" in support.hint and "zcosmic_keyboard_layout_manager_v1" in support.hint
+    assert "labwc" not in format_report(checks)
+    assert "ровно две" not in format_report(checks)
+
+
+def test_focus_status_reports_only_application_identifiers(monkeypatch):
+    from wayswitch import a11y
+
+    monkeypatch.setattr(a11y, "query_focus", lambda: a11y.FocusSnapshot(
+        "IntelliJ IDEA", False, 100.0, ("jetbrains-idea",)))
+    ok, detail = doctor.focus_status()
+    assert ok and "jetbrains-idea" in detail and "IntelliJ IDEA" in detail
+
+
+def test_focus_status_explains_missing_atspi_application(monkeypatch):
+    from wayswitch import a11y
+
+    monkeypatch.setattr(a11y, "query_focus", lambda: a11y.FocusSnapshot(
+        None, False, 100.0, ("jetbrains-idea",)))
+    ok, detail = doctor.focus_status()
+    assert not ok and "jetbrains-idea" in detail and "парол" in detail
 
 
 def test_uinput_status_ok(monkeypatch):

@@ -8,12 +8,14 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - name: Системные библиотеки
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon0 xkb-data
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon0 libwayland-client0 xkb-data
       - run: pip install pytest ruff evdev
       - run: python -m ruff check .
       - run: python -m pytest -q
       - name: Синтаксис расширения
-        run: node --input-type=module --check < extension/wayswitch@siberia.ru/extension.js
+        run: |
+          node --input-type=module --check < extension/wayswitch@siberia.ru/extension.js
+          node tests/test_extension_focus.cjs
 
   deb:
     needs: test
@@ -44,7 +46,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Сборка .rpm
-        run: dnf install -y rpm-build python3 && bash tools/build_rpm.sh
+        run: dnf install -y rpm-build python3 bsdtar && bash tools/build_rpm.sh
       - name: Установка собранного пакета
         run: dnf install -y ./dist/*.noarch.rpm
       - name: Смок-проверка
@@ -79,3 +81,41 @@ jobs:
           su b -c "cd /pkg && makepkg --nodeps"
           pacman -U --noconfirm /pkg/wayswitch-*.pkg.tar.zst
           wayswitch version
+
+  flatpak:
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Flatpak и GNOME SDK 50
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          # Как в CI Flatpak: разрешить bubblewrap на одноразовом runner Ubuntu 24.04.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo systemctl reload apparmor
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive flathub org.gnome.Platform//50 org.gnome.Sdk//50
+      - name: Сборка .flatpak
+        run: bash tools/build_flatpak.sh build/flatpak
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wayswitch-flatpak
+          path: build/flatpak/WaySwitch-Settings.flatpak
+          if-no-files-found: error
+
+  appimage:
+    needs: test
+    # Зависимости AppImage зафиксированы для glibc 2.39 (Ubuntu 24.04).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Инструменты сборки AppImage
+        run: sudo apt-get update && sudo apt-get install -y python3 dpkg squashfs-tools
+      - name: Сборка .AppImage
+        run: python3 tools/build_appimage.py build/appimage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wayswitch-appimage
+          path: build/appimage/WaySwitch-Settings-x86_64.AppImage
+          if-no-files-found: error

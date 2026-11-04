@@ -19,6 +19,7 @@ from wayswitch.backends.base import BackendError, LayoutBackend
 from wayswitch.backends.desktop import (
     CINNAMON,
     COMPOSITOR_DESKTOPS,
+    COSMIC,
     HYPRLAND,
     KDE,
     OTHER,
@@ -35,6 +36,7 @@ BACKEND_ORDERS = {
     KDE: ["kde"],
     SWAY: ["sway"],
     HYPRLAND: ["hyprland"],
+    COSMIC: ["cosmic"],
     **{d: ["compositor", "hotkey"] for d in COMPOSITOR_DESKTOPS},
     # Cinnamon на Wayland — свой композитор (muffin), не labwc/Wayfire:
     # раскладки и сочетание — из gsettings, как в GNOME. Поддержка экспериментальная.
@@ -51,7 +53,8 @@ def order_for(desktop: str, prefer: str) -> list[str]:
 
 def choose_backend(prefer: str, typist, settle_ms: int,
                    desktop: str | None = None, track_hotkey: bool = False) -> LayoutBackend:
-    order = order_for(detect_desktop() if desktop is None else desktop, prefer)
+    desktop = detect_desktop() if desktop is None else desktop
+    order = order_for(desktop, prefer)
     errors = []
     for name in order:
         try:
@@ -70,6 +73,10 @@ def choose_backend(prefer: str, typist, settle_ms: int,
                 if not kde_available():
                     raise BackendError("KWin не отдаёт org.kde.keyboard")
                 return KdePlasmaBackend(settle_ms)
+            if name == "cosmic":
+                from wayswitch.backends.cosmic import CosmicBackend
+
+                return CosmicBackend()
             if name == "ibus":
                 from wayswitch.backends.gnome_ibus import GnomeIbusBackend
 

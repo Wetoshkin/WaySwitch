@@ -51,7 +51,32 @@ ask()  { # вопрос да/нет; читаем с терминала, пот�
   case "$a" in ""|Y*|y*|Д*|д*) return 0 ;; *) return 1 ;; esac
 }
 have() { command -v "$1" >/dev/null 2>&1; }
-stop_gui() { pkill -u "$(id -u)" -f 'wayswitch-gui' >/dev/null 2>&1 || true; }
+is_gnome() {
+  case "${XDG_CURRENT_DESKTOP:-}" in
+    *COSMIC*|*cosmic*|*Cosmic*) return 1 ;; *GNOME*) return 0 ;; *) return 1 ;;
+  esac
+}
+native_gui_pid() {
+  [ "$ATOMIC" != 1 ] && [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ] &&
+    [ -z "${SSH_CONNECTION:-}${SSH_TTY:-}" ] || return 1
+  reply=$(busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus \
+    GetConnectionUnixProcessID s ru.siberia.WaySwitch.Settings 2>/dev/null) || return 1
+  case "$reply" in 'u '[1-9]*) pid=${reply#u } ;; *) return 1 ;; esac
+  case "$pid" in *[!0-9]*) return 1 ;; esac
+  uid=$(ps -o uid= -p "$pid" 2>/dev/null) || return 1
+  [ "$(printf '%s' "$uid" | tr -d ' ')" = "$(id -u)" ] || return 1
+  printf '%s' "$pid"
+}
+stop_gui() {
+  old_pid=$(native_gui_pid) || return 1
+  kill "$old_pid" 2>/dev/null || return 1
+  # GApplication может ещё владеть именем во время обработки SIGTERM.
+  for delay in 1 2 3 4 5 6 7 8 9 10; do
+    [ "$(native_gui_pid)" = "$old_pid" ] || return 0
+    sleep 0.1
+  done
+  return 1
+}
 
 [ "$(id -u)" = 0 ] && die "Запустите без sudo — пароль спросят, когда он понадобится." \
                           "Run without sudo — you will be asked for a password when needed."
@@ -85,15 +110,86 @@ need_sudo() {
   sudo -v || die "sudo не сработал: ваша учётная запись не может выполнять команды администратора. Добавьте её в группу sudo (или wheel) от имени root и войдите снова." \
                  "sudo failed: your account cannot run admin commands. Add it to the sudo (or wheel) group as root and log in again."
 }
-fetch() { # скачать пакет релиза во временную папку, напечатать путь
-  # Код возврата: 0 — скачан, 2 — в последнем релизе нет такого пакета,
-  # 1 — GitHub недоступен.
-  api=$(curl -fsSL "$API") || return 1
-  url=$(printf '%s' "$api" | grep -o "https://[^\"]*\.$1\"" | tr -d '"' | head -n1)
-  [ -n "$url" ] || return 2
-  curl -fL --progress-bar -o "$TMP/${url##*/}" "$url" || return 1
-  printf '%s' "$TMP/${url##*/}"
+fetch() { # 0 — проверенный пакет, 2 — нет формата, 1 — ошибка; fallback запрещён
+  have python3 || {
+    say "Нужен Python 3: установите python3 менеджером пакетов и запустите снова." \
+        "Python 3 is required: install python3 with your package manager and run again." >&2
+    return 1
+  }
+  curl -fsSL -o "$TMP/release.json" "$API" || return 1
+  python3 -I - "$TMP" "$1" "$REPO" <<'PYMETA'
+import json
+import re
+import sys
+from pathlib import Path
+from urllib.parse import quote
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+try:
+    folder, extension, repo = sys.argv[1:]
+    releases = json.loads((Path(folder) / "release.json").read_text(), object_pairs_hook=unique_object)
+    if not isinstance(releases, list) or not releases:
+        raise ValueError("missing release")
+    release = releases[0]
+    tag = release["tag_name"]
+    assets = release["assets"]
+    if not isinstance(tag, str) or not tag or not isinstance(assets, list):
+        raise ValueError("invalid release")
+    if any(not isinstance(a, dict) or not isinstance(a.get("name"), str) for a in assets):
+        raise ValueError("invalid assets")
+    matches = [a for a in assets if a["name"].endswith("." + extension)]
+    if not matches:
+        sys.exit(2)
+    if len(matches) != 1:
+        raise ValueError("ambiguous package")
+    asset = matches[0]
+    name = asset["name"]
+    if not re.fullmatch(r"[A-Za-z0-9_.+~-]+", name):
+        raise ValueError("invalid asset name")
+    url = asset["browser_download_url"]
+    expected = f"https://github.com/{repo}/releases/download/{quote(tag, safe='')}/{name}"
+    digest = asset["digest"]
+    size = asset["size"]
+    if url != expected or not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+        raise ValueError("invalid URL or digest")
+    if type(size) is not int or size <= 0:
+        raise ValueError("invalid size")
+    (Path(folder) / "package.meta").write_text(f"{url}\n{digest[7:]}\n{size}\n", newline="\n")
+except (ValueError, KeyError, TypeError, OSError):
+    sys.exit(1)
+PYMETA
+  rc=$?
+  [ "$rc" = 0 ] || return "$rc"
+  { read -r url; read -r digest; read -r size; } < "$TMP/package.meta"
+  package="$TMP/package.$1"
+  curl -fL --progress-bar -o "$package" "$url" || return 1
+  python3 -I - "$package" "$digest" "$size" <<'PYVERIFY'
+import hashlib
+import sys
+from pathlib import Path
+
+try:
+    path = Path(sys.argv[1])
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    valid = path.stat().st_size == int(sys.argv[3]) and digest.hexdigest() == sys.argv[2]
+except (OSError, ValueError):
+    valid = False
+sys.exit(0 if valid else 1)
+PYVERIFY
+  [ "$?" = 0 ] || return 1
+  printf '%s' "$package"
 }
+
 get_package() { # $1 = deb | rpm; путь в $PKG, пусто — ставить из исходников
   PKG=$(fetch "$1") && rc=0 || rc=$?
   case "$rc" in
@@ -101,7 +197,8 @@ get_package() { # $1 = deb | rpm; путь в $PKG, пусто — ставит�
     2) PKG=""
        [ "$ATOMIC" = 1 ] && die "В последнем релизе нет пакета .$1 — на этой системе без него не поставить. Попробуйте позже."                                 "The latest release has no .$1 package; this system cannot install without it. Try again later."
        warn "В последнем релизе нет пакета .$1 — ставлю из исходников."             "The latest release has no .$1 package — installing from source." ;;
-    *) die "Не удалось связаться с GitHub. Проверьте интернет и запустите команду снова."            "Could not reach GitHub. Check your internet connection and run the command again." ;;
+    *) die "Не удалось скачать и проверить SHA256 пакета GitHub. Установка остановлена; проверьте сеть и метаданные релиза." \
+           "Could not download and verify the GitHub package SHA256. Installation stopped; check the network and release metadata." ;;
   esac
 }
 from_source() { # $1 = install.sh | uninstall.sh
@@ -129,6 +226,7 @@ drop_source_copy() { # копия из исходников мешает пак�
     # Значок при входе сохраняем сами: старые копии uninstall.sh его удаляли.
     tray=""; [ -f "$TRAY_AUTOSTART" ] && tray=$(cat "$TRAY_AUTOSTART")
     sudo WAYSWITCH_MIGRATE=1 bash "$SOURCE_UNINSTALL" >/dev/null
+    HAD=0
     if [ -n "$tray" ] && [ ! -f "$TRAY_AUTOSTART" ]; then
       printf '%s\n' "$tray" > "$TRAY_AUTOSTART"
     fi
@@ -145,7 +243,7 @@ aur_is_ours() {
 }
 
 enable_extension() { # $1 = uuid; GNOME: включить расширение сразу (подхватится после входа)
-  case "${XDG_CURRENT_DESKTOP:-}" in *GNOME*) ;; *) return 0 ;; esac
+  is_gnome || return 0
   gnome-extensions enable "$1" 2>/dev/null && return 0
   have gsettings || return 0
   cur=$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null || echo "@as []")
@@ -176,8 +274,13 @@ restore_a11y() {
 }
 check_adwaita_deb() { # окну нужна libadwaita 1.5+ (Ubuntu 24.04+, Debian 13+)
   have apt-cache || return 0
-  v=$(apt-cache policy gir1.2-adw-1 2>/dev/null | awk '/Candidate:/ {print $2}')
-  if [ -z "$v" ] || [ "$v" = "(none)" ] || ! dpkg --compare-versions "$v" ge 1.5; then
+  policy=$(LC_ALL=C apt-cache policy gir1.2-adw-1 2>/dev/null) || policy=""
+  v=$(printf '%s\n' "$policy" | awk '/Candidate:/ {print $2}')
+  if [ -z "$v" ] || [ "$v" = "(none)" ]; then
+    die "Не удалось определить доступную версию libadwaita. Выполните sudo apt update, проверьте источники пакетов и запустите установку снова." \
+        "Cannot determine the available libadwaita version. Run sudo apt update, check your package sources, then try again."
+  fi
+  if ! dpkg --compare-versions "$v" ge 1.5; then
     die "Эта версия системы слишком старая: WaySwitch нужны Ubuntu 24.04 или новее (Debian 13+). Ничего не установлено. Обновите систему через «Обновление приложений» и запустите команду снова." \
         "This system is too old: WaySwitch needs Ubuntu 24.04 or newer (Linux Mint 22+, Debian 13+)."
   fi
@@ -201,7 +304,7 @@ if [ "$MODE" = uninstall ]; then
   rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/ru.siberia.WaySwitch.Settings.desktop" \
         "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/ru.siberia.WaySwitch.desktop"
   restore_a11y
-  stop_gui  # окно и значок удалённой программы больше не нужны
+  stop_gui || true  # окно и значок удалённой программы больше не нужны
   say "Готово. Настройки остались в ~/.config/wayswitch — удалите папку, если они не нужны." \
       "Done. Settings are kept in ~/.config/wayswitch — delete it if you don't need them."
   exit 0
@@ -211,6 +314,7 @@ fi
 step "Проверяю систему" "Checking the system"
 say  "  Дистрибутив: ${PRETTY_NAME:-$ID}" "  Distribution: ${PRETTY_NAME:-$ID}"
 case "${XDG_CURRENT_DESKTOP:-}" in
+  *COSMIC*|*cosmic*|*Cosmic*) say "  Рабочий стол: COSMIC" "  Desktop: COSMIC" ;;
   *GNOME*)    say "  Рабочий стол: GNOME" "  Desktop: GNOME" ;;
   *KDE*)      say "  Рабочий стол: KDE Plasma" "  Desktop: KDE Plasma" ;;
   *Hyprland*) say "  Композитор: Hyprland" "  Compositor: Hyprland" ;;
@@ -221,8 +325,8 @@ case "${XDG_CURRENT_DESKTOP:-}" in
                    "The Cinnamon desktop (Linux Mint) is not supported yet: you can install, but words will most likely not be fixed." ;;
   *Budgie*)   say "  Рабочий стол: Budgie" "  Desktop: Budgie" ;;
   *LXQt*)     say "  Рабочий стол: LXQt" "  Desktop: LXQt" ;;
-  *)       warn "Рабочий стол «${XDG_CURRENT_DESKTOP:-неизвестно}»: WaySwitch его не знает. Поддерживаются GNOME, KDE, Xfce, MATE, Cinnamon, Budgie, LXQt, Sway, Hyprland." \
-                "Desktop \"${XDG_CURRENT_DESKTOP:-unknown}\": WaySwitch does not know it. Supported: GNOME, KDE, Xfce, MATE, Cinnamon, Budgie, LXQt, Sway, Hyprland." ;;
+  *)       warn "Рабочий стол «${XDG_CURRENT_DESKTOP:-неизвестно}»: WaySwitch его не знает. Поддерживаются GNOME, COSMIC, KDE, Xfce, MATE, Cinnamon, Budgie, LXQt, Sway, Hyprland." \
+                "Desktop \"${XDG_CURRENT_DESKTOP:-unknown}\": WaySwitch does not know it. Supported: GNOME, COSMIC, KDE, Xfce, MATE, Cinnamon, Budgie, LXQt, Sway, Hyprland." ;;
 esac
 NOT_WAYLAND=0
 if [ "${XDG_SESSION_TYPE:-}" != wayland ]; then
@@ -261,12 +365,12 @@ fi
 WAS=$(systemctl --user is-enabled wayswitch 2>/dev/null || true)
 # Уже стоял — значит, это обновление. Переход с исходников на пакет — нет:
 # uninstall.sh останавливает службу и убирает расширение, нужен новый вход.
-HAD=0; have wayswitch && [ ! -f "$SOURCE_UNINSTALL" ] && HAD=1
-# Перезапускаем после обновления только значок (--tray) и только из
-# графического сеанса: окно, открытое отдельно, и сеанс по SSH не трогаем.
+HAD=0; have wayswitch && HAD=1
+# После обновления восстанавливаем работавший трей, окно открывается из меню.
 GUI_WAS=0
-if [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ] && pgrep -u "$(id -u)" -f 'wayswitch-gui --tray' >/dev/null 2>&1; then
-  GUI_WAS=1
+if gui_pid=$(native_gui_pid); then
+  gui_args=$(ps -ww -o args= -p "$gui_pid" 2>/dev/null) || gui_args=""
+  case " $gui_args " in *" --tray "*) GUI_WAS=1 ;; esac
 fi
 step "Устанавливаю" "Installing"
 need_sudo
@@ -274,10 +378,10 @@ case "$FAMILY" in
   deb)    get_package deb
           if [ -n "$PKG" ]; then drop_source_copy; sudo apt install -y "$PKG"; else from_source install.sh; fi
           # Значок в верхней панели GNOME — через AppIndicator (в Ubuntu уже есть).
-          case "${XDG_CURRENT_DESKTOP:-}" in *GNOME*)
+          if is_gnome; then
             sudo apt install -y gnome-shell-extension-appindicator >/dev/null 2>&1 \
-              && enable_extension appindicatorsupport@rgcjonas.gmail.com || true ;;
-          esac ;;
+              && enable_extension appindicatorsupport@rgcjonas.gmail.com || true
+          fi ;;
   fedora) get_package rpm
           if [ -z "$PKG" ]; then from_source install.sh
           elif [ "$ATOMIC" = 1 ]; then drop_source_copy
@@ -300,23 +404,23 @@ systemctl --user try-restart wayswitch >/dev/null 2>&1 || true
 enable_extension wayswitch@siberia.ru || true
 enable_a11y || true
 
+if stop_gui && [ "$GUI_WAS" = 1 ]; then
+  # Значок — старый код в памяти: перезапускаем его на новой версии.
+  if have setsid; then setsid wayswitch-gui --tray >/dev/null 2>&1 </dev/null &
+  else nohup wayswitch-gui --tray >/dev/null 2>&1 </dev/null & fi
+fi
+
 # --- Что дальше ----------------------------------------------------------------
 if [ "$HAD" = 1 ] && [ "$ATOMIC" != 1 ]; then
   # Обновление: служба уже перезапущена (try-restart выше), доступ к
   # клавиатуре был и раньше — перезагружаться не нужно.
   step "WaySwitch обновлён" "WaySwitch is updated"
-  if [ "$GUI_WAS" = 1 ]; then
-    # Значок — старый код в памяти: перезапускаем его на новой версии.
-    pkill -u "$(id -u)" -f 'wayswitch-gui --tray' >/dev/null 2>&1 || true
-    if have setsid; then setsid wayswitch-gui --tray >/dev/null 2>&1 </dev/null &
-    else nohup wayswitch-gui --tray >/dev/null 2>&1 </dev/null & fi
-  fi
   say "  Перезагружать компьютер не нужно. Если окно WaySwitch было открыто — откройте его снова из меню приложений." \
       "  No restart needed. If the WaySwitch window was open, open it again from the app menu."
-  case "${XDG_CURRENT_DESKTOP:-}" in *GNOME*)
+  if is_gnome; then
     say "  Новая версия расширения GNOME заработает после следующего входа в систему." \
-        "  The new GNOME extension version takes effect at your next login." ;;
-  esac
+        "  The new GNOME extension version takes effect at your next login."
+  fi
   exit 0
 fi
 step "WaySwitch установлен" "WaySwitch is installed"

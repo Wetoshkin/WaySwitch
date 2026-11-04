@@ -6,18 +6,20 @@ permissions:
   contents: write
 jobs:
   release:
-    runs-on: ubuntu-latest
+    # Зависимости AppImage зафиксированы для glibc 2.39 (Ubuntu 24.04).
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - name: Проверки перед релизом
         run: |
-          sudo apt-get update && sudo apt-get install -y libxkbcommon0 xkb-data
+          sudo apt-get update && sudo apt-get install -y libxkbcommon0 libwayland-client0 xkb-data
           pip install pytest ruff evdev
           python -m ruff check .
           python -m pytest -q
           node --input-type=module --check < extension/wayswitch@siberia.ru/extension.js
+          node tests/test_extension_focus.cjs
       - name: Версии совпадают с тегом
         # Тег обязан совпадать с версией в pyproject.toml и PKGBUILD
         # (v2.0.0a2 ↔ 2.0.0a2), иначе пакеты получат чужой номер версии.
@@ -29,9 +31,26 @@ jobs:
             || { echo "тег v${tag} не совпадает с pkgver в packaging/arch/PKGBUILD"; exit 1; }
       - name: Сборка .deb и .rpm
         run: |
-          sudo apt-get install -y rpm
+          sudo apt-get install -y rpm libarchive-tools
           bash tools/build_deb.sh
           bash tools/build_rpm.sh
+      - name: Flatpak и GNOME SDK 50
+        run: |
+          sudo apt-get install -y flatpak flatpak-builder
+          # Как в CI Flatpak: разрешить bubblewrap на одноразовом runner Ubuntu 24.04.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo systemctl reload apparmor
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive flathub org.gnome.Platform//50 org.gnome.Sdk//50
+      - name: Сборка .flatpak и .AppImage
+        run: |
+          sudo apt-get install -y python3 dpkg squashfs-tools
+          bash tools/build_flatpak.sh build/flatpak
+          python3 tools/build_appimage.py build/appimage
+          cp build/flatpak/WaySwitch-Settings.flatpak build/appimage/WaySwitch-Settings-x86_64.AppImage dist/
+      - name: Контрольные суммы всех пакетов
+        run: |
+          (cd dist && sha256sum *.deb *.rpm WaySwitch-Settings.flatpak WaySwitch-Settings-x86_64.AppImage > SHA256SUMS && sha256sum --check SHA256SUMS)
       - name: Публикация релиза
         env:
           GH_TOKEN: ${{ github.token }}
@@ -41,6 +60,24 @@ jobs:
           pre=""
           case "$GITHUB_REF_NAME" in *a[0-9]*|*b[0-9]*|*rc[0-9]*) pre="--prerelease" ;; esac
           cat > notes.md <<'EOF'
+          ## Изменения в 1.1.0
+
+          - Добавлена поддержка COSMIC: фактическая карта клавиатуры и подтверждение
+            переключения раскладки перед перепечаткой. Проверено на COSMIC 1.11.
+          - Подготовлены Flatpak и AppImage окна настроек для нативной службы хоста.
+          - Установщик проверяет SHA256 и размер пакета до установки.
+          - Набранный текст исключён из журналов, включая DEBUG, dry-run и ошибки.
+            Буфер и отмена привязаны к полю ввода; смена поля сбрасывает старый текст.
+          - При защите паролей терминалы исключены из автокоррекции целиком:
+            ручной жест доступен, история и обучение не получают ввод терминала.
+          - Исправлены исключения JetBrains IDEA через WM_CLASS и разбор AT-SPI,
+            проверка libadwaita при русской локали и установка RPM на Bazzite.
+
+          Обновите также расширение GNOME и перезайдите в сеанс. В COSMIC после
+          запуска службы и разблокировки требуется явное возобновление работы.
+          Flatpak/AppImage содержат интерфейс; нативная служба устанавливается отдельно.
+          Публикация в каталоге Flathub ещё не выполнена.
+
           ## Установка и обновление
 
           Откройте терминал (клавиша с логотипом Windows → наберите «Терминал»),
@@ -60,6 +97,16 @@ jobs:
           `sudo dnf install "$(xdg-user-dir DOWNLOAD)"/wayswitch-*.rpm` (Fedora) или
           `sudo zypper install --allow-unsigned-rpm "$(xdg-user-dir DOWNLOAD)"/wayswitch-*.rpm` (openSUSE).
 
+          `.flatpak` и `.AppImage` содержат только окно настроек и трей.
+          Для исправления раскладки нужна также нативная служба WaySwitch,
+          установленная через `.deb`, `.rpm` или пакет дистрибутива.
+          AppImage предназначен для x86_64 с glibc 2.39+ (Ubuntu 24.04+).
+          Файл `SHA256SUMS` содержит контрольные суммы всех четырёх форматов.
+
+          В COSMIC после запуска службы или блокировки разблокируйте экран
+          и явно включите исправление в окне/трее либо командой `wayswitch resume`.
+          Автоматического возобновления нет.
+
           ## Возможности
 
           - Автоматическое исправление русско-английской раскладки.
@@ -70,9 +117,9 @@ jobs:
           EOF
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             # Повторный запуск workflow: перезалить пакеты, а не падать.
-            gh release upload "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm --clobber
+            gh release upload "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm dist/WaySwitch-Settings.flatpak dist/WaySwitch-Settings-x86_64.AppImage dist/SHA256SUMS --clobber
           else
-            gh release create "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm $pre \
+            gh release create "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm dist/WaySwitch-Settings.flatpak dist/WaySwitch-Settings-x86_64.AppImage dist/SHA256SUMS $pre \
               --notes-file notes.md \
               --title "WaySwitch $GITHUB_REF_NAME"
           fi

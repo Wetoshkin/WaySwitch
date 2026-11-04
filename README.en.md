@@ -17,11 +17,11 @@
 
 **Automatic Russian–English keyboard layout correction for Linux on Wayland.**
 
-**Version 1.0.0 — the first stable public release.**
+**Version 1.1.0 — COSMIC, input protection and portable settings clients.**
 
 WaySwitch fixes a word typed in the wrong layout (`ghbdtn` instead of
 «привет») right away, on Space — no hotkeys, no manual layout switching. It
-works on Wayland in GNOME, KDE Plasma, Sway, Hyprland, Xfce, MATE, Budgie
+works on Wayland in GNOME, COSMIC, KDE Plasma, Sway, Hyprland, Xfce, MATE, Budgie
 and LXQt, where classic tools of this kind can neither listen to the
 keyboard nor type for you. Linux Mint (Cinnamon) is not supported yet. The interface is in Russian: WaySwitch currently
 supports the Russian ↔ English pair.
@@ -106,6 +106,60 @@ The installer checks the system before making changes.
 
 Uninstall: the same command with `| sh -s -- --uninstall`.
 
+Before installing a `.deb` or `.rpm`, the script verifies its SHA256 and size
+against the selected GitHub release metadata. Missing checksums or failed
+verification stop installation. This check requires `python3`; the installer
+reports the prerequisite if it is missing.
+
+### Flatpak and AppImage
+
+Portable settings clients are available. Install and update the
+native WaySwitch service on the host to version 1.1.0 using the command above; `1.0.0`
+does not contain these fixes. The first-run window explains companion
+installation, startup and diagnostics. Settings and pause state are shared.
+
+Download the local bundle and `SHA256SUMS` from the same release:
+
+```bash
+grep -E '^[[:xdigit:]]{64}  WaySwitch-Settings\.flatpak$' SHA256SUMS | sha256sum -c - && \
+flatpak install --user --or-update ./WaySwitch-Settings.flatpak
+flatpak run ru.siberia.WaySwitch.Gui
+```
+
+The bundle offers the official repository for GNOME Runtime 50. To update a local
+bundle, download the replacement, verify it against the release's `SHA256SUMS`,
+then run `flatpak install --user --or-update ./WaySwitch-Settings.flatpak`.
+Remove the GUI with `flatpak uninstall --user ru.siberia.WaySwitch.Gui`.
+The application has not been published on Flathub. `flatpak update` works for
+a configured application repository, rather than a standalone bundle file.
+
+AppImage requires x86_64 Linux with glibc 2.39+ (Ubuntu 24.04+, Debian 13+):
+
+```bash
+grep -E '^[[:xdigit:]]{64}  WaySwitch-Settings-x86_64\.AppImage$' SHA256SUMS | sha256sum -c - && \
+chmod +x WaySwitch-Settings-x86_64.AppImage && \
+./WaySwitch-Settings-x86_64.AppImage --appimage-extract-and-run
+```
+
+Python, GTK4 and libadwaita are bundled. Close the GUI and replace the file after
+verifying its release checksum to update; delete the file to remove it. AppImage
+runs with the user's permissions. Flatpak has no input-device access. Removing
+either portable GUI leaves the native service and shared settings in place.
+
+### COSMIC
+
+Configure Russian and a Latin layout in COSMIC Settings. The backend reads the
+actual keyboard map and group from the compositor and waits for switch
+acknowledgements. Tested on COSMIC 1.11 with multiple keyboards in one seat;
+multiple keyboard seats are unsupported.
+
+After every service start/restart and screen lock, unlock the desktop and
+explicitly enable correction using the GUI/tray or `wayswitch resume`.
+COSMIC does not provide a reliable public unlocked-state acknowledgement, so
+correction never resumes automatically. Unknown protection state keeps it off;
+`wayswitch doctor` explains recovery. Automatic Caps Lock deactivation is disabled
+because the compositor's compiled keymap does not expose original XKB options.
+
 ## Gestures
 
 | Gesture | Action |
@@ -156,8 +210,10 @@ contain typed text. See [Contributing](CONTRIBUTING.md).
 **What happens to my data?** Correction runs locally; typed text is not sent
 over the network. Recent corrections are held in memory. Word exceptions,
 including those learned from undoing corrections, are saved to
-`~/.config/wayswitch/exceptions.txt`. Normal logs omit corrected words,
-but `--verbose` and `dry-run` can print typed text.
+`~/.config/wayswitch/exceptions.txt`. Logs, including `--verbose` and
+`dry-run`, record decisions and operation results without typed words.
+When focus is unknown or stale, correction text is withheld from the
+window history over D-Bus and from learning after undo.
 
 Update checks contact the GitHub API. GitHub receives your IP address and
 the WaySwitch version in the `User-Agent`, but no typed text. You can turn
@@ -168,16 +224,38 @@ Pause WaySwitch before entering sensitive text in a field whose protection
 you have not verified. The udev rule grants keyboard access to other processes
 running as the active user as well.
 
+With password protection enabled, automatic correction is disabled in terminals.
+Terminals do not reliably distinguish hidden passwords from ordinary input.
+Manual gestures remain available. Terminal input is withheld from correction
+history and learning.
+
 **X11?** No, WaySwitch is built for Wayland.
 
-**Flatpak or Snap?** No: the program needs direct access to `/dev/input`,
-which a sandbox does not give.
+**No tray icon in GNOME?** Enable AppIndicator in the Extensions app. On
+regular Fedora, install it with `sudo dnf install gnome-shell-extension-appindicator`
+if missing. Bazzite already bundles the extension.
+
+**Flatpak and AppImage.** These contain the settings GUI with an explicit native
+host companion, as described above. The daemon needs `/dev/input`, `/dev/uinput`,
+a udev rule and desktop integration. A Snap package is not available.
 
 ## Status
 
-WaySwitch 1.0.0. Tested on CachyOS with GNOME 51. KDE Plasma 6, Sway, Hyprland and the
+WaySwitch 1.1.0. Tested on CachyOS with GNOME 51, Ubuntu with GNOME 50.1,
+Bazzite with GNOME, and COSMIC 1.11. KDE Plasma 6, Sway, Hyprland and the
 labwc/Wayfire desktops are covered by tests but not yet tried live — reports
 are welcome.
+
+With password-field protection enabled, automatic correction waits for
+verified AT-SPI focus. Use a manual gesture if the application's accessibility
+bridge is unavailable. `wayswitch doctor` shows application identifiers for
+exclusions. In GNOME, update the extension too and sign in again.
+Buffered text, context and undo belong to the field where input was captured.
+A programmatic field change discards the old span. If focus becomes verified
+partway through a word, correction waits for a boundary rather than replaying
+an unverified prefix.
+COSMIC correction and lock-screen handling have been tested live. Explicit
+confirmation is required after service startup and unlocking, as described above.
 
 ## Development
 
@@ -188,9 +266,25 @@ python -m ruff check .
 ```
 
 Packages: `bash tools/build_deb.sh`, `bash tools/build_rpm.sh`,
-`cd packaging/arch && makepkg -si`.
+`cd packaging/arch && makepkg -si`. Portable GUI builds:
+`bash tools/build_flatpak.sh build/flatpak` with GNOME SDK/Platform 50;
+`python3 tools/build_appimage.py build/appimage` on x86_64 Linux with
+squashfs-tools and dpkg-deb.
+
+After publishing a commit containing these changes,
+`python3 tools/prepare_flathub.py <full-40-character-commit> build/flathub-submission`
+prepares files pinned to that commit. It does not publish. Metadata validation,
+real screenshots and publication approval are still required before submission.
 See [Contributing](CONTRIBUTING.md), the [architecture](docs/architecture.md)
 and the [live-session checklist](docs/testing-vm.md).
+
+## In the media
+
+OpenNET, a well-known Russian-language portal covering Linux, Unix and
+open-source software, published an article about WaySwitch.
+
+- **November 2, 2026 · OpenNET** — coverage of the WaySwitch 1.0 release and
+  automatic keyboard-layout correction. [Read the article and discussion (in Russian)](https://www.opennet.ru/opennews/art.shtml?num=66588).
 
 ## License
 

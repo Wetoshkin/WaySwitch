@@ -45,9 +45,14 @@ def is_prerelease(text: str) -> bool:
     return parsed is not None and parsed[3] < _PRE_RANK[None]
 
 
+def _version_epoch(version: tuple[int, int, int, int, int]) -> int:
+    # Опубликованные 2.0.0a1–a4 предшествуют перенумерованному стабильному 1.0.0.
+    return 0 if version[:4] == (2, 0, 0, 0) and 1 <= version[4] <= 4 else 1
+
+
 def is_newer(candidate: str, current: str) -> bool:
     a, b = parse_version(candidate), parse_version(current)
-    return a is not None and b is not None and a > b
+    return a is not None and b is not None and (_version_epoch(a), a) > (_version_epoch(b), b)
 
 
 @dataclass(frozen=True)
@@ -65,13 +70,12 @@ def pick_release(releases: list[dict], current: str) -> Release | None:
     стабильной 2.0.0 — нет.
     """
     allow_pre = is_prerelease(current)
-    best: tuple[tuple, Release] | None = None
+    best: Release | None = None
     for item in releases:
         if item.get("draft"):
             continue
         tag = str(item.get("tag_name") or "")
-        parsed = parse_version(tag)
-        if parsed is None:
+        if parse_version(tag) is None:
             continue
         if (item.get("prerelease") or is_prerelease(tag)) and not allow_pre:
             continue
@@ -81,9 +85,9 @@ def pick_release(releases: list[dict], current: str) -> Release | None:
         if not url.startswith(f"https://github.com/{REPO}/"):
             url = RELEASES_URL  # ссылку открываем в браузере — только свою
         release = Release(tag.lstrip("vV"), url, str(item.get("body") or "")[:2000])
-        if best is None or parsed > best[0]:
-            best = (parsed, release)
-    return best[1] if best else None
+        if best is None or is_newer(release.version, best.version):
+            best = release
+    return best
 
 
 def cache_path() -> Path:

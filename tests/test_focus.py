@@ -4,7 +4,10 @@
 в исключённой программе и в поле пароля.
 """
 
+import sys
+import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -91,7 +94,7 @@ def test_app_matches(app, patterns, expected):
 def test_skip_reason_password_field():
     clock = Clock()
     probe = FakeProbe(clock, app="firefox", password=True)
-    assert a11y.skip_reason(probe, [], True, clock()) == "поле пароля"
+    assert a11y.skip_reason(probe, [], True, clock()) == "защищённый ввод"
 
 
 def test_skip_reason_password_can_be_disabled():
@@ -106,11 +109,32 @@ def test_skip_reason_excluded_app():
     assert a11y.skip_reason(probe, ["telegram"], True, clock()) == "приложение TelegramDesktop"
 
 
-def test_skip_reason_stale_snapshot_does_not_block():
-    """Данные протухли — лучше исправить, чем замереть навсегда."""
+def test_skip_reason_stale_snapshot_blocks_protected_input():
     clock = Clock()
     probe = FakeProbe(clock, app="TelegramDesktop", age=a11y.MAX_AGE_SEC + 1)
-    assert a11y.skip_reason(probe, ["telegram"], True, clock()) is None
+    assert a11y.skip_reason(probe, ["telegram"], True, clock()) is not None
+
+
+def test_skip_reason_unknown_focus_blocks_protected_input():
+    clock = Clock()
+    assert a11y.skip_reason(FakeProbe(clock), [], True, clock()) is not None
+    assert a11y.skip_reason(FakeProbe(clock), [], False, clock()) is None
+
+
+def test_skip_reason_uses_shell_app_id_without_atspi_name():
+    class Probe:
+        def snapshot(self):
+            return FocusSnapshot(None, False, 100.0, ("jetbrains-idea",))
+
+    assert "jetbrains-idea" in a11y.skip_reason(Probe(), ["idea"], True, 100.0)
+
+
+def test_shell_identity_does_not_claim_password_detection(monkeypatch):
+    monkeypatch.setattr(a11y, "query_shell_app_ids", lambda: ("jetbrains-idea",))
+    monkeypatch.setattr(a11y, "_a11y_connection", lambda: (_ for _ in ()).throw(RuntimeError()))
+    snap = a11y.query_focus()
+    assert snap.app is None
+    assert snap.app_ids == ("jetbrains-idea",)
 
 
 def test_skip_reason_no_probe_never_blocks():
@@ -155,6 +179,290 @@ def test_probe_survives_failing_query():
         assert probe.snapshot().app is None
     finally:
         probe.close()
+
+
+def test_failed_probe_does_not_publish_fresh_focus():
+    def query():
+        raise RuntimeError("at-spi недоступен")
+
+    probe = a11y.AtspiProbe(clock=Clock(), query=query)
+    probe._refresh()
+    assert probe.snapshot().age(100.0) > a11y.MAX_AGE_SEC
+
+
+@pytest.fixture
+def focus_bus(monkeypatch):
+    state = {"connection": object(), "callbacks": [], "closed": []}
+
+    def watch(connection, callback):
+        state["callbacks"].append(callback)
+        live = threading.Event()
+        live.set()
+        return a11y._FocusWatch(connection, live,
+                                lambda: state["closed"].append(connection))
+
+    monkeypatch.setattr(a11y, "_a11y_connection", lambda: state["connection"])
+    monkeypatch.setattr(a11y, "_watch_focus_events", watch, raising=False)
+    return state
+
+
+def test_focus_event_invalidates_young_safe_snapshot(monkeypatch, focus_bus):
+    monkeypatch.setattr(a11y, "query_focus", lambda: ("Editor", False))
+    probe = a11y.AtspiProbe(clock=Clock())
+    probe._refresh()
+    assert probe.snapshot().app == "Editor"
+    assert focus_bus["callbacks"], "опрос начат без подписки на смену фокуса"
+    focus_bus["callbacks"][0]()
+    assert a11y.skip_reason(probe, [], True, 100.0) is not None
+
+
+def test_focus_event_during_query_cannot_republish_old_safe_focus(monkeypatch, focus_bus):
+    def query():
+        focus_bus["callbacks"][0]()
+        return "Editor", False
+
+    monkeypatch.setattr(a11y, "query_focus", query)
+    probe = a11y.AtspiProbe(clock=Clock())
+    probe._refresh()
+    assert focus_bus["callbacks"], "опрос начат без подписки на смену фокуса"
+    assert probe.snapshot().app is None
+    assert a11y.skip_reason(probe, [], True, 100.0) is not None
+
+
+def test_registration_loss_before_query_generation_stays_blocked(monkeypatch, focus_bus):
+    monkeypatch.setattr(a11y, "query_focus", lambda: ("Editor", False))
+    probe = a11y.AtspiProbe(clock=Clock())
+    live = threading.Event()
+    live.set()
+    is_set = live.is_set
+
+    def checked_then_lost():
+        was_live = is_set()
+        live.clear()
+        probe._invalidate()
+        monkeypatch.setattr(live, "is_set", is_set)
+        return was_live
+
+    monkeypatch.setattr(live, "is_set", checked_then_lost)
+    monkeypatch.setattr(a11y, "_watch_focus_events", lambda connection, _callback:
+                        a11y._FocusWatch(connection, live, lambda: None))
+    probe._refresh()
+    assert probe.snapshot().app is None
+    assert a11y.skip_reason(probe, [], True, 100.0) is not None
+
+
+def test_unavailable_focus_watcher_does_not_publish_safe_focus(monkeypatch, focus_bus):
+    def unavailable(*_args):
+        raise RuntimeError("реестр событий недоступен")
+
+    monkeypatch.setattr(a11y, "_watch_focus_events", unavailable)
+    monkeypatch.setattr(a11y, "query_focus", lambda: ("Editor", False))
+    probe = a11y.AtspiProbe(clock=Clock())
+    probe._refresh()
+    assert not probe.healthy()
+    assert probe.snapshot().app is None
+
+
+def test_close_during_query_does_not_publish_late_result():
+    entered, release = threading.Event(), threading.Event()
+
+    def query():
+        entered.set()
+        assert release.wait(2.0)
+        return "Editor", False
+
+    probe = a11y.AtspiProbe(clock=Clock(), query=query)
+    probe.poke()
+    thread = probe._thread
+    try:
+        assert entered.wait(1.0)
+        probe.close()
+    finally:
+        release.set()
+        thread.join(2.0)
+    assert not thread.is_alive()
+    assert probe.snapshot().app is None
+
+
+def test_close_during_registration_cleans_late_subscription(monkeypatch, focus_bus):
+    entered, release, cleaned = threading.Event(), threading.Event(), threading.Event()
+
+    def watch(*_args):
+        entered.set()
+        assert release.wait(2.0)
+        live = threading.Event()
+        live.set()
+        return a11y._FocusWatch(focus_bus["connection"], live, cleaned.set)
+
+    monkeypatch.setattr(a11y, "_watch_focus_events", watch)
+    monkeypatch.setattr(a11y, "query_focus", lambda: ("Editor", False))
+    probe = a11y.AtspiProbe(clock=Clock())
+    probe.poke()
+    thread = probe._thread
+    try:
+        assert entered.wait(1.0), "подписка не устанавливается до опроса"
+        probe.close()
+    finally:
+        release.set()
+        thread.join(2.0)
+    assert cleaned.is_set()
+    assert probe.snapshot().app is None
+
+
+def test_probe_replaces_subscription_when_bus_reconnects(monkeypatch, focus_bus):
+    monkeypatch.setattr(a11y, "query_focus", lambda: ("Editor", False))
+    probe = a11y.AtspiProbe(clock=Clock())
+    probe._refresh()
+    previous = focus_bus["connection"]
+    focus_bus["connection"] = object()
+    probe._refresh()
+    assert focus_bus["closed"] == [previous]
+    assert probe.snapshot().app == "Editor"
+
+
+@pytest.fixture
+def event_connections(monkeypatch):
+    connections = []
+    registered = set()
+
+    class Connection:
+        def __init__(self):
+            self.callbacks = {}
+            self.closed = False
+            self.owner = ":1.42"
+            connections.append(self)
+
+        def signal_subscribe(self, _sender, _iface, member, _path, arg0, _flags, callback, _data):
+            assert (member, arg0) in [("StateChanged", "focused"),
+                                       ("NameOwnerChanged", "org.a11y.atspi.Registry")]
+            self.callbacks[member] = callback
+            return member
+
+        def signal_unsubscribe(self, subscription):
+            del self.callbacks[subscription]
+
+        def connect(self, signal, callback):
+            assert signal == "closed"
+            self.callbacks[signal] = callback
+            return signal
+
+        def disconnect(self, signal):
+            del self.callbacks[signal]
+
+        def call_sync(self, _bus, _path, _iface, method, args, *_rest):
+            if method == "StartServiceByName":
+                assert args == ("(su)", ("org.a11y.atspi.Registry", 0))
+                self.owner = self.owner or ":1.42"
+                return None
+            if method == "GetNameOwner":
+                if self.owner is None:
+                    raise RuntimeError("NameHasNoOwner")
+                return SimpleNamespace(unpack=lambda: (self.owner,))
+            assert method == "RegisterEvent"
+            assert args == ("(sass)", ("object:state-changed:focused", [], ""))
+            registered.add(self)
+
+        def close_sync(self, _cancellable):
+            self.closed = True
+            registered.discard(self)
+
+    repository = SimpleNamespace(
+        Gio=SimpleNamespace(DBusSignalFlags=SimpleNamespace(NONE=0),
+                            DBusCallFlags=SimpleNamespace(NONE=0)),
+        GLib=SimpleNamespace(Variant=lambda signature, values: (signature, values),
+                             VariantType=lambda signature: signature, Error=RuntimeError))
+    monkeypatch.setitem(sys.modules, "gi", SimpleNamespace(repository=repository))
+    monkeypatch.setitem(sys.modules, "gi.repository", repository)
+    monkeypatch.setattr(a11y, "_new_a11y_connection", Connection, raising=False)
+    return connections, registered
+
+
+def test_overlapping_probe_cleanup_keeps_new_registration(event_connections):
+    connections, registered = event_connections
+    old = a11y._watch_focus_events(object(), lambda: None)
+    new = a11y._watch_focus_events(object(), lambda: None)
+    assert len(connections) == 2
+    old.close()
+    assert registered == {connections[1]}
+    assert new.live.is_set()
+    new.close()
+    assert not registered
+
+
+def test_focus_watch_activates_registry_without_existing_owner(monkeypatch, event_connections):
+    connections, registered = event_connections
+    connection_type = a11y._new_a11y_connection
+    initialize = connection_type.__init__
+
+    def cold(self):
+        initialize(self)
+        self.owner = None
+
+    monkeypatch.setattr(connection_type, "__init__", cold)
+    watch = a11y._watch_focus_events(object(), lambda: None)
+    assert watch.live.is_set()
+    assert registered == {connections[0]}
+    watch.close()
+
+
+@pytest.mark.parametrize("signal", ["closed", "NameOwnerChanged"])
+def test_lost_focus_registration_invalidates_cached_safe_focus(event_connections, signal):
+    connections, _registered = event_connections
+    invalidations = []
+    watch = a11y._watch_focus_events(object(), lambda: invalidations.append(True))
+    assert watch.live.is_set()
+    connections[0].callbacks[signal](None, None, None, None, None, None, None)
+    assert not watch.live.is_set()
+    assert invalidations
+    watch.close()
+
+
+def test_registry_restart_during_registration_does_not_restore_live_flag(
+        monkeypatch, event_connections):
+    connections, registered = event_connections
+    connection_type = a11y._new_a11y_connection
+    call = connection_type.call_sync
+
+    def restart(self, bus, path, iface, method, args, *rest):
+        result = call(self, bus, path, iface, method, args, *rest)
+        if method == "RegisterEvent":
+            self.owner = ":1.43"
+            self.callbacks["NameOwnerChanged"](None, None, None, None, None, None, None)
+        return result
+
+    monkeypatch.setattr(connection_type, "call_sync", restart)
+    with pytest.raises(RuntimeError):
+        a11y._watch_focus_events(object(), lambda: None)
+    assert connections[0].closed
+    assert not registered
+
+
+def test_focus_loss_and_gain_both_invalidate_without_reading_event_payload(event_connections):
+    connections, _registered = event_connections
+    probe = a11y.AtspiProbe(clock=Clock(), query=lambda: ("Editor", False))
+    watch = a11y._watch_focus_events(object(), probe._invalidate)
+    for enabled in (0, 1):
+        probe._refresh()
+        connections[0].callbacks["StateChanged"](
+            None, None, None, None, None, ("focused", enabled, 0, object(), {}), None)
+        assert a11y.skip_reason(probe, [], True, 100.0) is not None
+        assert watch.live.is_set()
+    watch.close()
+
+
+def test_idle_worker_releases_subscription(monkeypatch, focus_bus):
+    monkeypatch.setattr(a11y, "IDLE_STOP_SEC", 0.0)
+    monkeypatch.setattr(a11y, "query_focus", lambda: ("Editor", False))
+    probe = a11y.AtspiProbe(poll_sec=0.01)
+    try:
+        probe.poke()
+        deadline = time.monotonic() + 1.0
+        while not focus_bus["closed"] and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert focus_bus["closed"]
+        assert probe.snapshot().app is None
+    finally:
+        probe.close(wait=True)
 
 
 def test_make_probe_respects_flag():
@@ -329,7 +637,7 @@ class DictTree:
         return [bits]
 
     def role(self, node):
-        return self.nodes[node].get("role", "")
+        return self.nodes[node].get("role")
 
     def app_name(self, node):
         return self.nodes[node].get("name", "")
@@ -353,8 +661,8 @@ def test_find_focus_goes_straight_to_active_window():
     nodes["ffwin"] = {"state": (a11y.ACTIVE,), "kids": [chain[0]]}
     for a, b in zip(chain, chain[1:], strict=False):
         nodes[a] = {"kids": [b]}
-    nodes[chain[-1]] = {"state": (a11y.FOCUSED,), "role": "password text"}
-    assert a11y.find_focus(DictTree(nodes), "root") == ("Firefox", True)
+    nodes[chain[-1]] = {"state": (a11y.FOCUSED,), "role": 40}
+    assert a11y.find_focus(DictTree(nodes), "root")[:2] == ("Firefox", True)
 
 
 def test_find_focus_skips_shell():
@@ -365,8 +673,113 @@ def test_find_focus_skips_shell():
              "sw": {"state": (a11y.ACTIVE, a11y.FOCUSED)},
              "term": {"name": "Ptyxis", "kids": ["tw"]},
              "tw": {"state": (a11y.ACTIVE,), "kids": ["entry"]},
-             "entry": {"state": (a11y.FOCUSED,), "role": "terminal"}}
-    assert a11y.find_focus(DictTree(nodes), "root") == ("Ptyxis", False)
+             "entry": {"state": (a11y.FOCUSED,), "role": 60}}
+    assert a11y.find_focus(DictTree(nodes), "root")[:2] == ("Ptyxis", True)
+
+
+@pytest.mark.parametrize("role,protected", [(40, True), (60, True), (79, False)])
+def test_numeric_role_identifies_protected_input(role, protected):
+    nodes = {"root": {"kids": ["app"]},
+             "app": {"name": "Test App", "kids": ["window"]},
+             "window": {"state": (a11y.ACTIVE,), "kids": ["entry"]},
+             "entry": {"state": (a11y.FOCUSED,), "role": role}}
+    assert a11y.find_focus(DictTree(nodes), "root")[:2] == ("Test App", protected)
+
+
+@pytest.mark.parametrize("role,protected", [(40, True), (79, False)])
+def test_browser_focused_containers_do_not_hide_deep_text_field(role, protected):
+    nodes = {"root": {"kids": ["app"]},
+             "app": {"name": "Browser", "kids": ["window"]},
+             "window": {"state": (a11y.ACTIVE,), "kids": ["node1"]}}
+    for depth in range(1, 26):
+        nodes[f"node{depth}"] = {"kids": [f"node{depth + 1}"] if depth < 25 else []}
+    nodes["node19"].update(state=(a11y.FOCUSED,), role=39)
+    nodes["node23"].update(state=(a11y.FOCUSED,), role=95)
+    nodes["node25"].update(state=(a11y.FOCUSED,), role=role)
+    assert a11y.find_focus(DictTree(nodes), "root")[:2] == ("Browser", protected)
+
+
+def test_text_field_beyond_depth_limit_remains_unverified():
+    nodes = {"root": {"kids": ["app"]},
+             "app": {"name": "Browser", "kids": ["window"]},
+             "window": {"state": (a11y.ACTIVE,), "kids": ["node1"]}}
+    for depth in range(1, 34):
+        nodes[f"node{depth}"] = {"kids": [f"node{depth + 1}"] if depth < 33 else []}
+    nodes["node33"].update(state=(a11y.FOCUSED,), role=79)
+    assert a11y.find_focus(DictTree(nodes), "root")[:2] == (None, False)
+
+
+@pytest.mark.parametrize("role", [43, 67])
+def test_focused_nontext_or_unknown_role_does_not_confirm_safe_input(role):
+    nodes = {"root": {"kids": ["app"]},
+             "app": {"name": "Browser", "kids": ["window"]},
+             "window": {"state": (a11y.ACTIVE,), "kids": ["button"]},
+             "button": {"state": (a11y.FOCUSED,), "role": role}}
+    assert a11y.find_focus(DictTree(nodes), "root")[:2] == (None, False)
+
+
+def test_terminal_blocks_auto_but_manual_fix_is_private_and_not_learned():
+    nodes = {"root": {"kids": ["app"]},
+             "app": {"name": "Terminal", "kids": ["window"]},
+             "window": {"state": (a11y.ACTIVE,), "kids": ["entry"]},
+             "entry": {"state": (a11y.FOCUSED,), "role": 60}}
+    probe = a11y.AtspiProbe(clock=Clock(), query=lambda: a11y.find_focus(DictTree(nodes), "root"))
+    probe._refresh()
+    corrected = []
+    env = make_env(probe=probe, apps=[])
+    env["backend"].current_index = US
+    env["ctrl"].on_corrected = lambda *args: corrected.append(args)
+    try:
+        type_keys(env, keys_for_text(env["km"], "ghbdtn ", US))
+        assert env["typist"].taps() == []
+        assert env["ctrl"].manual_word()
+        assert env["typist"].taps()
+        assert env["ctrl"].manual_word()
+        assert corrected == []
+        assert env["ctrl"]._undo_counts == {}
+    finally:
+        probe.close(wait=True)
+
+
+def test_dbus_app_of_unpacks_accessible_reference():
+    tree = object.__new__(a11y._DbusTree)
+
+    def call(node, iface, method, arg, sig):
+        assert method == "GetApplication"
+        assert sig == "((so))"
+        return ((":1.42", "/org/a11y/atspi/accessible/root"),)
+
+    tree._call = call
+
+    def app_name(node):
+        assert node == (":1.42", "/org/a11y/atspi/accessible/root")
+        return "IntelliJ IDEA"
+
+    tree.app_name = app_name
+    assert tree.app_of((":1.42", "/field")) == "IntelliJ IDEA"
+
+
+def test_dbus_password_uses_numeric_role_when_name_is_generic():
+    tree = object.__new__(a11y._DbusTree)
+    calls = []
+
+    def call(node, iface, method, arg, sig):
+        calls.append((method, sig))
+        return (40,) if method == "GetRole" else ("text box",)
+
+    tree._call = call
+    assert tree.role((":1.42", "/password")) == 40
+    assert calls == [("GetRole", "(u)")]
+
+
+@pytest.mark.parametrize("entry", [{}, {"state": (a11y.FOCUSED,), "role": None},
+                                  {"state": (a11y.FOCUSED,), "role": 0}])
+def test_active_app_without_verified_field_does_not_imply_safe_input(entry):
+    nodes = {"root": {"kids": ["app"]},
+             "app": {"name": "Browser", "kids": ["window"]},
+             "window": {"state": (a11y.ACTIVE,), "kids": ["entry"]},
+             "entry": entry}
+    assert a11y.find_focus(DictTree(nodes), "root")[:2] == (None, False)
 
 
 def test_idle_stop_leaves_stale_snapshot():

@@ -48,6 +48,24 @@ def test_menu_layout_shows_update():
     assert "update" not in [i.ident for i in menu_layout({"auto_correct": True})]
 
 
+def test_cosmic_unlock_confirmation_has_actionable_gui_state():
+    status = {"lock_confirmation_required": True, "locked": False, "paused": False}
+    view = texts.status_view(status)
+    assert "Подтвердите" in view.title
+    assert not view.switch_active and view.switch_sensitive
+    assert texts.pause_method(status) == "Resume"
+    pause = next(item for item in menu_layout(status) if item.ident == "pause")
+    assert pause.label == "Возобновить" and pause.enabled
+    status["locked"] = True
+    assert not texts.status_view(status).switch_sensitive
+    assert not next(item for item in menu_layout(status) if item.ident == "pause").enabled
+
+
+def test_pause_action_preserves_native_pause_toggle():
+    assert texts.pause_method({}) == "Pause"
+    assert texts.pause_method({"paused": True}) == "Resume"
+
+
 def test_parse_gui_args():
     assert parse_gui_args(["gui"]) is False
     assert parse_gui_args(["--tray"]) is True

@@ -18,6 +18,7 @@ GNOME = "gnome"
 KDE = "kde"
 SWAY = "sway"
 HYPRLAND = "hyprland"
+COSMIC = "cosmic"
 XFCE = "xfce"
 MATE = "mate"
 CINNAMON = "cinnamon"
@@ -26,6 +27,7 @@ LXQT = "lxqt"
 OTHER = "other"
 
 DESKTOP_NAMES = {GNOME: "GNOME", KDE: "KDE Plasma", SWAY: "Sway", HYPRLAND: "Hyprland",
+                 COSMIC: "COSMIC",
                  XFCE: "Xfce", MATE: "MATE", CINNAMON: "Cinnamon", BUDGIE: "Budgie",
                  LXQT: "LXQt", OTHER: "другая среда"}
 
@@ -56,7 +58,7 @@ def _session_env(runner=None) -> dict[str, str]:
         if sep and name in ("XDG_CURRENT_DESKTOP", "XDG_SESSION_TYPE", "WAYLAND_DISPLAY",
                             "DISPLAY", "XAUTHORITY", "SWAYSOCK",
                             "HYPRLAND_INSTANCE_SIGNATURE"):
-            env.setdefault(name, value)
+            env[name] = value
     return env
 
 
@@ -74,6 +76,8 @@ def detect_desktop(env: Mapping[str, str] | None = None) -> str:
         return HYPRLAND
     if "sway" in raw:
         return SWAY
+    if "cosmic" in raw:
+        return COSMIC
     # Budgie, Cinnamon и прочие пишут себя рядом с GNOME («Budgie:GNOME»),
     # поэтому проверяем их раньше GNOME: gnome-shell у них нет.
     for name in (BUDGIE, CINNAMON, XFCE, MATE, LXQT):

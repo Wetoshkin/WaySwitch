@@ -50,14 +50,14 @@ echo "== Пакеты"
 if command -v apt-get >/dev/null; then
     apt-get update
     apt-get install -y python3 python3-evdev python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 \
-        gir1.2-ibus-1.0 libxkbcommon0
+        gir1.2-ibus-1.0 libxkbcommon0 libwayland-client0
 elif command -v dnf >/dev/null; then
-    dnf install -y python3 python3-evdev python3-gobject gtk4 libadwaita ibus libxkbcommon
+    dnf install -y python3 python3-evdev python3-gobject gtk4 libadwaita ibus libxkbcommon libwayland-client
 elif command -v pacman >/dev/null; then
     # Arch/CachyOS: --needed не переустанавливает уже стоящее. Без -y: обновлять
     # систему целиком — решение человека, а не установщика.
     if ! pacman -S --needed --noconfirm python python-evdev python-gobject gtk4 libadwaita \
-            ibus libxkbcommon; then
+            ibus libxkbcommon wayland; then
         echo "pacman не смог поставить пакеты. Если ошибка 404 — сначала обновите" >&2
         echo "систему: sudo pacman -Syu, затем запустите установку снова." >&2
         exit 1
@@ -90,12 +90,12 @@ find "$LIB" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
 cat > "$BIN/wayswitch" <<EOF
 #!/bin/sh
 export PYTHONPATH="$LIB\${PYTHONPATH:+:\$PYTHONPATH}"
-exec $PY -m wayswitch "\$@"
+exec $PY -P -m wayswitch "\$@"
 EOF
 cat > "$BIN/wayswitch-gui" <<EOF
 #!/bin/sh
 export PYTHONPATH="$LIB\${PYTHONPATH:+:\$PYTHONPATH}"
-exec $PY -c "from wayswitch.gui.app import main; raise SystemExit(main())" "\$@"
+exec $PY -P -c "from wayswitch.gui.app import main; raise SystemExit(main())" "\$@"
 EOF
 chmod +x "$BIN/wayswitch" "$BIN/wayswitch-gui"
 

@@ -15,7 +15,8 @@ from wayswitch.keycodes import GESTURE_KEY_NAMES, KEY_NAMES
 
 SENSITIVITY_NAMES = ("conservative", "normal", "aggressive")
 MANUAL_MODES = ("double_shift", "tap_key", "pause_key", "none")
-BACKEND_PREFS = ("auto", "shell", "kde", "ibus", "hotkey", "sway", "hyprland", "compositor")
+BACKEND_PREFS = ("auto", "shell", "kde", "ibus", "hotkey", "sway", "hyprland", "compositor",
+                 "cosmic")
 # Чем печатать символы при shell-бэкенде: клавишами расширения (keysym-ы, не
 # зависят от раскладки) или сканерами через uinput (как настоящая клавиатура).
 SHELL_TYPING = ("extension", "uinput")
@@ -38,7 +39,7 @@ class General:
     punct_fix: bool = True
     # «чтото» → «что-то», «кембы» → «кем бы».
     particles_fix: bool = True
-    # Не трогать поля паролей (at-spi видит их ролью password text).
+    # Не исправлять автоматически парольные поля и ввод в терминалах.
     skip_password_fields: bool = True
     # Короткий сигнал после автоисправления (как в Punto Switcher).
     sound_on_fix: bool = False

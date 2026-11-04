@@ -20,13 +20,14 @@ BACKEND_HUMAN = {
     "hotkey": "через сочетание клавиш системы",
     "sway": "через Sway IPC",
     "hyprland": "через Hyprland IPC",
+    "cosmic": "через COSMIC",
     "compositor": "через сочетание клавиш композитора",
 }
 
 # Варианты «Способ» в Параметрах → Система; порядок = config.BACKEND_PREFS.
 BACKEND_CHOICES = ("Автоматически", "Расширение GNOME Shell", "KDE Plasma", "IBus",
                    "Сочетание клавиш GNOME", "Sway IPC", "Hyprland IPC",
-                   "Сочетание клавиш композитора")
+                   "Сочетание клавиш композитора", "COSMIC")
 
 SENSITIVITY_CHOICES = ("Осторожная", "Обычная", "Смелая")
 
@@ -83,6 +84,10 @@ class StatusView:
     switch_sensitive: bool
 
 
+def pause_method(status: dict) -> str:
+    return "Resume" if status.get("paused") or status.get("lock_confirmation_required") else "Pause"
+
+
 def status_view(status: dict | None) -> StatusView:
     """Что написать в карточке состояния по ответу GetStatus.
 
@@ -92,6 +97,11 @@ def status_view(status: dict | None) -> StatusView:
     if status is None:
         return StatusView("off", "WaySwitch не запущен",
                           "Слова сейчас не исправляются", False, False)
+    if status.get("lock_confirmation_required"):
+        locked = bool(status.get("locked"))
+        return StatusView("locked", "Экран заблокирован" if locked else "Подтвердите вход в COSMIC",
+                          "После входа и разблокировки включите переключатель, "
+                          "чтобы возобновить исправление", False, not locked)
     if status.get("paused"):
         return StatusView("paused", "На паузе",
                           "Слова не исправляются. Включите, когда закончите.", False, True)

@@ -30,7 +30,7 @@ class LayoutBackend(ABC):
     def layouts(self) -> list[LayoutSpec]: ...
 
     @abstractmethod
-    def xkb_options(self) -> list[str]: ...
+    def xkb_options(self) -> list[str] | None: ...
 
     @abstractmethod
     def current(self) -> int | None: ...
@@ -42,8 +42,8 @@ class LayoutBackend(ABC):
     def wait_applied(self, index: int, timeout: float) -> bool: ...
 
     @abstractmethod
-    def on_change(self, cb: Callable[[int, bool], None]) -> None:
-        """cb(index, external): external=True, если раскладку сменили не мы."""
+    def on_change(self, cb: Callable[[int | None, bool], None]) -> None:
+        """cb(index, external): None при потере карты, external=True при внешней смене."""
 
     def verify_layout(self) -> bool:
         """Совпадает ли представление бэкенда о раскладке с настоящей.

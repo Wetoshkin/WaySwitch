@@ -128,3 +128,12 @@ def test_key_delay_calls_sleep():
     execute(plan, RecordingTypist(), FakeBackend(current=US), key_delay=0.002,
             sleep=slept.append)
     assert slept and all(s == pytest.approx(0.002) for s in slept)
+def test_lock_between_shift_and_letter_only_releases_shift():
+    from wayswitch.actuator import ABORTED, Plan, Type, execute
+
+    typist = RecordingTypist()
+    locked = []
+    result = execute(Plan([Type("A", [(kc.KEY_A, True)])]), typist, FakeBackend(current=US),
+                     key_delay=0.1, sleep=lambda _: locked.append(True), stop=lambda: bool(locked))
+    assert result == ABORTED and typist.taps() == []
+    assert (kc.KEY_LEFTSHIFT, 0) in typist.events

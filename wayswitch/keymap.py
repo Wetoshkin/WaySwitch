@@ -153,6 +153,11 @@ def _load_lib():
         lib.xkb_keymap_new_from_names.argtypes = [ctypes.c_void_p, ctypes.POINTER(_XkbRuleNames),
                                                   ctypes.c_int]
         lib.xkb_keymap_unref.argtypes = [ctypes.c_void_p]
+        lib.xkb_keymap_new_from_buffer.restype = ctypes.c_void_p
+        lib.xkb_keymap_new_from_buffer.argtypes = [
+            ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t, ctypes.c_int, ctypes.c_int]
+        lib.xkb_keymap_layout_get_name.restype = ctypes.c_char_p
+        lib.xkb_keymap_layout_get_name.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
         lib.xkb_keymap_num_layouts.restype = ctypes.c_uint32
         lib.xkb_keymap_num_layouts.argtypes = [ctypes.c_void_p]
         lib.xkb_keymap_mod_get_index.restype = ctypes.c_uint32
@@ -196,15 +201,30 @@ class XkbKeymap(Keymap):
             variant=",".join(s.variant for s in specs).encode(),
             options=",".join(options).encode(),
         )
+        return cls._compile(lib, lambda ctx: lib.xkb_keymap_new_from_names(
+            ctx, ctypes.byref(names), 0), specs)
+
+    @classmethod
+    def from_buffer(cls, data: bytes) -> XkbKeymap:
+        """Таблицы из фактической карты wl_keyboard, включая варианты и переназначения."""
+        lib = _load_lib()
+        return cls._compile(lib, lambda ctx: lib.xkb_keymap_new_from_buffer(
+            ctx, data, len(data), 1, 0), None)
+
+    @classmethod
+    def _compile(cls, lib, compile_map, specs):
         ctx = lib.xkb_context_new(0)
         if not ctx:
             raise RuntimeError("xkb_context_new")
         try:
-            keymap = lib.xkb_keymap_new_from_names(ctx, ctypes.byref(names), 0)
+            keymap = compile_map(ctx)
             if not keymap:
-                raise RuntimeError(f"xkb: не удалось собрать раскладку {names.layout!r}")
+                raise RuntimeError("xkb: не удалось собрать раскладку")
             try:
                 groups = lib.xkb_keymap_num_layouts(keymap)
+                if specs is None:
+                    specs = [LayoutSpec((lib.xkb_keymap_layout_get_name(keymap, g) or b"?")
+                                        .decode("utf-8", "replace")) for g in range(groups)]
                 shift_idx = lib.xkb_keymap_mod_get_index(keymap, b"Shift")
                 tables = [cls._build_table(lib, keymap, g, 1 << shift_idx) for g in range(groups)]
             finally:

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from wayswitch.backends.desktop import (
     COMPOSITOR_DESKTOPS,
+    COSMIC,
     DESKTOP_NAMES,
     GNOME,
     HYPRLAND,
@@ -120,8 +121,8 @@ def uinput_status() -> tuple[bool, str]:
 def toolkit_accessibility() -> tuple[bool, str]:
     """Включён ли мост доступности в GTK-программах.
 
-    Без него at-spi видит только оболочку: исключения по программам и защита
-    полей паролей не работают (автоисправление при этом работает).
+    Без него at-spi видит только оболочку: защищённое автоисправление ждёт
+    достоверного фокуса, исключения в GNOME также используют идентификаторы окна.
     """
     import subprocess
 
@@ -140,12 +141,26 @@ def toolkit_accessibility() -> tuple[bool, str]:
 def atspi_status() -> tuple[bool, str]:
     """Отвечает ли мост доступности: без него не узнать приложение и поле пароля.
 
-    Проверка необязательная: без at-spi автоисправление работает, просто не
-    исключает программы и не распознаёт поля паролей.
+    Без достоверного фокуса автоисправление с защитой полей паролей ждёт,
+    ручное исправление остаётся доступным.
     """
     from wayswitch.a11y import bridge_available
 
     return bridge_available()
+
+
+def focus_status() -> tuple[bool, str]:
+    """Свежие идентификаторы приложения без заголовков окна и текста поля."""
+    from wayswitch.a11y import query_focus
+
+    snap = query_focus()
+    names = ", ".join(snap.app_ids)
+    detail = f"AT-SPI: {snap.app or 'приложение не определено'}"
+    if names:
+        detail += f"; ID окна: {names}"
+    if not snap.app:
+        return False, detail + "; защита полей паролей не подтверждена, автоисправление ждёт фокуса"
+    return True, detail
 
 
 def run_checks() -> list[Check]:
@@ -162,12 +177,34 @@ def run_checks() -> list[Check]:
 
     checks.append(_check("Распознавание программ и полей пароля (настройка)",
                          toolkit_accessibility,
-                         "необязательно: без неё не работают исключения по "
-                         "программам и защита полей паролей", required=False))
+                         "без достоверного фокуса защищённое автоисправление ждёт; "
+                         "ручное исправление доступно", required=False))
     checks.append(_check("Распознавание программ и полей пароля (служба at-spi)",
                          atspi_status,
-                         "необязательно: без него не работают исключения по "
-                         "программам и защита полей паролей", required=False))
+                         "без достоверного фокуса защищённое автоисправление ждёт; "
+                         "ручное исправление доступно", required=False))
+    checks.append(_check("Активное приложение (без текста и заголовка окна)", focus_status,
+                         "переключитесь в нужное приложение после запуска "
+                         "«sleep 5; wayswitch doctor»; ID окна GNOME появится после "
+                         "обновления расширения и нового входа в сеанс",
+                         required=False))
+
+    cosmic_map = None
+    if desktop == COSMIC:
+        def cosmic():
+            nonlocal cosmic_map
+            from wayswitch.backends.cosmic import CosmicBackend
+
+            backend = CosmicBackend(watch=False)
+            try:
+                cosmic_map = backend.keymap
+                return True, (f"группа {backend.current()}; после запуска и разблокировки "
+                              "подтвердите вход переключателем WaySwitch или wayswitch resume")
+            finally:
+                backend.close()
+        checks.append(_check("Раскладки COSMIC (Wayland)", cosmic,
+                             "войдите в сеанс COSMIC; "
+                             "нужен zcosmic_keyboard_layout_manager_v1", key="switch"))
 
     if desktop == GNOME:
         # На GNOME 46+ без расширения автоисправления нет: IBus меняет движок,
@@ -267,6 +304,9 @@ def run_checks() -> list[Check]:
     def sources():
         """Две раскладки: ru и латинская — по данным среды."""
         from wayswitch.keymap import XkbKeymap
+        if cosmic_map is not None:
+            alphabets = sorted(cosmic_map.alphabet(g) for g in range(cosmic_map.num_groups))
+            return alphabets == ["latin", "ru"], ", ".join(s.xkb_id for s in cosmic_map.specs)
         if desktop == KDE:
             from wayswitch.backends.kde_plasma import KdePlasmaBackend
             specs = KdePlasmaBackend().layouts()
@@ -297,9 +337,10 @@ def run_checks() -> list[Check]:
         km = XkbKeymap.from_names(specs, [])
         alphabets = sorted(km.alphabet(g) for g in range(km.num_groups))
         return alphabets == ["latin", "ru"], ", ".join(s.xkb_id for s in specs)
-    checks.append(_check("Две раскладки: русская и английская", sources,
-                         "оставьте в системе ровно две раскладки: русскую и английскую",
-                         key="layouts"))
+    if desktop != COSMIC or cosmic_map is not None:
+        checks.append(_check("Две раскладки: русская и английская", sources,
+                             "оставьте в системе ровно две раскладки: русскую и английскую",
+                             key="layouts"))
 
     def uinput():
         return uinput_status()

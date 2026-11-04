@@ -81,8 +81,13 @@ class DaemonService:
             c.pause()
             invocation.return_value(None)
         elif method == "Resume":
-            c.resume()
-            invocation.return_value(None)
+            if c.resume(confirm_lock=True):
+                invocation.return_value(None)
+            else:
+                invocation.return_dbus_error(
+                    BUS_NAME + ".ScreenLocked",
+                    "Нельзя возобновить ввод: блокировка экрана ещё активна "
+                    "или её состояние неизвестно.")
         elif method == "FixLastWord":
             invocation.return_value(GLib.Variant("(b)", (c.manual_word(),)))
         elif method == "FixPhrase":

@@ -9,7 +9,7 @@ pkgdesc="Fixes words typed in the wrong keyboard layout on Wayland (ru/en)"
 arch=('any')
 url="https://github.com/Wetoshkin/WaySwitch"
 license=('MIT' 'CC-BY-SA-4.0')
-depends=('python' 'python-evdev' 'python-gobject' 'gtk4' 'libadwaita' 'libxkbcommon')
+depends=('python' 'python-evdev' 'python-gobject' 'gtk4' 'libadwaita' 'libxkbcommon' 'wayland')
 optdepends=('gnome-shell: расширение для переключения раскладки в GNOME'
             'gnome-shell-extension-appindicator: значок в верхней панели GNOME'
             'ibus: запасной способ переключения раскладки в GNOME'

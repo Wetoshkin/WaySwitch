@@ -1,4 +1,4 @@
-"""Что сейчас в фокусе: приложение и поле пароля — через at-spi.
+"""Что сейчас в фокусе: приложение и защищённый ввод — через at-spi.
 
 Зачем это нужно. Две самые частые боли пользователей Punto Switcher — «лезет
 не в те программы» и «мешает вводить пароль». На Wayland у приложения нельзя
@@ -8,9 +8,9 @@
 Как устроено. Опрос at-spi — это десятки D-Bus-вызовов, и делать их в пути
 ввода нельзя: пока идёт опрос, события клавиатуры стоят в очереди. Поэтому
 опрос живёт в отдельном потоке и раз в POLL_SEC обновляет снимок, а
-controller читает этот снимок мгновенно. Данные о фокусе устаревают медленно
-(окно и поле не меняются внутри слова), поэтому MAX_AGE_SEC = 3 с — разумный
-компромисс между свежестью и отсутствием подвисаний.
+controller читает этот снимок мгновенно. События смены фокуса немедленно
+сбрасывают снимок, а результат начатого до события опроса отбрасывается.
+MAX_AGE_SEC ограничивает срок действия снимка при отсутствии событий.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections.abc import Callable
 from typing import NamedTuple, Protocol
 
 log = logging.getLogger("wayswitch")
@@ -37,17 +38,18 @@ POLL_SEC = 1.5
 # обход дерева доступности шёл бы с частотой набора.
 POKE_FRESH_SEC = 1.0
 
-# Пределы обхода: в браузере дерево доступности бывает на тысячи узлов,
-# а поле ввода почти всегда не глубже десятка уровней.
+# Веб-поля бывают глубже 20 уровней; бюджет узлов ограничивает стоимость обхода.
 MAX_NODES = 400
-MAX_DEPTH = 12
+MAX_DEPTH = 32
 
 # Столько секунд без ввода — и поток опроса останавливается, чтобы не крутить
 # обход дерева доступности впустую. Разбудит его следующий poke().
 IDLE_STOP_SEC = 30.0
 
-# Роли at-spi, которыми обозначают поля ввода пароля.
-PASSWORD_ROLES = frozenset({"password text"})
+# ATSPI_ROLE_PASSWORD_TEXT / TERMINAL: VTE не сообщает о скрытом вводе getpass.
+PROTECTED_ROLES = frozenset({40, 60})
+# ATSPI_ROLE_TEXT / ENTRY: сфокусированный контейнер не подтверждает тип ввода.
+TEXT_ROLES = frozenset({61, 79})
 
 # Оболочки и оконные менеджеры: их узлы at-spi тоже бывают «в фокусе» (панель,
 # обзор), но печатает человек не в них. Иначе при любом окне на экране
@@ -56,14 +58,27 @@ SHELL_APPS = frozenset({"gnome-shell", "plasmashell", "kwin", "kwin_wayland", "m
 
 
 class FocusSnapshot(NamedTuple):
-    """Состояние фокуса на момент taken_at."""
+    """Состояние фокуса; имя password сохранено для совместимости, включая терминалы."""
 
     app: str | None = None
     password: bool = False
     taken_at: float = 0.0
+    app_ids: tuple[str, ...] = ()
+    field: tuple[str, str] | None = None
+    generation: int = 0
 
     def age(self, now: float) -> float:
         return max(0.0, now - self.taken_at)
+
+
+    def protection(self, now: float) -> bool | None:
+        return self.password if self.app and self.age(now) <= MAX_AGE_SEC else None
+
+
+class _FocusWatch(NamedTuple):
+    query_connection: object
+    live: threading.Event
+    close: Callable[[], None]
 
 
 class Probe(Protocol):
@@ -102,17 +117,21 @@ def skip_reason(probe: Probe, excluded: list[str] | tuple[str, ...],
                 skip_password: bool, now: float) -> str | None:
     """Почему автоисправление сейчас трогать нельзя (или None).
 
-    Возвращает короткую причину для журнала: «поле пароля» или
+    Возвращает короткую причину для журнала: «защищённый ввод» или
     «приложение telegram».
     """
+    if isinstance(probe, NullProbe):
+        return None
     snap = probe.snapshot()
     if snap.age(now) > MAX_AGE_SEC:
-        # Данных нет или они протухли: не выдумываем запрет.
-        return None
+        return "фокус устарел" if skip_password or excluded else None
     if skip_password and snap.password:
-        return "поле пароля"
-    if app_matches(snap.app, excluded):
-        return f"приложение {snap.app}"
+        return "защищённый ввод"
+    for app in (snap.app, *snap.app_ids):
+        if app_matches(app, excluded):
+            return f"приложение {app}"
+    if not snap.app and (skip_password or excluded):
+        return "фокус недоступен"
     return None
 
 
@@ -127,10 +146,13 @@ class AtspiProbe:
                  query=None) -> None:
         self._poll = poll_sec
         self._clock = clock
-        # query() -> (имя приложения, признак поля пароля); подменяется в тестах.
+        # В тестах query() также может вернуть пару (приложение, защищённый ввод).
         self._query = query or query_focus
+        self._watch_real_focus = query is None
+        self._watcher: _FocusWatch | None = None
         self._lock = threading.Lock()
         self._snap = FocusSnapshot()
+        self._generation = 0
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._wake = threading.Event()
@@ -144,6 +166,8 @@ class AtspiProbe:
             return self._snap
 
     def poke(self) -> None:
+        if self._stop.is_set():
+            return
         # Активность отмечаем всегда, даже если будить не стали: иначе поток
         # погас бы по простою посреди набора.
         self._last_activity = self._clock()
@@ -157,8 +181,8 @@ class AtspiProbe:
         """Остановить поток. По умолчанию не ждём: поток — daemon и выйдет сам
         после текущего опроса, а ждать в главном цикле (Reload) нельзя."""
         self._stop.set()
-        self._wake.set()
-        thread, self._thread = self._thread, None
+        self._invalidate()
+        thread = self._thread
         if wait and thread is not None and thread.is_alive():
             thread.join(timeout=1.0)
 
@@ -169,30 +193,59 @@ class AtspiProbe:
     # --- поток --------------------------------------------------------------
 
     def _ensure_thread(self) -> None:
-        if self._thread is not None and self._thread.is_alive():
-            return
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._run, name="atspi-probe", daemon=True)
-        self._thread.start()
+        with self._lock:
+            if self._stop.is_set() or (self._thread is not None and self._thread.is_alive()):
+                return
+            self._thread = threading.Thread(target=self._run, name="atspi-probe", daemon=True)
+            self._thread.start()
+
+    def _invalidate(self) -> None:
+        with self._lock:
+            self._generation += 1
+            self._snap = FocusSnapshot(generation=self._generation)
+        self._wake.set()
+
+    def _drop_watcher(self) -> None:
+        watcher, self._watcher = self._watcher, None
+        if watcher is not None:
+            watcher.close()
 
     def _run(self) -> None:
         self._last_activity = self._clock()
-        while not self._stop.is_set():
-            self._refresh()
-            # Ждём либо таймаут, либо «опроси пораньше» от контроллера.
-            if self._wake.wait(self._poll):
-                self._wake.clear()
-            elif self._clock() - self._last_activity > IDLE_STOP_SEC:
-                # Ввода давно нет — гасим поток; следующий poke() поднимет снова.
-                # Снимок помечаем старым (taken_at=0): «свежее» пустое значение
-                # три секунды выдавало бы себя за «ограничений нет».
-                with self._lock:
-                    self._snap = FocusSnapshot()
-                return
+        try:
+            while not self._stop.is_set():
+                self._refresh()
+                if self._wake.wait(self._poll):
+                    self._wake.clear()
+                elif self._clock() - self._last_activity > IDLE_STOP_SEC:
+                    with self._lock:
+                        self._generation += 1
+                        self._snap = FocusSnapshot(generation=self._generation)
+                    return
+        finally:
+            # Регистрация могла закончиться уже после close(wait=False).
+            self._drop_watcher()
+            with self._lock:
+                self._thread = None
+            if self._wake.is_set() and not self._stop.is_set():
+                self._ensure_thread()
 
     def _refresh(self) -> None:
+        started = self._clock()
         try:
-            app, password = self._query()
+            if self._watch_real_focus:
+                connection = _a11y_connection()
+                if (self._watcher is None or self._watcher.query_connection is not connection
+                        or not self._watcher.live.is_set()):
+                    self._drop_watcher()
+                    self._watcher = _watch_focus_events(connection, self._invalidate)
+                if not self._watcher.live.is_set():
+                    raise RuntimeError("подписка at-spi потеряна")
+            if self._stop.is_set():
+                return
+            with self._lock:
+                generation = self._generation
+            result = self._query()
         except Exception:  # noqa: BLE001 — at-spi может отсутствовать целиком
             if self._ok:
                 # Первый сбой после успеха — в журнал с трассировкой, дальше
@@ -200,11 +253,20 @@ class AtspiProbe:
                 log.warning("опрос at-spi не удался", exc_info=True)
             self._ok = False
             with self._lock:
-                self._snap = FocusSnapshot(None, False, self._clock())
+                if self._snap.app:
+                    self._generation += 1
+                self._snap = FocusSnapshot(generation=self._generation)
             return
         self._ok = True
         with self._lock:
-            self._snap = FocusSnapshot(app, password, self._clock())
+            if (generation == self._generation and not self._stop.is_set()
+                    and (not self._watch_real_focus or self._watcher.live.is_set())):
+                snap = result if isinstance(result, FocusSnapshot) else FocusSnapshot(*result)
+                old = self._snap
+                if ((old.app, old.field, old.password) != (snap.app, snap.field, snap.password)
+                        or old.app and old.age(started) > MAX_AGE_SEC):
+                    self._generation += 1
+                self._snap = snap._replace(taken_at=started, generation=self._generation)
 
 
 # --- настоящий опрос --------------------------------------------------------
@@ -223,8 +285,8 @@ def _state_focused(words: list[int]) -> bool:
     return _state_bit(words, FOCUSED)
 
 
-def find_focus(tree, root) -> tuple[str | None, bool]:
-    """Чистый обход: приложение в фокусе и признак поля пароля.
+def find_focus(tree, root) -> FocusSnapshot:
+    """Чистый обход: приложение в фокусе и признак защищённого ввода.
 
     ``tree`` — объект с методами children(node), state(node), role(node),
     app_name(node), app_of(node); в query_focus он ходит в D-Bus, в тестах —
@@ -265,11 +327,15 @@ def find_focus(tree, root) -> tuple[str | None, bool]:
             owner = app_name or tree.app_of(node)
             if owner and owner.lower() in SHELL_APPS:
                 continue
-            return owner, tree.role(node) in PASSWORD_ROLES
+            role = tree.role(node)
+            if role in PROTECTED_ROLES:
+                return FocusSnapshot(owner, True, field=node)
+            if role in TEXT_ROLES:
+                return FocusSnapshot(owner, False, field=node)
         if depth < MAX_DEPTH:
             queue.extend((child, depth + 1) for child in tree.children(node))
-    # Фокус не нашли, но активное окно известно — приложение всё равно знаем.
-    return app_name, False
+    # Активное окно без доступного поля не подтверждает, что ввод не секретный.
+    return FocusSnapshot()
 
 
 _CONN = None
@@ -277,19 +343,84 @@ _CONN = None
 
 def _a11y_connection():
     """Соединение с шиной доступности; переиспользуется между опросами."""
+    global _CONN
+    if _CONN is None or _CONN.is_closed():
+        _CONN = _new_a11y_connection()
+    return _CONN
+
+
+def _new_a11y_connection():
     from gi.repository import Gio, GLib
 
-    global _CONN
-    if _CONN is not None and not _CONN.is_closed():
-        return _CONN
     bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
     res = bus.call_sync("org.a11y.Bus", "/org/a11y/bus", "org.a11y.Bus", "GetAddress",
                         None, GLib.VariantType("(s)"), Gio.DBusCallFlags.NONE, 1500, None)
-    _CONN = Gio.DBusConnection.new_for_address_sync(
+    return Gio.DBusConnection.new_for_address_sync(
         res.unpack()[0],
         Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
         | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION, None, None)
-    return _CONN
+
+
+def _watch_focus_events(query_connection, invalidate) -> _FocusWatch:
+    from gi.repository import Gio, GLib
+
+    # Отдельное имя клиента не даёт старому probe удалить подписку нового при Reload.
+    connection = _new_a11y_connection()
+    registry = "org.a11y.atspi.Registry"
+    path = "/org/a11y/atspi/registry"
+    event = "object:state-changed:focused"
+    live = threading.Event()
+    live.set()
+    subscriptions = []
+    closed_handler = None
+
+    def changed(*_args):
+        invalidate()
+
+    def lost(*_args):
+        live.clear()
+        invalidate()
+
+    def close():
+        live.clear()
+        for subscription in subscriptions:
+            connection.signal_unsubscribe(subscription)
+        if closed_handler is not None:
+            connection.disconnect(closed_handler)
+        try:
+            connection.close_sync(None)
+        except GLib.Error:
+            pass
+
+    def owner():
+        return connection.call_sync(
+            "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+            "GetNameOwner", GLib.Variant("(s)", (registry,)), GLib.VariantType("(s)"),
+            Gio.DBusCallFlags.NONE, 1500, None).unpack()[0]
+
+    try:
+        closed_handler = connection.connect("closed", lost)
+        subscriptions.append(connection.signal_subscribe(
+            None, "org.a11y.atspi.Event.Object", "StateChanged", None, "focused",
+            Gio.DBusSignalFlags.NONE, changed, None))
+        subscriptions.append(connection.signal_subscribe(
+            "org.freedesktop.DBus", "org.freedesktop.DBus", "NameOwnerChanged",
+            "/org/freedesktop/DBus", registry, Gio.DBusSignalFlags.NONE, lost, None))
+        connection.call_sync(
+            "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+            "StartServiceByName", GLib.Variant("(su)", (registry, 0)), GLib.VariantType("(u)"),
+            Gio.DBusCallFlags.NONE, 1500, None)
+        registered_owner = owner()
+        connection.call_sync(registered_owner, path, registry, "RegisterEvent",
+                             GLib.Variant("(sass)", (event, [], "")), GLib.VariantType("()"),
+                             Gio.DBusCallFlags.NONE, 1500, None)
+        if owner() != registered_owner or not live.is_set():
+            raise RuntimeError("реестр at-spi сменился во время подписки")
+    except Exception:
+        close()
+        raise
+
+    return _FocusWatch(query_connection, live, close)
 
 
 class _DbusTree:
@@ -317,9 +448,9 @@ class _DbusTree:
         got = self._call(node, ACC, "GetState", None, "(au)")
         return got[0] if got else []
 
-    def role(self, node) -> str:
-        got = self._call(node, ACC, "GetRoleName", None, "(s)")
-        return got[0] if got else ""
+    def role(self, node) -> int | None:
+        got = self._call(node, ACC, "GetRole", None, "(u)")
+        return got[0] if got else None
 
     def app_name(self, node) -> str:
         got = self._call(node, "org.freedesktop.DBus.Properties", "Get",
@@ -327,23 +458,42 @@ class _DbusTree:
         return str(got[0]).strip() if got else ""
 
     def app_of(self, node) -> str | None:
-        got = self._call(node, ACC, "GetApplication", None, "(so)")
-        if got and got[0]:
-            return self.app_name(got) or None
+        got = self._call(node, ACC, "GetApplication", None, "((so))")
+        if got and got[0][0]:
+            return self.app_name(got[0]) or None
         return None
 
 
 ROOT = ("org.a11y.atspi.Registry", "/org/a11y/atspi/accessible/root")
 
 
-def query_focus() -> tuple[str | None, bool]:
-    """Приложение в фокусе и признак поля пароля (блокирует на D-Bus)."""
-    global _CONN
+def query_shell_app_ids() -> tuple[str, ...]:
+    """Идентификаторы активного окна GNOME; старое расширение не обязано их отдавать."""
     try:
-        return find_focus(_DbusTree(_a11y_connection()), ROOT)
+        from gi.repository import Gio, GLib
+
+        from wayswitch.backends.gnome_shell import BUS_NAME, INTERFACE, OBJECT_PATH
+
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        result = bus.call_sync(BUS_NAME, OBJECT_PATH, INTERFACE, "GetFocusedApp", None,
+                               GLib.VariantType("(as)"), Gio.DBusCallFlags.NONE, 500, None)
+        return tuple(result.unpack()[0])
+    except Exception:  # noqa: BLE001 — расширение необязательно вне GNOME
+        return ()
+
+
+def query_focus() -> FocusSnapshot:
+    """Приложение в фокусе и признак защищённого ввода (блокирует на D-Bus)."""
+    global _CONN
+    app_ids = query_shell_app_ids()
+    try:
+        snap = find_focus(_DbusTree(_a11y_connection()), ROOT)
     except Exception:
         _CONN = None  # шина доступности перезапустилась — пересоздадим
-        raise
+        if not app_ids:
+            raise
+        snap = FocusSnapshot()
+    return snap._replace(app_ids=app_ids)
 
 
 def bridge_available() -> tuple[bool, str]:

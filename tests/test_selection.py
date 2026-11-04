@@ -1,6 +1,14 @@
 """«Исправить выделенное»: перевод фразы в другую раскладку и её печать."""
 
-from tests.fakes import RU, US, FakeBackend, RecordingTextTypist, RecordingTypist, make_keymap
+from tests.fakes import (
+    RU,
+    US,
+    FakeBackend,
+    RecordingTextTypist,
+    RecordingTypist,
+    SafeProbe,
+    make_keymap,
+)
 from wayswitch import keycodes as kc
 from wayswitch.buffer import KeyPress
 from wayswitch.config import Config
@@ -53,7 +61,7 @@ def make_ctrl(selection, typist=None, current=US):
     backend = SelectingBackend(selection, current=current)
     corrected = []
     ctrl = Controller(Config(), km, det, backend, typist or RecordingTypist(),
-                      on_corrected=lambda o, f, m: corrected.append((o, f, m)))
+                      on_corrected=lambda o, f, m: corrected.append((o, f, m)), probe=SafeProbe())
     return ctrl, backend, corrected
 
 

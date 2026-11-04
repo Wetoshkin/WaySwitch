@@ -22,7 +22,7 @@ Requires:       python3-gobject
 Requires:       (typelib-1_0-Gtk-4_0 if libgtk-4-1 else gtk4)
 Requires:       (typelib-1_0-Adw-1 >= 1.5 if libadwaita-1-0 else libadwaita >= 1.5)
 Requires:       (libxkbcommon or libxkbcommon0)
-Recommends:     (gnome-shell-extension-appindicator if gnome-shell)
+Requires:       (libwayland-client or libwayland-client0)
 Recommends:     (ibus if gnome-shell)
 
 %description

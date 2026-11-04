@@ -13,7 +13,7 @@ import sys
 
 from wayswitch import __version__, updates
 from wayswitch import config as cfgmod
-from wayswitch.gui import autostart, texts
+from wayswitch.gui import autostart, portable, texts
 from wayswitch.gui.daemon_proxy import DaemonProxy
 from wayswitch.gui.dialogs import REPO_URL  # noqa: F401 — реэкспорт для тестов
 from wayswitch.gui.tray import StatusNotifier
@@ -22,7 +22,7 @@ from wayswitch.gui.tray import StatusNotifier
 # пытается зарегистрироваться на уже занятом имени, не находит там org.gtk.Actions
 # и падает с «Failed to register», не показав окна. С отдельным именем окно
 # открывается, а демон остаётся доступен через DaemonProxy.
-APP_ID = "ru.siberia.WaySwitch.Settings"
+APP_ID = portable.application_id()
 
 log = logging.getLogger("wayswitch")
 
@@ -203,14 +203,17 @@ def main(argv: list[str] | None = None) -> int:
 
         def _quit_stop(self):
             self._stopping = True
-            autostart.stop_service()
+            if portable.package_kind():
+                self.proxy.call("Pause")
+            else:
+                autostart.stop_service()
             self.quit()
 
         # --- демон ---------------------------------------------------------------
 
         def _on_status(self, status):
             if status is None and self._was_running and not self._stopping \
-                    and autostart.is_service_enabled():
+                    and not portable.package_kind() and autostart.is_service_enabled():
                 # Выключенный человеком автозапуск («disable --now») и выход из
                 # сеанса — не авария, уведомлять не о чем.
                 self._notify_stopped()
@@ -234,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
 
         def _toggle_pause(self):
             st = self.proxy.status or {}
-            self.proxy.call("Resume" if st.get("paused") else "Pause")
+            self.proxy.call(texts.pause_method(st))
 
         def _toggle_auto(self):
             try:
@@ -286,8 +289,9 @@ def main(argv: list[str] | None = None) -> int:
 
         def _notify_update(self, release):
             note = Gio.Notification.new(f"Вышла WaySwitch {release.version}")
-            note.set_body("Нажмите «Обновить» — откроется терминал, там нужно будет ввести "
-                          "пароль.")
+            note.set_body("Нажмите «Обновить» — откроются инструкции для окна и службы."
+                          if portable.package_kind() else
+                          "Нажмите «Обновить» — откроется терминал, там нужно будет ввести пароль.")
             note.set_default_action("app.show-window")
             note.add_button("Обновить", "app.run-update")
             self.send_notification("update", note)
@@ -301,11 +305,17 @@ def main(argv: list[str] | None = None) -> int:
             _open_uri(self.update.url if self.update else updates.RELEASES_URL)
 
         def run_update(self):
+            if portable.package_kind():
+                portable.show_instructions(self._parent(), "update")
+                return
             self._run_in_terminal(uninstall=False)
 
         def ask_uninstall(self):
             from wayswitch.gui import dialogs
 
+            if portable.package_kind():
+                portable.show_instructions(self._parent(), "remove")
+                return
             dialogs.uninstall_dialog(self._parent(),
                                      lambda: self._run_in_terminal(uninstall=True))
 

@@ -302,6 +302,12 @@ def shortcuts_dialog(parent, cfg):
 # --- журнал службы -----------------------------------------------------------------
 
 def read_journal(lines: int = 200) -> str:
+    from wayswitch.gui import portable
+
+    if portable.package_kind():
+        return ("Журнал службы читается в терминале основной системы:\n\n"
+                "journalctl --user -u wayswitch.service -n 200 --no-pager\n\n" +
+                portable.instructions())
     import subprocess
 
     try:
@@ -353,9 +359,17 @@ def debug_info() -> str:
     import platform
 
     from wayswitch import doctor
+    from wayswitch.gui import portable
 
     try:
-        report = doctor.format_report(doctor.run_checks())
+        if portable.package_kind():
+            from wayswitch.gui.daemon_proxy import DaemonProxy
+
+            proxy = DaemonProxy(lambda _: None, lambda *_: None)
+            proxy.start()
+            report = portable.connection_report(proxy.status)
+        else:
+            report = doctor.format_report(doctor.run_checks())
     except Exception as exc:  # noqa: BLE001
         report = f"doctor не выполнился: {exc}"
     return "\n".join([f"WaySwitch {__version__}", f"Python {platform.python_version()}",
@@ -394,13 +408,16 @@ def about_dialog(parent, update=None):
 def quit_dialog(parent, on_background: Callable[[], None], on_stop: Callable[[], None]):
     from gi.repository import Adw
 
+    from wayswitch.gui import portable
+
     dialog = Adw.AlertDialog(
-        heading="Остановить исправление?",
+        heading="Приостановить исправление?" if portable.package_kind()
+        else "Остановить исправление?",
         body="Окно можно закрыть, а WaySwitch продолжит работать в фоне.")
     # В узком диалоге кнопки идут снизу вверх в порядке добавления: так
     # «Работать в фоне» оказывается сверху, как в макете.
     dialog.add_response("cancel", "Отмена")
-    dialog.add_response("stop", "Остановить")
+    dialog.add_response("stop", "Приостановить" if portable.package_kind() else "Остановить")
     dialog.add_response("background", "Работать в фоне")
     dialog.set_response_appearance("background", Adw.ResponseAppearance.SUGGESTED)
     dialog.set_response_appearance("stop", Adw.ResponseAppearance.DESTRUCTIVE)

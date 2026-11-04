@@ -4,9 +4,19 @@
 на игрушечном словаре они не воспроизводятся.
 """
 
+from time import monotonic
+
 import pytest
 
-from tests.fakes import RU, US, FakeBackend, RecordingTextTypist, RecordingTypist, make_keymap
+from tests.fakes import (
+    RU,
+    US,
+    FakeBackend,
+    RecordingTextTypist,
+    RecordingTypist,
+    SafeProbe,
+    make_keymap,
+)
 from wayswitch import keycodes as kc
 from wayswitch.a11y import FocusSnapshot
 from wayswitch.actuator import (
@@ -43,6 +53,7 @@ def make_ctrl(real, group=RU, config=None, typist=None, **kw):
     # Слова здесь печатаются без пробела ради ручных жестов: ранний триггер
     # исправил бы их на четвёртой букве. У него свои тесты (test_punto_extras).
     config.general.early_switch = False
+    kw.setdefault("probe", SafeProbe(kw.get("clock", monotonic)))
     ctrl = Controller(config, km, det, backend, typist,
                       on_corrected=lambda o, f, m: corrected.append((o, f, m)), **kw)
     return ctrl, backend, typist, corrected

@@ -11,7 +11,7 @@ from __future__ import annotations
 import copy
 
 from wayswitch import config as cfgmod
-from wayswitch.gui import autostart, dialogs, gesture_keys, texts
+from wayswitch.gui import autostart, dialogs, gesture_keys, portable, texts
 from wayswitch.gui.widgets import StepRow, boxed_list, clear_list, flat_icon_button, keycap
 
 EXTENSION_UUID = "wayswitch@siberia.ru"
@@ -211,8 +211,8 @@ class Preferences:
                  "пРИВЕТ → Привет, и Caps Lock выключается"),
                 ("early_switch", "Переключать по началу слова",
                  "ghbd → прив, не дожидаясь пробела"),
-                ("skip_password_fields", "Не исправлять в полях пароля",
-                 "Работает не во всех приложениях")):
+                ("skip_password_fields", "Защита паролей и терминалов",
+                 "Автозамена отключена. Ручной жест доступен, история скрыта")):
             row = Adw.SwitchRow(title=title, subtitle=subtitle)
             row.connect("notify::active", lambda r, _p, k=key: self._set(
                 "general", k, r.get_active()))
@@ -417,7 +417,8 @@ class Preferences:
         status = self.proxy.status or {}
         desktop = detect_desktop()
 
-        if desktop == GNOME and status.get("backend") not in ("shell", None):
+        if not portable.package_kind() and desktop == GNOME \
+                and status.get("backend") not in ("shell", None):
             text = "Включите расширение GNOME Shell — раскладка будет переключаться без задержки"
             if hasattr(page, "set_banner"):
                 banner = Adw.Banner(title=text, button_label="Включить", revealed=True)
@@ -440,16 +441,26 @@ class Preferences:
             subtitle=("Через systemd. Если сеанс запущен без него — добавьте в конфиг "
                       + ("exec-once = wayswitch run" if desktop == HYPRLAND
                          else "exec wayswitch run")) if tiling else "",
-            active=autostart.is_service_enabled())
+            active=not portable.package_kind() and autostart.is_service_enabled())
         sw_service.connect("notify::active",
                            lambda r, _p: autostart.set_service_enabled(r.get_active()))
         start.add(sw_service)
         sw_tray = Adw.SwitchRow(title=texts.tray_title(desktop),
                                 subtitle=texts.tray_hint(desktop),
-                                active=autostart.is_tray_enabled())
+                                active=not portable.package_kind() and autostart.is_tray_enabled())
         sw_tray.connect("notify::active",
                         lambda r, _p: autostart.set_tray_enabled(r.get_active()))
         start.add(sw_tray)
+        if portable.package_kind():
+            for row in (sw_service, sw_tray):
+                row.set_sensitive(False)
+                row.set_subtitle("Настраивается на основной системе")
+            companion = Adw.ActionRow(title="Нативная служба",
+                                      subtitle="Установка, автозапуск и диагностика на хосте")
+            button = Gtk.Button(label="Инструкция", valign=Gtk.Align.CENTER)
+            button.connect("clicked", lambda *_: portable.show_instructions(self.dialog))
+            companion.add_suffix(button)
+            start.add(companion)
         page.add(start)
 
         if desktop in (SWAY, HYPRLAND):
@@ -516,7 +527,9 @@ class Preferences:
         remove = Adw.PreferencesGroup(title="Удаление")
         row_remove = Adw.ActionRow(
             title="Удалить WaySwitch",
-            subtitle="Откроется терминал: подтвердите удаление и введите пароль")
+            subtitle="Инструкции для окна и отдельной нативной службы"
+            if portable.package_kind() else
+            "Откроется терминал: подтвердите удаление и введите пароль")
         btn_remove = Gtk.Button(label="Удалить…", valign=Gtk.Align.CENTER)
         btn_remove.add_css_class("destructive-action")
         btn_remove.connect("clicked", lambda *_: self.app.ask_uninstall())

@@ -2,7 +2,7 @@
 
 import pytest
 
-from tests.fakes import RU, US, FakeBackend, RecordingTypist, keys_for_text, make_keymap
+from tests.fakes import RU, US, FakeBackend, RecordingTypist, SafeProbe, keys_for_text, make_keymap
 from wayswitch import config as cfgmod
 from wayswitch import keycodes as kc
 from wayswitch.buffer import KeyPress
@@ -30,7 +30,7 @@ def make(real, group, config=None, selection=""):
     backend.selection = selection
     typist, corrected = RecordingTypist(), []
     ctrl = Controller(config or Config(), km, Detector(km, models), backend, typist,
-                      on_corrected=lambda o, f, m: corrected.append((o, f, m)))
+                      on_corrected=lambda o, f, m: corrected.append((o, f, m)), probe=SafeProbe())
     return ctrl, backend, typist, corrected
 
 
@@ -211,6 +211,22 @@ def test_caps_rule_off_when_caps_key_is_remapped(real):
     ctrl.backend = CapsToggle(current=RU)
     ctrl.set_caps(True)
     type_caps_word(ctrl, km, "привет", RU)
+    assert kc.KEY_CAPSLOCK not in [c for c, _ in typist.taps()]
+
+
+def test_cosmic_never_synthesizes_caps_with_unknown_xkb_options(real):
+    from tests.test_cosmic import backend
+    from wayswitch.keymap import LayoutSpec, XkbKeymap
+
+    obj = backend()
+    if XkbKeymap.available():
+        obj.keymap = XkbKeymap.from_names([LayoutSpec("us"), LayoutSpec("ru")],
+                                         ["grp:caps_toggle", "grp_led:caps"])
+    ctrl, _b, typist, _corrected = make((obj.keymap, real[1]), RU)
+    ctrl.backend = obj
+    obj.group(RU)
+    ctrl.set_caps(True)
+    type_caps_word(ctrl, obj.keymap, "привет", RU)
     assert kc.KEY_CAPSLOCK not in [c for c, _ in typist.taps()]
 
 

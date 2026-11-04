@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from wayswitch import config as cfgmod
-from wayswitch.gui import autostart, dialogs, texts
+from wayswitch.gui import autostart, dialogs, portable, texts
 from wayswitch.gui.widgets import boxed_list, clear_list, flat_icon_button
 
 STATUS_ICONS = {
@@ -214,9 +214,15 @@ class MainWindow:
                               description="Слова сейчас не исправляются. Нажмите "
                                           "«Запустить». Если не поможет — перезагрузите "
                                           "компьютер.")
+        if portable.package_kind():
+            page.set_title("Нативная служба не подключена")
+            page.set_description("Это окно настроек. Для исправления и жестов нужна отдельная "
+                                 "служба на основной системе. Установите её и проверьте запуск.")
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10,
                       halign=Gtk.Align.CENTER)
         start = Gtk.Button(label="Запустить")
+        if portable.package_kind():
+            start.set_label("Установить / запустить службу")
         start.add_css_class("pill")
         start.add_css_class("suggested-action")
         start.connect("clicked", lambda *_: self._start_service())
@@ -231,6 +237,7 @@ class MainWindow:
         self.off_autostart.connect("notify::active", lambda r, _p: autostart.set_service_enabled(
             r.get_active()) if r.get_active() != autostart.is_service_enabled() else None)
         listing.append(self.off_autostart)
+        listing.set_visible(not portable.package_kind())
         box.append(listing)
         page.set_child(box)
         return page
@@ -243,7 +250,8 @@ class MainWindow:
         view = texts.status_view(status)
         if view.kind == "off":
             self.stack.set_visible_child_name("off")
-            self.off_autostart.set_active(autostart.is_service_enabled())
+            if not portable.package_kind():
+                self.off_autostart.set_active(autostart.is_service_enabled())
             self._dismiss_pause_toast()
             self._last_kind = view.kind
             return
@@ -285,6 +293,9 @@ class MainWindow:
         self.app.proxy.call("Resume" if switch.get_active() else "Pause")
 
     def _start_service(self) -> None:
+        if portable.package_kind():
+            portable.show_instructions(self.window)
+            return
         from gi.repository import GLib
 
         if not autostart.start_service():

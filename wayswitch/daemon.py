@@ -12,7 +12,7 @@ from wayswitch import a11y as cfgmod_a11y
 from wayswitch import config as cfgmod
 from wayswitch.actuator import UInputTypist
 from wayswitch.backends.base import BackendError
-from wayswitch.backends.desktop import detect_desktop, session_summary
+from wayswitch.backends.desktop import COSMIC, detect_desktop, session_summary
 from wayswitch.backends.select import choose_backend
 from wayswitch.controller import Controller
 from wayswitch.dbus_service import DaemonService
@@ -59,7 +59,7 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     log.info("среда: %s", session_summary())
     log.info("бэкенд раскладки: %s, источники: %s", backend.name,
              [s.xkb_id for s in backend.layouts()])
-    if backend.name in ("kde", "sway", "hyprland"):
+    if backend.name in ("kde", "sway", "hyprland", "cosmic"):
         # Расширения нет: печатаем сканкодами через uinput. Раскладку
         # переключает композитор, паузу после переключения ждёт wait_applied.
         log.info("печать символов: uinput (бэкенд %s)", backend.name)
@@ -91,7 +91,8 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
                 "демон: systemctl --user restart wayswitch",
                 [s.xkb_id for s in backend.layouts()])
             backend.supports_auto = False
-    keymap = XkbKeymap.from_names(backend.layouts(), backend.xkb_options())
+    keymap = (backend.keymap if backend.name == "cosmic" else
+              XkbKeymap.from_names(backend.layouts(), backend.xkb_options()))
     models = {}
     for group in range(keymap.num_groups):
         lang = {"ru": "ru", "latin": "en"}.get(keymap.alphabet(group))
@@ -159,8 +160,11 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
             # Сигнал в отдельном потоке: плеер не должен задерживать ввод.
             threading.Thread(
                 target=ensure_and_play, args=(cfgmod.config_dir(),), daemon=True).start()
+    cosmic_session = detect_desktop() == COSMIC or backend.name == COSMIC
     controller = Controller(
         config, keymap, detector, backend, typist_for_controller, pump=pump, dry_run=dry_run,
+        screen_locked=lambda: guard.input_locked() if cosmic_session else False,
+        require_lock_confirmation=cosmic_session,
         on_corrected=lambda o, f, m: _corrected(o, f, m),
         on_fixed=_fixed,
         on_status=lambda s: service and service.emit_status(s),
@@ -186,6 +190,9 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     watcher.start()
     if not any(kind == "keyboard" for _, _, kind in watcher.devices()):
         log.error("ни одной клавиатуры не открыто (права на /dev/input?)")
+        watcher.stop()
+        backend.close()
+        typist.close()
         return 1
 
     def on_sleep(entering: bool) -> None:
@@ -193,7 +200,7 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         if not entering:
             watcher.schedule_rescans()
 
-    guard = SessionGuard(controller.set_locked, on_sleep)
+    guard = SessionGuard(controller.set_locked, on_sleep, cosmic=cosmic_session)
     guard.start()
 
     def reload() -> None:
@@ -232,5 +239,6 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         loop.run()
     finally:
         watcher.stop()
+        backend.close()
         typist.close()
     return exit_code

@@ -24,6 +24,12 @@ def test_detects_kde():
     assert detect_desktop({"XDG_CURRENT_DESKTOP": "plasma"}) == KDE
 
 
+def test_cosmic_is_not_gnome_or_labwc():
+    assert detect_desktop({"XDG_CURRENT_DESKTOP": "COSMIC"}) == "cosmic"
+    assert detect_desktop({"XDG_CURRENT_DESKTOP": "COSMIC:GNOME"}) == "cosmic"
+    assert "cosmic" not in desktop.COMPOSITOR_DESKTOPS
+
+
 def test_other_desktops_are_recognised():
     from wayswitch.backends import desktop as d
 
@@ -93,6 +99,7 @@ class _FakeRun:
 
 def test_session_env_asks_user_manager_when_variable_empty(monkeypatch):
     monkeypatch.delenv("XDG_CURRENT_DESKTOP", raising=False)
+    monkeypatch.setenv("XDG_SESSION_TYPE", "tty")
     run = _FakeRun("XDG_CURRENT_DESKTOP=KDE\nXDG_SESSION_TYPE=wayland\n")
     env = _session_env(run)
     assert env["XDG_CURRENT_DESKTOP"] == "KDE"

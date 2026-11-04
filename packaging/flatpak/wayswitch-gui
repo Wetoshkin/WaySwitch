@@ -1,0 +1,5 @@
+#!/bin/sh
+# Share precisely the native companion's config directory granted by the manifest.
+export XDG_CONFIG_HOME="${HOST_XDG_CONFIG_HOME:-$HOME/.config}"
+export PYTHONPATH=/app/share/wayswitch
+exec python3 -P -c 'from wayswitch.gui.app import main; raise SystemExit(main())' "$@"

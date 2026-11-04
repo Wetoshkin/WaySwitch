@@ -27,6 +27,19 @@ def test_xkb_dvorak_variant():
     assert km.key_for("q", 0) == (kc.KEY_X, False)
 
 
+def test_xkb_compositor_buffer_preserves_actual_symbols_and_names():
+    data = b'''xkb_keymap {
+        xkb_keycodes "custom" { minimum = 8; maximum = 255; <AD01> = 24; };
+        xkb_types "custom" { type "ONE_LEVEL" { modifiers = None; }; };
+        xkb_compatibility "custom" {};
+        xkb_symbols "custom" { name[Group1]="First"; name[Group2]="Second";
+            key <AD01> { symbols[Group1]=[ x ], symbols[Group2]=[ Cyrillic_ya ] }; };
+    };'''
+    km = XkbKeymap.from_buffer(data)
+    assert km.num_groups == 2 and [s.layout for s in km.specs] == ["First", "Second"]
+    assert (km.char(kc.KEY_Q, 0), km.char(kc.KEY_Q, 1)) == ("x", "я")
+
+
 @pytest.mark.parametrize("ch", [".", "/"])
 def test_xkb_points_to_main_keyboard_not_numpad(ch):
     """Символы, которые есть и на цифровом блоке, печатаются основной клавишей."""

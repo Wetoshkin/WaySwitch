@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=WaySwitch Settings
+Name[ru]=РќР°СЃС‚СЂРѕР№РєРё WaySwitch
+Comment=Settings for the native WaySwitch keyboard correction service
+Comment[ru]=РќР°СЃС‚СЂРѕР№РєРё РЅР°С‚РёРІРЅРѕР№ СЃР»СѓР¶Р±С‹ РёСЃРїСЂР°РІР»РµРЅРёСЏ СЂР°СЃРєР»Р°РґРєРё WaySwitch
+Exec=wayswitch-gui
+Icon=ru.siberia.WaySwitch.Gui
+Terminal=false
+Categories=Utility;Accessibility;
+StartupNotify=true
+DBusActivatable=false

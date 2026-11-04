@@ -15,7 +15,7 @@ import subprocess
 from collections.abc import Callable
 
 from wayswitch import config as cfgmod
-from wayswitch.gui import autostart, dialogs, texts
+from wayswitch.gui import autostart, dialogs, portable, texts
 from wayswitch.gui.preferences import enable_extension
 from wayswitch.gui.widgets import boxed_list, clear_list, keycaps, run_in_thread
 
@@ -55,6 +55,10 @@ def logout() -> bool:
 
 
 def open_layout_settings() -> bool:
+    from wayswitch.backends.desktop import COSMIC, detect_desktop
+
+    if detect_desktop() == COSMIC:
+        return _spawn(["cosmic-settings", "keyboard"])
     return (_spawn(["gnome-control-center", "keyboard"])
             or _spawn(["systemsettings", "kcm_keyboard"]))
 
@@ -137,6 +141,10 @@ class Onboarding:
                                "пробеле и переключит раскладку.", wrap=True,
                          justify=Gtk.Justification.CENTER)
         text.add_css_class("dim-label")
+        if portable.package_kind():
+            text.set_label("Это окно настроек. Для исправления раскладки и жестов установите "
+                           "отдельную нативную службу WaySwitch на основной системе. "
+                           "Следующий шаг проверит подключение и покажет инструкции.")
         sample = Gtk.Label(use_markup=True, label=(
             '<span font_family="monospace" strikethrough="true" alpha="60%">ghbdtn</span>'
             '   →   <b>привет</b>'))
@@ -171,11 +179,32 @@ class Onboarding:
         return self._page(title, self.checks_hint, scroller, button=buttons)
 
     def _run_checks(self) -> None:
+        if portable.package_kind():
+            self._show_portable_checks()
+            return
         from wayswitch import doctor
 
         self.checks_hint.set_label("Проверяю…")
         self.continue_button.set_sensitive(False)
         run_in_thread(doctor.run_checks, self._show_checks)
+
+    def _show_portable_checks(self) -> None:
+        from gi.repository import Adw, Gtk
+
+        self.app.proxy.refresh()
+        connected = self.app.proxy.status is not None
+        clear_list(self.checks_box)
+        self.checks_hint.set_label(
+            "Нативная служба подключена. Настройки и жесты общие с основной системой."
+            if connected else "Сначала установите и запустите нативную службу на основной системе.")
+        row = Adw.ActionRow(title="Нативная служба WaySwitch",
+                            subtitle="Подключена по D-Bus" if connected else
+                            "Это окно не имеет доступа к клавиатуре и не заменяет службу")
+        button = Gtk.Button(label="Инструкция", valign=Gtk.Align.CENTER)
+        button.connect("clicked", lambda *_: portable.show_instructions(self.window))
+        row.add_suffix(button)
+        self.checks_box.append(row)
+        self.continue_button.set_sensitive(connected)
 
     def _show_checks(self, result) -> None:
         from gi.repository import Adw, Gtk
@@ -235,6 +264,11 @@ class Onboarding:
         self.sw_updates = Adw.SwitchRow(title="Сообщать о новых версиях",
                                         subtitle="Раз в сутки спрашивать GitHub",
                                         active=cfg.general.check_updates)
+        if portable.package_kind():
+            for row in (self.sw_service, self.sw_tray):
+                row.set_active(False)
+                row.set_sensitive(False)
+                row.set_subtitle("Настраивается на основной системе, см. инструкцию службы")
         for row in (self.sw_service, self.sw_tray, self.sw_updates):
             switches.append(row)
         finish = Gtk.Button(label="Открыть WaySwitch", halign=Gtk.Align.CENTER)
@@ -249,8 +283,9 @@ class Onboarding:
         self._finished = True
         if self._index() == 2:
             # Выбор применяем, только если человек дошёл до последнего шага.
-            autostart.set_service_enabled(self.sw_service.get_active())
-            autostart.set_tray_enabled(self.sw_tray.get_active())
+            if not portable.package_kind():
+                autostart.set_service_enabled(self.sw_service.get_active())
+                autostart.set_tray_enabled(self.sw_tray.get_active())
             try:
                 cfg = cfgmod.load()
                 cfg.general.check_updates = self.sw_updates.get_active()

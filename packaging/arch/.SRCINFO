@@ -14,6 +14,7 @@ pkgbase = wayswitch
 	depends = gtk4
 	depends = libadwaita
 	depends = libxkbcommon
+	depends = wayland
 	optdepends = gnome-shell: расширение для переключения раскладки в GNOME
 	optdepends = gnome-shell-extension-appindicator: значок в верхней панели GNOME
 	optdepends = ibus: запасной способ переключения раскладки в GNOME

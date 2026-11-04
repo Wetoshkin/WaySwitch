@@ -1,6 +1,6 @@
 import pytest
 
-from tests.fakes import RU, US, FakeBackend, RecordingTypist, make_keymap
+from tests.fakes import RU, US, FakeBackend, RecordingTypist, SafeProbe, make_keymap
 from wayswitch import controller as controller_mod
 from wayswitch import keycodes as kc
 from wayswitch.config import Config
@@ -32,7 +32,7 @@ def env():
     corrected, exceptions = [], []
     ctrl = Controller(Config(), km, det, backend, typist, clock=clock,
                       on_corrected=lambda o, f, m: corrected.append((o, f, m)),
-                      persist_exception=exceptions.append)
+                      persist_exception=exceptions.append, probe=SafeProbe(clock))
     return dict(km=km, ctrl=ctrl, backend=backend, typist=typist, clock=clock,
                 corrected=corrected, exceptions=exceptions)
 
@@ -123,6 +123,146 @@ def test_triple_shift_fixes_phrase(env):
     assert typed_text(env).endswith("привет мир")
     assert env["km"].decode(env["ctrl"].buffer.phrase(), RU) == "привет мир"
     assert env["backend"].current() == RU
+
+
+@pytest.mark.parametrize("change", ["external", "invalidate", "after-ack"])
+def test_cosmic_layout_changes_abort_before_first_edit(env, change):
+    from tests.test_cosmic import backend
+
+    ctrl = env["ctrl"]
+    obj = backend()
+    env["backend"] = ctrl.backend = obj
+    obj.on_change(ctrl.on_layout_changed)
+    type_text(env, "hello")
+
+    def pump():
+        if change == "external":
+            obj.group(1)
+        elif change == "invalidate":
+            obj.invalidate("keymap replaced")
+        elif obj.current() == 1:
+            obj.group(0)
+    ctrl.pump = pump
+    if change == "after-ack":
+        obj.transport.set_group = lambda i: obj.transport.events.append(lambda: obj.group(i))
+        ctrl.manual_word()
+    else:
+        ctrl.manual_phrase()
+    assert not env["typist"].taps() and not env["corrected"]
+
+
+@pytest.mark.parametrize("fails_on_set", [False, True])
+def test_empty_fix_last_word_requires_confirmed_switch(env, fails_on_set):
+    from wayswitch.backends.base import BackendError
+
+    def fail(_index):
+        raise BackendError("transport closed")
+
+    if fails_on_set:
+        env["backend"].set = fail
+    env["backend"].wait_applied = lambda *_: False
+    assert env["ctrl"].manual_word() is False
+    assert not env["ctrl"].busy
+
+
+def test_screen_lock_during_retype_stops_output_and_discards_input(env):
+    ctrl = env["ctrl"]
+    def read_lock():
+        if not ctrl.locked and env["typist"].taps():
+            ctrl.set_locked(True)
+        return ctrl.locked
+
+    ctrl.screen_locked = read_lock
+    type_text(env, "ghbdtn ")
+    ctrl.on_key(kc.KEY_A, 1, 1)
+    assert env["typist"].taps() == [(kc.KEY_BACKSPACE, False)]
+    assert not ctrl.buffer.phrase() and not ctrl._busy_keys and not env["corrected"]
+
+
+def test_lock_marker_keeps_physical_modifiers_but_discards_password_keys(env):
+    ctrl = env["ctrl"]
+    ctrl.screen_locked = lambda: ctrl.locked
+    ctrl.on_key(kc.KEY_LEFTSHIFT, 1, 1)
+    ctrl.set_locked(True)
+    ctrl.on_key(kc.KEY_LEFTSHIFT, 0, 1)
+    ctrl.on_key(kc.KEY_A, 1, 1)
+    assert not ctrl.buffer.held_physical() and not ctrl.buffer.phrase()
+    ctrl.on_key(kc.KEY_A, 0, 1)
+    ctrl.set_locked(False)
+    type_text(env, "a")
+    assert env["km"].decode(ctrl.buffer.phrase(), US) == "a"
+
+
+def test_external_group_after_first_backspace_discards_partial_fix(env):
+    ctrl = env["ctrl"]
+    type_text(env, "hello")
+    delivered = []
+    def pump():
+        if not delivered and env["typist"].taps():
+            delivered.append(True)
+            ctrl.on_layout_changed(RU, True)
+    ctrl.pump = pump
+    ctrl.manual_phrase()
+    assert delivered and env["typist"].taps() == [(kc.KEY_BACKSPACE, False)]
+    assert not ctrl.buffer.phrase() and not env["corrected"]
+
+
+def test_lock_filters_nonmodifiers_on_resync(env):
+    ctrl = env["ctrl"]
+    ctrl.set_locked(True)
+    ctrl.on_resync(1, [kc.KEY_LEFTSHIFT, kc.KEY_A])
+    assert ctrl.buffer.held_physical() == {(1, kc.KEY_LEFTSHIFT)}
+
+
+@pytest.mark.parametrize("resume_in_pump", [False, True])
+def test_fast_lock_cycle_permanently_stops_current_edit(env, resume_in_pump):
+    ctrl = env["ctrl"]
+    ctrl._require_lock_confirmation = True
+    type_text(env, "hello")
+    delivered = []
+
+    def pump():
+        if not delivered and env["typist"].taps():
+            delivered.append(True)
+            ctrl.set_locked(True)
+            ctrl.set_locked(False)
+            if resume_in_pump:
+                assert ctrl.resume(confirm_lock=True)
+
+    ctrl.pump = pump
+    ctrl.manual_phrase()
+    assert delivered and env["typist"].taps() == [(kc.KEY_BACKSPACE, False)]
+    assert not ctrl.buffer.phrase() and not env["corrected"]
+    assert ctrl.paused is not resume_in_pump
+
+
+def test_resume_checks_new_marker_after_confirmation(env):
+    ctrl = Controller(Config(), env["km"], env["ctrl"].detector, env["backend"], env["typist"],
+                      require_lock_confirmation=True)
+    assert ctrl.resume(confirm_lock=True)
+    ctrl.pause()
+    assert not ctrl.lock_confirmation_required
+
+    def new_marker():
+        ctrl.set_locked(True)
+        return True
+
+    ctrl.screen_locked = new_marker
+    assert not ctrl.resume(confirm_lock=True)
+    assert ctrl.lock_confirmation_required and ctrl.paused
+
+
+def test_cosmic_cold_start_and_unlock_need_explicit_confirmation(env):
+    ctrl = Controller(Config(), env["km"], env["ctrl"].detector, env["backend"], env["typist"],
+                      require_lock_confirmation=True)
+    assert ctrl.status()["lock_confirmation_required"] and ctrl.paused
+    assert not ctrl.resume() and not ctrl.manual_word()
+    assert ctrl.resume(confirm_lock=True) and not ctrl.paused
+    ctrl.set_locked(True)
+    assert ctrl.paused and not ctrl.resume(confirm_lock=True)
+    ctrl.set_locked(False)
+    assert ctrl.paused and ctrl.status()["lock_confirmation_required"]
+    assert not ctrl.resume() and ctrl.resume(confirm_lock=True)
 
 
 def test_triple_shift_after_auto_fix_keeps_fixed_word(env):

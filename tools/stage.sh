@@ -22,7 +22,7 @@ install -d "$DEST/usr/bin"
 # каждым обновлением Python, а .rpm собирается один на все версии).
 for pair in "wayswitch:wayswitch.cli" "wayswitch-gui:wayswitch.gui.app"; do
     cat > "$DEST/usr/bin/${pair%%:*}" <<EOF
-#!/usr/bin/python3
+#!/usr/bin/python3 -P
 import sys
 
 sys.path.insert(0, "$SITELIB")

@@ -96,6 +96,8 @@ class GnomeShellBackend(LayoutBackend):
         if not (0 <= index < len(self._specs)):
             self._current = None
             return
+        if index == self._current and self._expected is None:
+            return
         external = index != self._expected
         self._expected = None
         self._current = index

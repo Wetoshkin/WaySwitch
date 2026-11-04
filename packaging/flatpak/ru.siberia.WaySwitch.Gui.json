@@ -1,0 +1,43 @@
+{
+  "app-id": "ru.siberia.WaySwitch.Gui",
+  "runtime": "org.gnome.Platform",
+  "runtime-version": "50",
+  "sdk": "org.gnome.Sdk",
+  "command": "wayswitch-gui",
+  "finish-args": [
+    "--socket=wayland",
+    "--share=ipc",
+    "--share=network",
+    "--talk-name=ru.siberia.WaySwitch",
+    "--talk-name=org.kde.StatusNotifierWatcher",
+    "--filesystem=xdg-config/wayswitch:create"
+  ],
+  "modules": [{
+    "name": "wayswitch-gui",
+    "buildsystem": "simple",
+    "build-commands": [
+      "install -d /app/share/wayswitch /app/bin",
+      "cp -r wayswitch /app/share/wayswitch/",
+      "find /app/share/wayswitch -name __pycache__ -type d -exec rm -rf {} +",
+      "install -m755 wayswitch-gui /app/bin/wayswitch-gui",
+      "install -Dm644 ru.siberia.WaySwitch.Gui.desktop /app/share/applications/ru.siberia.WaySwitch.Gui.desktop",
+      "install -Dm644 ru.siberia.WaySwitch.Gui.metainfo.xml /app/share/metainfo/ru.siberia.WaySwitch.Gui.metainfo.xml",
+      "install -Dm644 ru.siberia.WaySwitch.svg /app/share/icons/hicolor/scalable/apps/ru.siberia.WaySwitch.Gui.svg",
+      "install -Dm644 ru.siberia.WaySwitch.svg /app/share/icons/hicolor/scalable/apps/ru.siberia.WaySwitch.svg",
+      "install -Dm644 ru.siberia.WaySwitch-symbolic.svg /app/share/icons/hicolor/symbolic/apps/ru.siberia.WaySwitch.Gui-symbolic.svg",
+      "install -Dm644 ru.siberia.WaySwitch-paused-symbolic.svg /app/share/icons/hicolor/symbolic/apps/ru.siberia.WaySwitch.Gui-paused-symbolic.svg",
+      "install -Dm644 LICENSE /app/share/licenses/wayswitch/LICENSE",
+      "install -Dm644 wayswitch/data/LICENSE /app/share/licenses/wayswitch/DATA-LICENSE"
+    ],
+    "sources": [
+      {"type": "dir", "path": "../../wayswitch", "dest": "wayswitch", "skip": ["__pycache__", "*.pyc"]},
+      {"type": "file", "path": "wayswitch-gui"},
+      {"type": "file", "path": "ru.siberia.WaySwitch.Gui.desktop"},
+      {"type": "file", "path": "ru.siberia.WaySwitch.Gui.metainfo.xml"},
+      {"type": "file", "path": "../icons/ru.siberia.WaySwitch.svg"},
+      {"type": "file", "path": "../icons/ru.siberia.WaySwitch-symbolic.svg"},
+      {"type": "file", "path": "../icons/ru.siberia.WaySwitch-paused-symbolic.svg"},
+      {"type": "file", "path": "../../LICENSE"}
+    ]
+  }]
+}
