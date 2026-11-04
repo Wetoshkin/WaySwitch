@@ -1027,14 +1027,20 @@ class Controller:
         switch = switch or bool(getattr(self.backend, "always_switch", False))
         plan = plan_fix(len(keys) + tail, text, target_group, self.keymap, self.buffer.caps,
                         switch=switch, caps_off=caps_off)
+        secret = self._secret_focus()
         if plan is None:
-            log.warning("не могу набрать %r в группе %s", text, target_group)
+            if secret:
+                log.warning("не могу набрать текст в группе %s", target_group)
+            else:
+                log.warning("не могу набрать %r в группе %s", text, target_group)
             return False
         original = self.keymap.decode(keys, group_before)
         if self.dry_run:
-            log.info("[dry-run] %s: %r → %r", reason, original, text)
+            if secret:
+                log.info("[dry-run] %s: исправление в поле пароля", reason)
+            else:
+                log.info("[dry-run] %s: %r → %r", reason, original, text)
             return False
-        secret = self._secret_focus()
         self.busy = True
         self._abort_requested = False
         self._lost_input = False
