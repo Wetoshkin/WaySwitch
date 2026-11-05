@@ -17,7 +17,7 @@
 
 **Automatic Russian–English keyboard layout correction for Linux on Wayland.**
 
-**Version 1.1.1 — KDE input-field fixes and clearer diagnostics.**
+**Version 1.1.2 — GNOME input-field detection and Writer text correction.**
 
 WaySwitch fixes a word typed in the wrong layout (`ghbdtn` instead of
 «привет») right away, on Space — no hotkeys, no manual layout switching. It
@@ -114,7 +114,7 @@ reports the prerequisite if it is missing.
 ### Flatpak and AppImage
 
 Portable settings clients are available. Install and update the
-native WaySwitch service on the host to version 1.1.1 using the command above; `1.0.0`
+native WaySwitch service on the host to version 1.1.2 using the command above; `1.0.0`
 does not contain these fixes. The first-run window explains companion
 installation, startup and diagnostics. Settings and pause state are shared.
 
@@ -246,11 +246,18 @@ a udev rule and desktop integration. A Snap package is not available.
 
 ## Status
 
-WaySwitch 1.1.1. Tested on CachyOS with GNOME 51, Ubuntu with GNOME 50.1,
+WaySwitch 1.1.2. Tested on CachyOS with GNOME 51, Ubuntu with GNOME 50.1,
 Bazzite with GNOME, and COSMIC 1.11. A Plasma 6.6.6 Wayland VM was used to
 verify Kate/KWrite, normal and password fields in Qt/GTK, and protected
 Konsole behavior. Sway, Hyprland and the labwc/Wayfire desktops are covered
 by tests but not yet tried live — reports are welcome.
+
+Writer checks cover both directions, undo after continued typing, automatic
+capitalization and two consecutive words. Automatic correction in Calc remains
+limited: ambiguous focus events reset the input buffer. Chrome checks cover
+ordinary fields, editable page elements, passwords and readonly fields.
+The original eXpress message editor was tested in an isolated environment
+without sending messages; an authenticated chat has not been tested.
 
 With password-field protection enabled, automatic correction waits for
 verified AT-SPI focus. Use a manual gesture if the application's accessibility
