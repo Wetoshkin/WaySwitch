@@ -5,11 +5,11 @@
 
 * на любом выходе из execute все клавиши, нажатые виртуальным устройством,
   отпущены;
-* первый Backspace — точка невозврата. До него прерывание (физическое
-  нажатие, пауза) отменяет исправление и возвращает прежнюю раскладку; после
-  него план доводится до конца, иначе человек остался бы со стёртым словом и
-  без нового. Нажатая в это время клавиша всё равно попадёт в поле — после
-  исправленного слова;
+* KeyTypist останавливается при наблюдаемом прерывании. После записи или
+  использования нового режима физическим вводом результат — FAILED: часть
+  слова могла измениться, восстанавливать прежний буфер и перепечатывать нельзя;
+* проверка перед записью не атомарна: физическая клавиша может попасть между
+  проверкой и записью. Это ограничение не устраняется задержкой;
 * любая ошибка бэкенда или печати — FAILED, а не исключение наружу.
 """
 
@@ -167,7 +167,7 @@ class _Run:
         self.restore_group = restore_group
         self.switched = False
         self.caps_toggle: Callable[[], None] | None = None  # чем вернуть Caps Lock
-        self.committed = False  # первый Backspace ушёл — назад дороги нет
+        self.committed = False  # текст или новый режим уже использован, откат небезопасен
         self.native_done = False
         self.resolved_source: str | None = None
         self.resolved_target: str | None = None
@@ -249,49 +249,74 @@ def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: Fal
 def _execute_keys(plan: Plan, typist, run: _Run, key_delay: float, sleep,
                   switch_timeout: float) -> str:
     session = _Session(typist, key_delay, sleep)
+
+    def interruption(check_hold: bool = False) -> str | None:
+        blocked = False
+        try:
+            blocked = check_hold and run._hold is not None and run._hold() is not True
+        finally:
+            interrupted = run._abort()
+            stopped = run._stop()
+            # Физический ввод уже использовал новый режим, возвращать его нельзя.
+            if interrupted and (run.switched or run.caps_toggle is not None
+                                or set(session.pressed) & (kc.SHIFT_KEYS | {kc.KEY_CAPSLOCK})):
+                run.commit()
+        if blocked or interrupted or stopped:
+            return FAILED if run.committed else ABORTED
+        return None
+
     try:
         for step in plan.steps:
-            if run.aborted():
-                return ABORTED
+            if status := interruption():
+                return status
             if isinstance(step, ReleaseModifiers):
                 for code in ALL_MODIFIERS:
                     typist.key(code, 0)
                 typist.syn()
             elif isinstance(step, Backspace):
                 for _ in range(step.count):
-                    # blocked() — первым: пока ждём Shift, pump() мог принести
-                    # нажатие, и aborted() должен его увидеть.
-                    if run.blocked() or run.aborted():
-                        return ABORTED
+                    if status := interruption(check_hold=True):
+                        return status
                     run.committed = True
                     session.press(kc.KEY_BACKSPACE)
                     session.release(kc.KEY_BACKSPACE)
             elif isinstance(step, SwitchLayout):
-                if not run.switch(step.group, switch_timeout):
+                try:
+                    applied = run.switch(step.group, switch_timeout)
+                finally:
+                    status = interruption()
+                if status:
+                    return status
+                if not applied:
                     return FAILED
             elif isinstance(step, ToggleCaps):
                 def tap_caps(s=session):
                     s.press(kc.KEY_CAPSLOCK)
                     s.release(kc.KEY_CAPSLOCK)
-                tap_caps()
-                run.caps_toggle = tap_caps
+                try:
+                    tap_caps()
+                    run.caps_toggle = tap_caps
+                finally:
+                    status = interruption()
+                if status:
+                    return status
             elif isinstance(step, Type):
                 for code, shift in step.keys:
-                    if run.blocked() or run.aborted():
-                        return ABORTED
-                    # Первая напечатанная буква меняет экран, как и Backspace
-                    # (у «Исправить выделенное» Backspace нет вовсе): дальше
-                    # фразу не обрываем.
+                    if status := interruption(check_hold=True):
+                        return status
                     if shift:
-                        session.press(kc.KEY_LEFTSHIFT)
-                        if run.aborted():
-                            return ABORTED
+                        try:
+                            session.press(kc.KEY_LEFTSHIFT)
+                        finally:
+                            status = interruption()
+                        if status:
+                            return status
                     run.committed = True
                     session.press(code)
                     session.release(code)
                     if shift:
                         session.release(kc.KEY_LEFTSHIFT)
-        return DONE
+        return interruption() or DONE
     except Exception as exc:  # noqa: BLE001 — OSError uinput, BackendError, GLib.Error
         log.error("исправление прервано ошибкой: %s", type(exc).__name__)
         return FAILED
