@@ -21,7 +21,7 @@
 
 WaySwitch fixes a word typed in the wrong layout (`ghbdtn` instead of
 «привет») right away, on Space — no hotkeys, no manual layout switching. It
-works on Wayland in GNOME, COSMIC, KDE Plasma, Sway, Hyprland, Xfce, MATE, Budgie
+works on Wayland in GNOME, COSMIC, KDE Plasma, Sway, Hyprland, Umbriel, Xfce, MATE, Budgie
 and LXQt, where classic tools of this kind can neither listen to the
 keyboard nor type for you. Linux Mint (Cinnamon) is not supported yet. The interface is in Russian: WaySwitch currently
 supports the Russian ↔ English pair.
@@ -80,6 +80,9 @@ Latin one. Supported installation targets include Ubuntu 24.04+, Debian 13+,
 Fedora 41+, openSUSE Tumbleweed, Arch and their compatible derivatives.
 The installer checks the system before making changes.
 
+**NixOS:** use the separate [package and system module guide](docs/nixos.md).
+The command below is for other distributions.
+
 1. Open a terminal (in KDE it is **Konsole**).
 2. Paste the command with <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> and press <kbd>Enter</kbd>:
 
@@ -102,9 +105,10 @@ The installer checks the system before making changes.
 | Silverblue, Kinoite, Bazzite | layers the `.rpm` with `rpm-ostree` (reboot afterwards) |
 | openSUSE Tumbleweed, Slowroll | installs the `.rpm` with `zypper` |
 | Arch, CachyOS, EndeavourOS, Manjaro | AUR package via `paru`/`yay` once it is published, otherwise from source |
+| NixOS | use the [package and system module](docs/nixos.md), without the generic installer |
 | others | from source via `packaging/install.sh` |
 
-Uninstall: the same command with `| sh -s -- --uninstall`.
+For script installations, uninstall with the same command and `| sh -s -- --uninstall`.
 
 Before installing a `.deb` or `.rpm`, the script verifies its SHA256 and size
 against the selected GitHub release metadata. Missing checksums or failed
@@ -159,6 +163,15 @@ COSMIC does not provide a reliable public unlocked-state acknowledgement, so
 correction never resumes automatically. Unknown protection state keeps it off;
 `wayswitch doctor` explains recovery. Automatic Caps Lock deactivation is disabled
 because the compositor's compiled keymap does not expose original XKB options.
+
+### NixOS and Umbriel
+
+A package and system module are provided for NixOS; see the
+[setup guide](docs/nixos.md) for dependencies, device access and service startup.
+Umbriel uses native IPC and requires exactly two layouts shared by ordinary
+keyboards and `uinput`, plus a graphical session registered with logind.
+Unknown session state blocks both automatic and manual correction.
+Automatic Caps Lock deactivation is unavailable without XKB option information.
 
 ## Gestures
 
@@ -252,12 +265,26 @@ verify Kate/KWrite, normal and password fields in Qt/GTK, and protected
 Konsole behavior. Sway, Hyprland and the labwc/Wayfire desktops are covered
 by tests but not yet tried live — reports are welcome.
 
+Umbriel was tested in a native Ubuntu Wayland session, including ordinary input,
+undo, a password field, screen locking and VT changes. The Nix package was built
+and checked on Linux; a live NixOS graphical session has not been tested.
+
 Writer checks cover both directions, undo after continued typing, automatic
 capitalization and two consecutive words. Automatic correction in Calc remains
 limited: ambiguous focus events reset the input buffer. Chrome checks cover
 ordinary fields, editable page elements, passwords and readonly fields.
 The original eXpress message editor was tested in an isolated environment
 without sending messages; an authenticated chat has not been tested.
+
+Firefox Flatpak checks on Bazzite cover input, textarea, contenteditable and the
+address bar. Telegram was checked in an ordinary field before login; its
+authenticated message editor remains untested. ONLYOFFICE Desktop Editors 10.0.0
+(Flatpak on Bazzite) did not expose an AT-SPI field tree on the tested setup;
+automatic correction was not confirmed.
+
+When retyping uses virtual key presses, observed physical input stops further
+changes and can leave a partial correction. A physical key can still arrive
+between a check and the next virtual key.
 
 With password-field protection enabled, automatic correction waits for
 verified AT-SPI focus. Use a manual gesture if the application's accessibility
