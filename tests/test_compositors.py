@@ -39,6 +39,25 @@ def test_xkb_descriptions():
                                                                  LayoutSpec("ru", "phonetic")]
 
 
+@pytest.mark.parametrize("valid_root,expected", [(True, "custom"), (False, "us")])
+def test_xkb_rules_honor_config_root_with_system_fallback(tmp_path, monkeypatch,
+                                                        valid_root, expected):
+    custom = tmp_path / "nix-store-xkb"
+    (custom / "rules").mkdir(parents=True)
+    custom_xml = RULES_XML.replace("<name>us</name>", "<name>custom</name>")
+    (custom / "rules/evdev.xml").write_text(custom_xml if valid_root else "<broken",
+                                          encoding="utf-8")
+    fallback = tmp_path / "evdev.xml"
+    fallback.write_text(RULES_XML, encoding="utf-8")
+    monkeypatch.setenv("XKB_CONFIG_ROOT", str(custom))
+    monkeypatch.setattr(xkbnames, "RULES_PATHS", (fallback,))
+    xkbnames._system_rules.cache_clear()
+    try:
+        assert xkbnames.spec_for_description("English (US)") == LayoutSpec(expected)
+    finally:
+        xkbnames._system_rules.cache_clear()
+
+
 # --- Sway ----------------------------------------------------------------------------
 
 class FakeSway:

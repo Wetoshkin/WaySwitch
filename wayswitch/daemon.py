@@ -59,7 +59,7 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     log.info("среда: %s", session_summary())
     log.info("бэкенд раскладки: %s, источники: %s", backend.name,
              [s.xkb_id for s in backend.layouts()])
-    if backend.name in ("kde", "sway", "hyprland", "cosmic"):
+    if backend.name in ("kde", "sway", "hyprland", "cosmic", "umbriel"):
         # Расширения нет: печатаем сканкодами через uinput. Раскладку
         # переключает композитор, паузу после переключения ждёт wait_applied.
         log.info("печать символов: uinput (бэкенд %s)", backend.name)
@@ -92,7 +92,7 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
                 [s.xkb_id for s in backend.layouts()])
             backend.supports_auto = False
     keymap = (backend.keymap if backend.name == "cosmic" else
-              XkbKeymap.from_names(backend.layouts(), backend.xkb_options()))
+              XkbKeymap.from_names(backend.layouts(), backend.xkb_options() or []))
     models = {}
     for group in range(keymap.num_groups):
         lang = {"ru": "ru", "latin": "en"}.get(keymap.alphabet(group))
@@ -161,9 +161,11 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
             threading.Thread(
                 target=ensure_and_play, args=(cfgmod.config_dir(),), daemon=True).start()
     cosmic_session = detect_desktop() == COSMIC or backend.name == COSMIC
+    native_input_guard = backend.input_locked if backend.name == "umbriel" else None
     controller = Controller(
         config, keymap, detector, backend, typist_for_controller, pump=pump, dry_run=dry_run,
-        screen_locked=lambda: guard.input_locked() if cosmic_session else False,
+        screen_locked=lambda: guard.input_locked()
+        if cosmic_session or native_input_guard is not None else False,
         require_lock_confirmation=cosmic_session,
         on_corrected=lambda o, f, m: _corrected(o, f, m),
         on_fixed=_fixed,
@@ -200,7 +202,8 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         if not entering:
             watcher.schedule_rescans()
 
-    guard = SessionGuard(controller.set_locked, on_sleep, cosmic=cosmic_session)
+    guard = SessionGuard(controller.set_locked, on_sleep, cosmic=cosmic_session,
+                         input_guard=native_input_guard)
     guard.start()
 
     def reload() -> None:

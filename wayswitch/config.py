@@ -16,7 +16,7 @@ from wayswitch.keycodes import GESTURE_KEY_NAMES, KEY_NAMES
 SENSITIVITY_NAMES = ("conservative", "normal", "aggressive")
 MANUAL_MODES = ("double_shift", "tap_key", "pause_key", "none")
 BACKEND_PREFS = ("auto", "shell", "kde", "ibus", "hotkey", "sway", "hyprland", "compositor",
-                 "cosmic")
+                 "cosmic", "umbriel")
 # Чем печатать символы при shell-бэкенде: клавишами расширения (keysym-ы, не
 # зависят от раскладки) или сканерами через uinput (как настоящая клавиатура).
 SHELL_TYPING = ("extension", "uinput")
