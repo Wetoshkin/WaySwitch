@@ -45,7 +45,7 @@ SELECTION_MAX = 300  # больше — это уже не опечатка во
 def _word_unfinished(events: list[tuple[int, int, int]]) -> bool:
     """Последнее нажатие во время исправления — буква (слово ещё не закончено)."""
     for code, value, _dev in reversed(events):
-        if value != 1 or code in kc.MODIFIER_KEYS or code in kc.LOCK_KEYS:
+        if value not in (1, 2) or code in kc.MODIFIER_KEYS or code in kc.LOCK_KEYS:
             continue
         return code != kc.KEY_SPACE and code not in kc.RESET_KEYS
     return False
@@ -332,6 +332,13 @@ class Controller:
             # учесть. Shift-тап не прерывает: он короткий и сам по себе ничего
             # не печатает, а тройной Shift во время фикса второго — штатный жест.
             self._busy_keys.append((code, value, device_id))
+            commands_held = any(c in kc.COMMAND_MODIFIERS
+                                for _, c in self.buffer.held_physical())
+            if value in (1, 2) and (
+                    code in (kc.EDIT_KEYS | kc.RESET_KEYS | kc.COMMAND_MODIFIERS)
+                    and code not in self._gesture_keys
+                    or commands_held and code not in kc.COMMAND_MODIFIERS):
+                self._busy_reset = True
             if value == 1:
                 self.buffer.note_press(code, device_id)
                 if code not in self._gesture_keys:
@@ -606,12 +613,7 @@ class Controller:
                 return True
         return False
 
-    def _on_word(self, keys: list[KeyPress], device_id: int, code: int) -> None:
-        held, self._hold_keys = self._hold_keys, None
-        if held is not None and list(keys) == held:
-            # То самое слово, которое вернули жестом: не исправлять снова.
-            self.context.append(None)
-            return
+    def _remember_fix_word(self, keys: list[KeyPress]) -> None:
         last = self._last_fix
         if last is not None:
             def letters(source) -> str:
@@ -626,6 +628,14 @@ class Controller:
                 # Начато следующее слово, а исправление не отменили — значит,
                 # оно было верным: счётчик отмен для слова начинаем заново.
                 self._undo_counts.pop(last.word or letters(last.original_keys), None)
+
+    def _on_word(self, keys: list[KeyPress], device_id: int, code: int) -> None:
+        held, self._hold_keys = self._hold_keys, None
+        if held is not None and list(keys) == held:
+            # То самое слово, которое вернули жестом: не исправлять снова.
+            self.context.append(None)
+            return
+        self._remember_fix_word(keys)
         groups = self._groups()
         if groups is None:
             return
@@ -928,6 +938,7 @@ class Controller:
         # повторный вызов (нажали сочетание дважды), он напечатал бы ещё раз.
         self.busy = True
         self._abort_requested = self._operation_invalidated = False
+        self._busy_reset = False
         try:
             # Вызов с системного сочетания (Ctrl+Alt+…) приходит, пока клавиши
             # ещё зажаты: буквы превратились бы в команды. Ждём отпускания всех.
@@ -1065,7 +1076,8 @@ class Controller:
         return self._abort_requested
 
     def _stop(self) -> bool:
-        return (self._operation_invalidated or self.screen_locked() or self.locked
+        return (self._operation_invalidated or self._busy_reset
+                or self.screen_locked() or self.locked
                 or not self._sync_focus())
 
     def _blocking_keys_held(self, trigger: tuple[int, int] | None) -> bool:
@@ -1125,6 +1137,8 @@ class Controller:
         if self.dry_run:
             log.info("[dry-run] %s: исправление текста", reason)
             return False
+        plan.source_text = original + " " * tail
+        plan.focus = self.probe.snapshot() if self.probe is not None else None
         secret = secret or self._secret_focus()
         outcome = {} if outcome is None else outcome
         outcome["secret"] = secret
@@ -1161,6 +1175,17 @@ class Controller:
         lost, self._lost_input = self._lost_input, False
         busy_keys, self._busy_keys = self._busy_keys, []
         interrupted, self._busy_reset = self._busy_reset, False
+        native_done = result == DONE and outcome.get("native_span") and not interrupted
+        replay = native_done and any(v == 1 for _, v, _ in busy_keys) and all(
+            v == 0 or v == 1 and (
+                c in (kc.WORD_EXTRA_KEYS | {kc.KEY_SPACE} | (kc.MODIFIER_KEYS - kc.META_KEYS))
+                or self.keymap.is_letter_key(c)) for c, v, _ in busy_keys)
+        if native_done and any(v == 2 for _, v, _ in busy_keys):
+            lost = True
+        if replay:
+            if lost:
+                self.context.clear()
+            lost = False
         if result == ABORTED and not interrupted:
             # Экран не тронут: на нём прежнее слово и то, что человек
             # допечатал. Досылаем эти нажатия в буфер с тем состоянием
@@ -1191,6 +1216,12 @@ class Controller:
             self._emit_status()
             return False
         log.info("%s: исправлено за %.0f мс", reason, (self.clock() - started) * 1000)
+        if "target_text" in outcome:
+            text = outcome["target_text"]
+            original = outcome["source_text"][:-tail] if tail else outcome["source_text"]
+            actual_keys = keys_for_typing(original, group_before, self.keymap, False)
+            if actual_keys is not None:
+                keys = [KeyPress(code, shift) for code, shift in actual_keys]
         secret = secret or self._secret_focus()
         outcome["secret"] = secret
         new_keys = [KeyPress(code, shift) for code, shift in
@@ -1202,6 +1233,7 @@ class Controller:
         else:
             self.buffer.replace_last_word(new_keys[: len(new_keys) - tail] if tail else new_keys)
         word_keys = new_keys[: len(new_keys) - tail] if tail else new_keys
+        fixed_end = len(self.buffer.phrase()) - tail
         if lost:
             self.buffer.reset()
             self.context.clear()
@@ -1213,8 +1245,15 @@ class Controller:
             self.stats["corrections"] += 1
             if not lost:
                 self._last_fix = LastFix(list(keys), word_keys, group_before, self.clock(),
-                                         end=len(self.buffer.phrase()) - tail,
+                                         end=fixed_end,
                                          early=reason == "early", secret=secret)
+        if replay:
+            # Текст уже в приложении; восстанавливаем только учёт нажатий и отмену.
+            self.buffer.restore_held(self._busy_held)
+            for code, value, device_id in busy_keys:
+                event = self.buffer.feed(code, value, device_id, self.clock())
+                if event is not None and event.kind == "word":
+                    self._remember_fix_word(event.keys)
         if self.on_fixed:
             self.on_fixed(manual)
         if self.on_corrected and not secret and not self._secret_focus():

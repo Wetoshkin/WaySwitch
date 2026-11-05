@@ -73,7 +73,7 @@ def extension_state(installed: bool, enabled: bool, running: bool,
                     version: int | None) -> str:
     """Одно из EXTENSION_STATES по фактам о расширении. Чистая функция."""
     if running:
-        return "outdated" if version is not None and version < 2 else "ok"
+        return "outdated" if version is not None and version < 3 else "ok"
     if not installed:
         return "missing"
     return "not_loaded" if enabled else "disabled"

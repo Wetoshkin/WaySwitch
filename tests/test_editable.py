@@ -1,0 +1,679 @@
+"""Bounded native word edits never use a keyboard fallback after an attempt."""
+
+import sys
+import time
+from contextlib import contextmanager
+from types import SimpleNamespace
+
+import pytest
+
+from wayswitch import a11y, editable
+
+
+def test_span_result_contract():
+    failed = editable.SpanResult("failed")
+    assert failed.status == "failed" and failed.committed is False
+    assert failed.source_text is None and failed.target_text is None
+    done = editable.SpanResult("done", True)
+    assert done.committed is True and done.source_text is None and done.target_text is None
+
+
+def test_non_libreoffice_has_no_native_attempt(monkeypatch):
+    def forbidden():
+        raise AssertionError("No native connection for another app")
+
+    monkeypatch.setattr(a11y, "_new_a11y_connection", forbidden)
+    focus = a11y.FocusSnapshot("chrome", taken_at=time.monotonic(), field=(":1.2", "/field"))
+    assert editable.try_replace(focus, "hello", "руддщ", forbidden, lambda: False) is None
+
+
+FIELD = (":1.2", "/field")
+SOURCE = "ghbdtn "
+TARGET = "привет "
+
+
+class Tree:
+    def __init__(self, events):
+        self.text = "Test " + SOURCE
+        self.position = len(self.text)
+        self.events = events
+        self.reads = []
+        self.writes = []
+        self.editable = True
+        self.focused = True
+        self.kind = ""
+        self.selections = 0
+        self.insert_reply = self.delete_reply = True
+        self.noop = False
+        self.insert_error = None
+        self.delete_error = None
+        self.after_insert = lambda: None
+        self.after_delete = lambda: None
+        self.insert_event_start = self.delete_event_start = None
+
+    def state(self, node):
+        assert node == FIELD
+        return [(1 << a11y.EDITABLE if self.editable else 0)
+                | (1 << a11y.FOCUSED if self.focused else 0)]
+
+    def role(self, node):
+        return 73
+
+    def interfaces(self, node):
+        return [a11y.TEXT, "org.a11y.atspi.EditableText"]
+
+    def input_type(self, node):
+        return self.kind
+
+    def app_of(self, node):
+        return "soffice"
+
+    def pid(self, node):
+        return 1234
+
+    def caret(self, node):
+        return self.position
+
+    def selection_count(self, node):
+        return self.selections
+
+    def character_count(self, node):
+        return len(self.text)
+
+    def text_range(self, node, start, end):
+        assert node == FIELD and 0 <= start <= end and end - start <= 1024
+        self.reads.append((start, end))
+        return self.text[start:end]
+
+    def insert_text(self, node, start, text):
+        assert node == FIELD
+        self.writes.append(("insert", start, text))
+        if not self.noop:
+            self.text = self.text[:start] + text + self.text[start:]
+            if self.position >= start:
+                self.position += len(text)
+            offset = start if self.insert_event_start is None else self.insert_event_start
+            self.events.append(("insert", offset, len(text)))
+        self.after_insert()
+        if self.insert_error:
+            raise self.insert_error
+        return self.insert_reply
+
+    def delete_text(self, node, start, end):
+        assert node == FIELD
+        self.writes.append(("delete", start, end))
+        if self.delete_error:
+            raise self.delete_error
+        self.text = self.text[:start] + self.text[end:]
+        self.position = self.position - (end - start) if self.position >= end else min(
+            self.position, start)
+        offset = start if self.delete_event_start is None else self.delete_event_start
+        self.events.append(("delete", offset, end - start))
+        self.after_delete()
+        return self.delete_reply
+
+    def append(self, text):
+        start = self.position
+        self.text = self.text[:start] + text + self.text[start:]
+        self.position += len(text)
+        self.events.append(("insert", start, len(text)))
+
+
+@pytest.fixture
+def native(monkeypatch):
+    events = []
+    tree = Tree(events)
+    context = a11y.ShellContext(("libreoffice-writer",), False, True, 0, 0, 1234)
+    monkeypatch.setattr(a11y, "query_shell_context", lambda: context)
+    focus = a11y.FocusSnapshot("soffice", False, time.monotonic(), context.app_ids, FIELD)
+    committed = []
+    return SimpleNamespace(tree=tree, events=events, context=context, focus=focus,
+                           commit=lambda: committed.append(True), committed=committed,
+                           stopped=lambda: False)
+
+
+def replace(native, source=SOURCE, target=TARGET):
+    return editable._replace(native.tree, native.focus, source, target, native.commit,
+                             native.stopped, native.events)
+
+
+def test_insert_first_exact_replace_preserves_physical_append(native):
+    native.tree.after_insert = lambda: native.tree.append("X")
+    assert replace(native) == editable.SpanResult("done", True)
+    assert native.tree.text == "Test привет X"
+    assert native.tree.position == 13
+    assert native.tree.writes == [("insert", 5, TARGET), ("delete", 12, 19)]
+    assert native.committed == [True]
+
+
+@pytest.mark.parametrize("change", [
+    lambda n: setattr(n, "focus", n.focus._replace(password=True)),
+    lambda n: setattr(n, "focus", n.focus._replace(app=None)),
+    lambda n: setattr(n, "focus", n.focus._replace(taken_at=0)),
+    lambda n: setattr(n.tree, "editable", False),
+    lambda n: setattr(n.tree, "focused", False),
+    lambda n: setattr(n.tree, "kind", "password"),
+    lambda n: setattr(n.tree, "kind", None),
+    lambda n: setattr(n.tree, "selections", 1),
+    lambda n: setattr(n, "stopped", lambda: True),
+])
+def test_unsafe_metadata_never_reads_or_writes(native, change):
+    change(native)
+    assert replace(native).status in {"aborted", "failed"}
+    assert not native.tree.reads and not native.tree.writes and not native.committed
+
+
+def test_source_mismatch_is_local_and_never_logged(native, caplog, capsys):
+    native.tree.text = "Test secret!"
+    assert replace(native) == editable.SpanResult("aborted")
+    assert not native.tree.writes
+    assert "secret" not in caplog.text + str(capsys.readouterr())
+
+
+@pytest.mark.parametrize("source,target", [("a" * 513, "a"), ("a", "b" * 513),
+                                           ("a😀", "test"), (SOURCE, "😀")])
+def test_oversized_or_unproven_utf16_spans_never_read(native, source, target):
+    assert replace(native, source, target).status in {"aborted", "failed"}
+    assert not native.tree.reads and not native.tree.writes
+
+
+@pytest.mark.parametrize("mode", ["noop", "false", "timeout", "error"])
+def test_uncertain_insert_preserves_original_without_retry(native, mode):
+    if mode == "noop":
+        native.tree.noop = True
+    elif mode == "false":
+        native.tree.insert_reply = False
+    else:
+        native.tree.insert_error = RuntimeError("Timeout" if mode == "timeout" else "private")
+    assert replace(native) == editable.SpanResult("failed", True)
+    assert SOURCE in native.tree.text
+    assert native.tree.writes == [("insert", 5, TARGET)]
+
+
+@pytest.mark.parametrize("mode", ["focus", "protected", "selection", "edit", "source"])
+def test_disruption_after_insertion_never_deletes_original(native, mode):
+    def disrupt():
+        if mode == "focus":
+            native.tree.focused = False
+        elif mode == "protected":
+            native.tree.kind = "password"
+        elif mode == "selection":
+            native.tree.selections = 1
+        elif mode == "edit":
+            native.stopped = lambda: True
+        else:
+            native.tree.text = native.tree.text[:12] + "CHANGED"
+
+    native.tree.after_insert = disrupt
+    if mode == "edit":
+        # The closure observes the new stopped function after the mutation.
+        def stopped():
+            return native.stopped()
+    else:
+        stopped = native.stopped
+    result = editable._replace(native.tree, native.focus, SOURCE, TARGET, native.commit,
+                               stopped, native.events)
+    assert result == editable.SpanResult("failed", True)
+    assert native.tree.writes == [("insert", 5, TARGET)]
+
+
+def test_equivalent_diff_positions_in_duplicate_text(native):
+    native.tree.text = "Test " + TARGET
+    native.tree.position = len(native.tree.text)
+    native.tree.insert_event_start = 12
+    native.tree.delete_event_start = 5
+    assert replace(native, TARGET, TARGET * 2) == editable.SpanResult("done", True)
+    assert native.tree.text == "Test " + TARGET * 2
+
+
+def test_unrelated_insert_event_cannot_confirm_attempt(native):
+    native.tree.insert_event_start = 0
+    assert replace(native) == editable.SpanResult("failed", True)
+    assert native.tree.writes == [("insert", 5, TARGET)]
+
+
+def test_delete_timeout_does_not_repeat_or_fall_back(native):
+    native.tree.delete_error = RuntimeError("Timeout with secret payload")
+    assert replace(native) == editable.SpanResult("failed", True)
+    assert native.tree.writes == [("insert", 5, TARGET), ("delete", 12, 19)]
+    assert SOURCE in native.tree.text
+
+
+def test_shell_context_change_before_attempt_never_reads(native, monkeypatch):
+    monkeypatch.setattr(a11y, "query_shell_context",
+                        lambda: native.context._replace(purpose=8))
+    assert replace(native).status in {"aborted", "failed"}
+    assert not native.tree.reads and not native.tree.writes
+
+
+def test_invalid_selection_metadata_is_not_zero_selections(native):
+    native.tree.selections = False
+    assert replace(native).status in {"aborted", "failed"}
+    assert not native.tree.reads and not native.tree.writes
+
+
+def test_commit_callback_error_does_not_attempt_native_mutation(native):
+    def commit():
+        raise RuntimeError("layout prelude failed before commitment")
+
+    result = editable._replace(native.tree, native.focus, SOURCE, TARGET, commit,
+                               native.stopped, native.events)
+    assert result == editable.SpanResult("failed")
+    assert not native.tree.writes
+
+
+def test_cancelled_commit_prelude_never_inserts(native):
+    result = editable._replace(native.tree, native.focus, SOURCE, TARGET, lambda: False,
+                               native.stopped, native.events)
+    assert result == editable.SpanResult("aborted")
+    assert native.tree.text == "Test " + SOURCE
+    assert not native.tree.writes
+
+
+def test_commit_prelude_append_does_not_move_the_reserved_word_anchor(native):
+    def commit():
+        native.committed.append(True)
+        native.tree.append("X")
+        return True
+
+    result = editable._replace(native.tree, native.focus, SOURCE, TARGET, commit,
+                               native.stopped, native.events)
+    assert result == editable.SpanResult("done", True)
+    assert native.tree.text == "Test " + TARGET + "X"
+    assert native.tree.position == 13
+    assert native.tree.writes == [("insert", 5, TARGET), ("delete", 12, 19)]
+
+
+@pytest.mark.parametrize("protection", ["focus", "password", "shell-password"])
+def test_unsafe_focus_after_commit_prelude_never_inserts_or_reads(native, monkeypatch, protection):
+    def commit():
+        if protection == "focus":
+            native.tree.focused = False
+        elif protection == "password":
+            native.tree.kind = "password"
+        else:
+            monkeypatch.setattr(a11y, "query_shell_context",
+                                lambda: native.context._replace(purpose=8))
+        return True
+
+    result = editable._replace(native.tree, native.focus, SOURCE, TARGET, commit,
+                               native.stopped, native.events)
+    assert result == editable.SpanResult("failed", True)
+    assert native.tree.reads == [(5, 12)]
+    assert not native.tree.writes
+
+
+@pytest.mark.parametrize("failed", [False, "raise"])
+def test_outer_commit_failure_keeps_uncommitted_result(native, monkeypatch, failed):
+    connection = SimpleNamespace(close_sync=lambda _cancellable: None)
+    monkeypatch.setattr(a11y, "_new_a11y_connection", lambda: connection)
+    monkeypatch.setattr(a11y, "_DbusTree", lambda _conn: native.tree)
+
+    @contextmanager
+    def changes(_connection, _field):
+        yield native.events
+
+    monkeypatch.setattr(editable, "_text_changes", changes)
+
+    def commit():
+        if failed == "raise":
+            raise RuntimeError("prelude failed")
+        return False
+
+    result = editable.try_replace(native.focus, SOURCE, TARGET, commit, native.stopped)
+    assert result == editable.SpanResult("failed" if failed == "raise" else "aborted")
+    assert not native.tree.writes
+
+
+def test_outer_cleanup_failure_cannot_forget_attempt(native, monkeypatch):
+    def failed_close(_cancellable):
+        raise RuntimeError("bus has closed")
+
+    connection = SimpleNamespace(close_sync=failed_close)
+    monkeypatch.setattr(a11y, "_new_a11y_connection", lambda: connection)
+    monkeypatch.setattr(a11y, "_DbusTree", lambda _conn: native.tree)
+
+    @contextmanager
+    def failed_cleanup(_conn, _field):
+        yield native.events
+        raise RuntimeError("provider disconnected during unsubscribe")
+
+    monkeypatch.setattr(editable, "_text_changes", failed_cleanup)
+    assert editable.try_replace(native.focus, SOURCE, TARGET, native.commit,
+                                native.stopped) == editable.SpanResult("failed", True)
+    assert native.tree.text == "Test " + TARGET
+
+
+def test_context_becomes_password_after_insert_never_reads_again(native, monkeypatch):
+    def protected():
+        monkeypatch.setattr(a11y, "query_shell_context",
+                            lambda: native.context._replace(purpose=8))
+
+    native.tree.after_insert = protected
+    assert replace(native) == editable.SpanResult("failed", True)
+    assert native.tree.reads == [(5, 12)]
+    assert native.tree.writes == [("insert", 5, TARGET)]
+
+
+@pytest.mark.parametrize("bad_event", [("insert", False, 7), ("insert", 5, True),
+                                        ("insert", 5, 0), ("delete", 5, -1),
+                                        ("private", 5, 7), ("insert", -1, 7)])
+def test_malformed_events_do_not_authorize_source_deletion(native, bad_event):
+    native.tree.after_insert = lambda: native.events.append(bad_event)
+    assert replace(native) == editable.SpanResult("failed", True)
+    assert native.tree.writes == [("insert", 5, TARGET)]
+
+
+def test_maximum_span_read_is_bounded(native):
+    source, target = "a" * 512, "б" * 512
+    native.tree.text = "Test " + source
+    native.tree.position = len(native.tree.text)
+    assert replace(native, source, target) == editable.SpanResult("done", True)
+    assert max(end - start for start, end in native.tree.reads) == 1024
+
+
+def test_dbus_native_methods_use_bytes_for_insert_and_provider_offsets_for_ranges():
+    tree = object.__new__(a11y._DbusTree)
+    tree._GLib = SimpleNamespace(Variant=lambda signature, args: (signature, args))
+    calls = []
+
+    def call(node, interface, method, args, reply):
+        assert node == FIELD
+        calls.append((interface, method, args, reply))
+        return {"GetText": (TARGET,), "InsertText": (True,), "DeleteText": (True,),
+                "GetNSelections": (0,), "Get": (12,)}[method]
+
+    tree._call = call
+    assert tree.text_range(FIELD, 5, 12) == TARGET
+    assert tree.insert_text(FIELD, 5, TARGET) is True
+    assert tree.delete_text(FIELD, 12, 19) is True
+    assert tree.selection_count(FIELD) == 0
+    assert tree.character_count(FIELD) == 12
+    assert calls == [
+        (a11y.TEXT, "GetText", ("(ii)", (5, 12)), "(s)"),
+        (editable.EDITABLE, "InsertText", ("(isi)", (5, TARGET, 13)), "(b)"),
+        (editable.EDITABLE, "DeleteText", ("(ii)", (12, 19)), "(b)"),
+        (a11y.TEXT, "GetNSelections", None, "(i)"),
+        ("org.freedesktop.DBus.Properties", "Get",
+         ("(ss)", (a11y.TEXT, "CharacterCount")), "(v)"),
+    ]
+
+
+@pytest.mark.parametrize("start,end", [(0, 1025), (-1, 5), (5, 4), (False, 5)])
+def test_dbus_text_bounds_do_not_reach_provider(start, end):
+    tree = object.__new__(a11y._DbusTree)
+
+    def forbidden(*_args):
+        raise AssertionError("Malformed range reached provider")
+
+    tree._call = forbidden
+    assert tree.text_range(FIELD, start, end) is None
+
+
+class Parameter:
+    def __init__(self, value, signature):
+        self.value, self.signature = value, signature
+
+    def get_type_string(self):
+        return self.signature
+
+    def get_string(self):
+        assert self.signature == "s"
+        return self.value
+
+    def get_int32(self):
+        assert self.signature == "i"
+        return self.value
+
+
+class NumericOnlyEvent:
+    def __init__(self, kind="insert", start=5, length=7):
+        self.children = [Parameter(kind, "s"), Parameter(start, "i"), Parameter(length, "i")]
+
+    def get_child_value(self, index):
+        assert index < 3, "Event text/application payload must never be read"
+        return self.children[index]
+
+    def unpack(self):
+        raise AssertionError("Complete event payload must never be unpacked")
+
+
+@pytest.fixture
+def event_bus(monkeypatch):
+    calls = []
+    connection = SimpleNamespace()
+
+    def subscribe(sender, interface, member, path, detail, flags, callback, data):
+        assert sender == FIELD[0] and path == FIELD[1] and member == "TextChanged"
+        connection.callback = callback
+        calls.append("subscribe")
+        return 5
+
+    connection.signal_subscribe = subscribe
+    connection.signal_unsubscribe = lambda ident: calls.append(("unsubscribe", ident))
+    connection.call_sync = lambda *args: calls.append(args[3])
+    gio = SimpleNamespace(DBusSignalFlags=SimpleNamespace(NONE=0),
+                          DBusCallFlags=SimpleNamespace(NONE=0))
+    glib = SimpleNamespace(Variant=lambda signature, args: (signature, args), VariantType=str)
+    monkeypatch.setitem(sys.modules, "gi.repository", SimpleNamespace(Gio=gio, GLib=glib))
+    return connection, calls
+
+
+def deliver(connection, params):
+    connection.callback(connection, FIELD[0], FIELD[1], "org.a11y.atspi.Event.Object",
+                        "TextChanged", params, None)
+
+
+def test_subscription_reads_only_numeric_category_and_always_closes(event_bus):
+    connection, calls = event_bus
+    with pytest.raises(RuntimeError), editable._text_changes(connection, FIELD) as events:
+        deliver(connection, NumericOnlyEvent())
+        assert events == [("insert", 5, 7)]
+        raise RuntimeError("transaction interrupted")
+    assert calls == ["subscribe", "RegisterEvent", ("unsubscribe", 5), "DeregisterEvent"]
+
+
+def test_subscription_malformed_prefix_and_event_flood_are_bounded(event_bus):
+    connection, _calls = event_bus
+    with editable._text_changes(connection, FIELD) as events:
+        malformed = NumericOnlyEvent()
+        malformed.children[2].signature = "v"
+        deliver(connection, malformed)
+        assert events == [("invalid", -1, -1)]
+        for _ in range(1000):
+            deliver(connection, NumericOnlyEvent())
+        assert len(events) == 65
+
+
+def test_failed_registration_still_removes_subscription(event_bus):
+    connection, calls = event_bus
+
+    def failed(*_args):
+        raise RuntimeError("registry unavailable")
+
+    connection.call_sync = failed
+    with pytest.raises(RuntimeError), editable._text_changes(connection, FIELD):
+        pytest.fail("No transaction without a registered listener")
+    assert calls == ["subscribe", ("unsubscribe", 5)]
+
+
+def test_non_bmp_prefix_uses_the_same_providers_raw_offsets(native):
+    class UTF16Tree(Tree):
+        def character_count(self, node):
+            return len(self.text.encode("utf-16-le")) // 2
+
+        def text_range(self, node, start, end):
+            self.reads.append((start, end))
+            return self.text.encode("utf-16-le")[start * 2:end * 2].decode("utf-16-le")
+
+        def insert_text(self, node, start, text):
+            self.writes.append(("insert", start, text))
+            encoded = self.text.encode("utf-16-le")
+            self.text = (encoded[:start * 2] + text.encode("utf-16-le")
+                         + encoded[start * 2:]).decode("utf-16-le")
+            self.position += len(text)
+            self.events.append(("insert", start, len(text)))
+            return True
+
+        def delete_text(self, node, start, end):
+            self.writes.append(("delete", start, end))
+            encoded = self.text.encode("utf-16-le")
+            self.text = (encoded[:start * 2] + encoded[end * 2:]).decode("utf-16-le")
+            self.position -= end - start
+            self.events.append(("delete", start, end - start))
+            return True
+
+    native.tree = UTF16Tree(native.events)
+    native.tree.text = "😀Test " + SOURCE
+    native.tree.position = 14
+    assert replace(native) == editable.SpanResult("done", True)
+    assert native.tree.text == "😀Test " + TARGET
+    assert native.tree.position == 14
+    assert native.tree.writes == [("insert", 7, TARGET), ("delete", 14, 21)]
+    assert all(start >= 7 for start, _ in native.tree.reads)
+
+
+def test_unknown_event_category_never_keeps_arbitrary_text(event_bus):
+    connection, _calls = event_bus
+    with editable._text_changes(connection, FIELD) as events:
+        deliver(connection, NumericOnlyEvent(kind="private-field-contents"))
+        assert events == [("invalid", -1, -1)]
+
+
+@pytest.mark.parametrize("position", [20, 999999])
+def test_append_outside_sequential_document_length_does_not_authorize_deletion(native, position):
+    def impossible_append():
+        native.tree.append("X")
+        native.events[-1] = ("insert", position, 1)
+
+    native.tree.after_insert = impossible_append
+    assert replace(native) == editable.SpanResult("failed", True)
+    assert native.tree.text == "Test " + TARGET + SOURCE + "X"
+    assert native.tree.writes == [("insert", 5, TARGET)]
+
+
+@pytest.mark.parametrize("events,before,after", [
+    ([("insert", 5, 7), ("insert", 999999, 1)], 12, 20),
+    ([("insert", 5, 7), ("delete", 18, 2)], 12, 17),
+    ([("insert", 5, 7)], -1, 6),
+    ([("insert", 5, 7)], True, 8),
+    ([("delete", 5, 7)], 12, -1),
+])
+def test_numeric_edit_evidence_rejects_impossible_document_coordinates(events, before, after):
+    assert not editable._edits(events, SOURCE, TARGET + SOURCE, 5, "insert", 7, before, after)
+
+
+def test_native_libreoffice_accepts_its_verified_flatpak_proxy(native, monkeypatch):
+    native.tree.pid = lambda _node: 456
+    identities = {1234: ("org.libreoffice.LibreOffice", "987654"),
+                  456: ("org.libreoffice.LibreOffice", "987654")}
+    monkeypatch.setattr(a11y, "_flatpak_instance", identities.get)
+    assert replace(native) == editable.SpanResult("done", True)
+    assert native.tree.text == "Test " + TARGET
+
+
+@pytest.mark.parametrize("proxy", [None, ("org.libreoffice.LibreOffice", "111111"),
+                                     ("org.example.Other", "987654")])
+def test_native_other_or_unknown_flatpak_instance_never_reads(native, monkeypatch, proxy):
+    native.tree.pid = lambda _node: 456
+    identities = {1234: ("org.libreoffice.LibreOffice", "987654"), 456: proxy}
+    monkeypatch.setattr(a11y, "_flatpak_instance", identities.get)
+    assert replace(native) == editable.SpanResult("aborted")
+    assert not native.tree.reads and not native.tree.writes
+
+
+def test_native_direct_pid_match_never_opens_flatpak_metadata(native, monkeypatch):
+    def forbidden(_pid):
+        raise AssertionError("Native PID match must not consult Flatpak metadata")
+
+    monkeypatch.setattr(a11y, "_flatpak_instance", forbidden)
+    assert replace(native) == editable.SpanResult("done", True)
+
+
+@pytest.mark.parametrize("pid,focused_pid", [(True, 1), (1, True), (0, 1), (1, 0),
+                                            (-1, 1), (1, -1), ("1", 1), (1, "1"), (None, 1)])
+def test_same_application_rejects_invalid_pid_before_metadata(monkeypatch, pid, focused_pid):
+    def forbidden(_pid):
+        raise AssertionError("Invalid PID must not consult process metadata")
+
+    monkeypatch.setattr(a11y, "_flatpak_instance", forbidden)
+    assert not a11y._same_application(pid, focused_pid)
+
+
+def test_focus_scope_rejects_boolean_pid_equal_to_one():
+    nodes = {"root": ["app"], "app": ["window"], "window": ["field"], "field": []}
+    tree = SimpleNamespace(
+        children=nodes.get, app_name=lambda _node: "soffice", pid=lambda _node: True,
+        state=lambda node: [(1 << a11y.ACTIVE) if node == "window"
+                            else (1 << a11y.FOCUSED) | (1 << a11y.EDITABLE)],
+        role=lambda node: 73 if node == "field" else 23,
+        prepare=lambda _node: None, interfaces=lambda _node: [a11y.TEXT],
+        input_type=lambda _node: "", caret=lambda _node: 0, app_of=lambda _node: "soffice")
+    assert a11y.find_focus(tree, "root", 1) == a11y.FocusSnapshot()
+
+
+@pytest.mark.parametrize("source,actual,target,resolved", [
+    (SOURCE, "Ghbdtn ", TARGET, "Привет "),
+    (TARGET, "Привет ", SOURCE, "Ghbdtn "),
+    (SOURCE, "GHBDTN ", TARGET, "ПРИВЕТ "),
+    ("GHBDTN ", SOURCE, "ПРИВЕТ ", TARGET),
+    ("ghbdtn vbh ", "Ghbdtn vbh ", "привет мир ", "Привет мир "),
+])
+def test_case_equivalent_displayed_source_preserves_actual_case(
+        native, source, actual, target, resolved):
+    native.tree.text = "Test " + actual
+    native.tree.position = len(native.tree.text)
+    assert replace(native, source, target) == editable.SpanResult("done", True, actual, resolved)
+    assert native.tree.text == "Test " + resolved
+    assert native.tree.position == len(native.tree.text)
+    assert native.tree.writes[0] == ("insert", 5, resolved)
+
+
+@pytest.mark.parametrize("source,target", [("пРИВЕТ ", "Привет "), ("ПРивет ", "Привет "),
+                                          ("GHBDTN ", TARGET)])
+def test_exact_source_preserves_planned_caps_and_two_capitals_fix(native, source, target):
+    native.tree.text = "Test " + source
+    native.tree.position = len(native.tree.text)
+    assert replace(native, source, target) == editable.SpanResult("done", True)
+    assert native.tree.text == "Test " + target
+
+
+@pytest.mark.parametrize("actual,source,target", [(SOURCE, SOURCE, SOURCE),
+                                                  ("Ghbdtn ", SOURCE, "Ghbdtn "),
+                                                  ("Привет ", SOURCE, TARGET)])
+def test_already_correct_displayed_word_never_mutates(native, actual, source, target):
+    native.tree.text = "Test " + actual
+    native.tree.position = len(native.tree.text)
+    assert replace(native, source, target) == editable.SpanResult("aborted")
+    assert not native.tree.writes and not native.committed
+
+
+def test_mixed_case_formatter_mismatch_stays_private_and_is_not_guessed(native):
+    native.tree.text = "Test gHbDtN "
+    native.tree.position = len(native.tree.text)
+    assert replace(native) == editable.SpanResult("aborted")
+    assert not native.tree.writes and not native.committed
+
+
+def test_case_adjustment_rechecks_expanded_target_bounds(native):
+    native.tree.text = "Test ẞ"
+    native.tree.position = len(native.tree.text)
+    assert replace(native, "ß", "ß" * 512) == editable.SpanResult("aborted")
+    assert native.tree.reads == [(5, 6)]
+    assert not native.tree.writes and not native.committed
+
+
+def test_case_adjusted_source_is_not_returned_after_failed_insertion(native):
+    native.tree.text = "Test Ghbdtn "
+    native.tree.position = len(native.tree.text)
+    native.tree.insert_error = RuntimeError("provider error containing private field data")
+    result = replace(native)
+    assert result == editable.SpanResult("failed", True)
+    assert result.source_text is None and result.target_text is None
+
+
+def test_case_adjusted_source_is_not_returned_after_focus_becomes_protected(native):
+    native.tree.text = "Test Ghbdtn "
+    native.tree.position = len(native.tree.text)
+    native.tree.after_insert = lambda: setattr(native.tree, "kind", "password")
+    assert replace(native) == editable.SpanResult("failed", True)

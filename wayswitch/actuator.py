@@ -19,10 +19,13 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from wayswitch import keycodes as kc
 from wayswitch.keymap import Keymap
+
+if TYPE_CHECKING:
+    from wayswitch.a11y import FocusSnapshot
 
 DONE, ABORTED, FAILED = "done", "aborted", "failed"
 ALL_MODIFIERS = (kc.KEY_LEFTSHIFT, kc.KEY_RIGHTSHIFT, kc.KEY_LEFTCTRL, kc.KEY_RIGHTCTRL,
@@ -58,6 +61,8 @@ class Type:
 @dataclass
 class Plan:
     steps: list = field(default_factory=list)
+    source_text: str | None = None
+    focus: FocusSnapshot | None = None
 
 
 class KeyTypist(Protocol):
@@ -163,10 +168,24 @@ class _Run:
         self.switched = False
         self.caps_toggle: Callable[[], None] | None = None  # чем вернуть Caps Lock
         self.committed = False  # первый Backspace ушёл — назад дороги нет
+        self.native_done = False
+        self.resolved_source: str | None = None
+        self.resolved_target: str | None = None
 
     def aborted(self) -> bool:
         # _abort прокручивает GLib: и после первого Backspace нужны события lock/layout.
         return (self._abort() and not self.committed) or self._stop()
+
+    def commit(self) -> None:
+        self.committed = True
+
+    def native_aborted(self) -> bool:
+        interrupted = self._abort()
+        stopped = self._stop()
+        # Допечатанные символы уже используют новую раскладку или состояние Caps Lock.
+        if interrupted and (self.switched or self.caps_toggle is not None) and not stopped:
+            self.committed = True
+        return (interrupted and not self.committed) or stopped
 
     def blocked(self) -> bool:
         """Перед стирающей или печатающей клавишей: зажат физический Shift.
@@ -219,6 +238,11 @@ def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: Fal
         run.rollback()
     if outcome is not None:
         outcome["caps_off"] = run.caps_toggle is not None
+        if run.native_done:
+            outcome["native_span"] = True
+            if run.resolved_source is not None:
+                outcome["source_text"] = run.resolved_source
+                outcome["target_text"] = run.resolved_target
     return result
 
 
@@ -275,9 +299,75 @@ def _execute_keys(plan: Plan, typist, run: _Run, key_delay: float, sleep,
         session.release_all()
 
 
+def _text_setup(step, typist, run: _Run, switch_timeout: float) -> bool:
+    if isinstance(step, SwitchLayout):
+        return run.switch(step.group, switch_timeout)
+    if isinstance(step, ToggleCaps):
+        toggle = getattr(typist, "toggle_caps", None)
+        if toggle is not None and toggle() is not False:
+            run.caps_toggle = toggle
+    return True
+
+
 def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: float) -> str:
     step = None
     try:
+        native = getattr(typist, "replace_span", None)
+        snapshot = plan.focus
+        if (native is not None and plan.source_text is not None
+                and snapshot is not None and snapshot.app and snapshot.field
+                and not snapshot.password and len(plan.steps) >= 2
+                and isinstance(plan.steps[-2], Backspace) and isinstance(plan.steps[-1], Type)
+                and all(isinstance(s, (ReleaseModifiers, SwitchLayout, ToggleCaps))
+                        for s in plan.steps[:-2])):
+            if len(plan.source_text) != plan.steps[-2].count:
+                return ABORTED
+            if run.blocked() or run.aborted():
+                return ABORTED
+            prepared = False
+
+            def begin():
+                nonlocal prepared
+                for setup in plan.steps[:-2]:
+                    if run.blocked() or run.native_aborted():
+                        return False
+                    try:
+                        applied = _text_setup(setup, typist, run, switch_timeout)
+                    finally:
+                        interrupted = run.native_aborted()
+                    if not applied:
+                        raise RuntimeError("layout not applied")
+                    if interrupted:
+                        return False
+                if run.native_aborted():
+                    return False
+                run.commit()
+                prepared = True
+                return True
+
+            # Диапазон фиксируется до смены раскладки, допечатывание не сдвигает его.
+            result = native(snapshot, plan.source_text, plan.steps[-1].text,
+                            begin, run.native_aborted)
+            if result is not None:
+                run.committed |= result.committed
+                if result.status == DONE and not prepared:
+                    return FAILED
+                if result.status == DONE:
+                    source = getattr(result, "source_text", None)
+                    target = getattr(result, "target_text", None)
+                    if source is not None or target is not None:
+                        if (not isinstance(source, str) or not isinstance(target, str)
+                                or len(source) != len(plan.source_text)
+                                or source.casefold() != plan.source_text.casefold()
+                                or target.casefold() != plan.steps[-1].text.casefold()):
+                            return FAILED
+                        run.resolved_source, run.resolved_target = source, target
+                run.native_done = result.status == DONE
+                return result.status
+            if run.committed or run.switched or run.caps_toggle is not None:
+                return FAILED
+            if run.blocked() or run.aborted():
+                return ABORTED
         for step in plan.steps:
             if run.aborted():
                 return ABORTED
@@ -286,18 +376,11 @@ def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: flo
             if isinstance(step, Backspace):
                 run.committed = True
                 typist.backspace(step.count)
-            elif isinstance(step, SwitchLayout):
-                if not run.switch(step.group, switch_timeout):
-                    return FAILED
-            elif isinstance(step, ToggleCaps):
-                # Печать текстом от Caps Lock не зависит; выключаем, если
-                # исполнитель умеет (у расширения GNOME — через uinput).
-                toggle = getattr(typist, "toggle_caps", None)
-                if toggle is not None and toggle() is not False:
-                    run.caps_toggle = toggle
             elif isinstance(step, Type):
                 run.committed = True
                 typist.type_text(step.text)
+            elif not _text_setup(step, typist, run, switch_timeout):
+                return FAILED
         return DONE
     except Exception as exc:  # noqa: BLE001 — GLib.Error таймаута D-Bus и прочее
         log.error("исправление прервано ошибкой: %s", type(exc).__name__)
