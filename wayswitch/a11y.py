@@ -23,9 +23,10 @@ from typing import NamedTuple, Protocol
 
 log = logging.getLogger("wayswitch")
 
-# Биты в маске состояний at-spi: STATE_ACTIVE (активное окно) и STATE_FOCUSED.
+# Биты в маске состояний at-spi.
 ACTIVE = 1
 FOCUSED = 12
+SHOWING = 25
 
 # Снимок старше этого возраста считается недостоверным: лучше не мешать
 # человеку (не исправлять), чем мешать по устаревшим данным.
@@ -296,7 +297,8 @@ def find_focus(tree, root) -> FocusSnapshot:
     уже внутри него — сфокусированный узел. Обход всего дерева в ширину делил
     бюджет MAX_NODES на все приложения, и до поля ввода в браузере (глубже
     десятка уровней) он не доходил. Заодно снимается вопрос «два узла в
-    фокусе сразу» — ищем только в активном окне.
+    фокусе сразу» — ищем только в активном окне. Видимые ветки проверяем
+    раньше остальных, чтобы скрытые меню Qt не исчерпывали бюджет до поля.
     """
     active = None
     for app in tree.children(root):
@@ -314,16 +316,17 @@ def find_focus(tree, root) -> FocusSnapshot:
     else:
         # Тулкит не отмечает активное окно — прежний обход от корня.
         start, app_name = [(root, 0)], None
-    queue = list(start)
+    queue = [(node, depth, None) for node, depth in start]
     seen = set()
     visited = 0
     while queue and visited < MAX_NODES:
-        node, depth = queue.pop(0)
+        node, depth, parent = queue.pop(0)
         if node in seen:
             continue
         seen.add(node)
         visited += 1
-        if _state_focused(tree.state(node)):
+        state = tree.state(node)
+        if _state_focused(state):
             owner = app_name or tree.app_of(node)
             if owner and owner.lower() in SHELL_APPS:
                 continue
@@ -333,7 +336,14 @@ def find_focus(tree, root) -> FocusSnapshot:
             if role in TEXT_ROLES:
                 return FocusSnapshot(owner, False, field=node)
         if depth < MAX_DEPTH:
-            queue.extend((child, depth + 1) for child in tree.children(node))
+            children = [(child, depth + 1, node) for child in tree.children(node)]
+            if _state_bit(state, SHOWING):
+                # Соседнее поле проверяем раньше потомков видимой панели.
+                insert = next((i for i, (_, _, queued_parent) in enumerate(queue)
+                               if queued_parent != parent), len(queue))
+                queue[insert:insert] = children
+            else:
+                queue.extend(children)
     # Активное окно без доступного поля не подтверждает, что ввод не секретный.
     return FocusSnapshot()
 

@@ -160,6 +160,20 @@ def test_onboarding_rows_map_doctor_checks():
     assert not texts.onboarding_blocking([r for r in rows if r.state != "fail"])
 
 
+def test_onboarding_shows_unknown_focus_without_blocking():
+    checks = [Check("Сессия Wayland", True, "KDE Plasma", key="wayland"),
+              Check("Служба AT-SPI", True, required=False),
+              Check("Активное приложение", False, required=False, key="focus")]
+    rows = texts.onboarding_rows(checks)
+    focus = next(r for r in rows if r.key == "focus")
+    assert focus.state == "optional" and focus.action is None
+    assert "фокус" in focus.subtitle
+    assert not texts.onboarding_blocking(rows)
+    hint = texts.onboarding_hint(rows)
+    assert "Всё готово" not in hint
+    assert "автоисправление не подтверждено" in hint
+
+
 # --- клавиша жеста ------------------------------------------------------------------
 
 def test_gesture_human_names():

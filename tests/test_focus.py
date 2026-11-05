@@ -711,6 +711,48 @@ def test_find_focus_skips_shell():
     assert a11y.find_focus(DictTree(nodes), "root")[:2] == ("Ptyxis", True)
 
 
+@pytest.mark.parametrize("role,protected", [(61, False), (40, True)])
+def test_visible_editor_branch_is_reached_before_hidden_menu_budget(role, protected):
+    menus = [f"menu{i}" for i in range(a11y.MAX_NODES)]
+    nodes = {"root": {"kids": ["app"]},
+             "app": {"name": "Editor", "kids": ["window"]},
+             "window": {"state": (a11y.ACTIVE, 25), "kids": ["menus", "panel0"]},
+             "menus": {"kids": menus}}
+    nodes.update((menu, {}) for menu in menus)
+    for depth in range(9):
+        nodes[f"panel{depth}"] = {"state": (25,), "kids": [f"panel{depth + 1}"]}
+    nodes["panel9"] = {"state": (a11y.FOCUSED, 25), "role": role}
+
+    snap = a11y.find_focus(DictTree(nodes), "root")
+
+    assert snap == FocusSnapshot("Editor", protected, field="panel9")
+
+
+def test_visible_branches_do_not_exclude_unmarked_password_field():
+    nodes = {"root": {"kids": ["app"]},
+             "app": {"name": "Editor", "kids": ["window"]},
+             "window": {"state": (a11y.ACTIVE, 25), "kids": ["visible", "unmarked"]},
+             "visible": {"state": (25,), "kids": ["label"]},
+             "label": {"state": (25,), "role": 129},
+             "unmarked": {"kids": ["password"]},
+             "password": {"state": (a11y.FOCUSED,), "role": 40}}
+    assert a11y.find_focus(DictTree(nodes), "root") == FocusSnapshot(
+        "Editor", True, field="password")
+
+
+@pytest.mark.parametrize("role,protected", [(61, False), (40, True)])
+def test_visible_pane_does_not_hide_focused_sibling_with_its_children(role, protected):
+    items = [f"item{i}" for i in range(a11y.MAX_NODES)]
+    nodes = {"root": {"kids": ["app"]},
+             "app": {"name": "Editor", "kids": ["window"]},
+             "window": {"state": (a11y.ACTIVE, a11y.SHOWING), "kids": ["pane", "field"]},
+             "pane": {"state": (a11y.SHOWING,), "kids": items},
+             "field": {"state": (a11y.FOCUSED, a11y.SHOWING), "role": role}}
+    nodes.update((item, {}) for item in items)
+    assert a11y.find_focus(DictTree(nodes), "root") == FocusSnapshot(
+        "Editor", protected, field="field")
+
+
 @pytest.mark.parametrize("role,protected", [(40, True), (60, True), (79, False)])
 def test_numeric_role_identifies_protected_input(role, protected):
     nodes = {"root": {"kids": ["app"]},

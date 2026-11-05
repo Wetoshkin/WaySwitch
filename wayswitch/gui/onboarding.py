@@ -243,7 +243,7 @@ class Onboarding:
         icon = Gtk.Image(icon_name="object-select-symbolic", pixel_size=36,
                          halign=Gtk.Align.CENTER, margin_top=12)
         icon.add_css_class("ws-done-icon")
-        title = Gtk.Label(label="Всё готово")
+        title = Gtk.Label(label="Настройка завершена")
         title.add_css_class("title-1")
         sub = Gtk.Label(label="Запомните два жеста")
         sub.add_css_class("dim-label")

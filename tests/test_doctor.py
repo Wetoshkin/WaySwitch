@@ -20,6 +20,29 @@ def test_report_and_exit_code():
     assert exit_code([Check("x", True), Check("y", False, required=False)]) == 0
 
 
+def test_report_does_not_claim_ready_without_focus():
+    checks = [Check("Сессия Wayland", True, key="wayland"),
+              Check("Служба AT-SPI", True, required=False),
+              Check("Активное приложение", False, required=False, key="focus")]
+    report = format_report(checks)
+    assert "○ Активное приложение" in report
+    assert "Всё готово" not in report
+    assert "автоисправление не подтверждено" in report
+    assert exit_code(checks) == 0
+
+
+def test_kde_focus_diagnostics_do_not_recommend_gnome_extension(monkeypatch):
+    monkeypatch.setattr(doctor, "detect_desktop", lambda: "kde")
+    monkeypatch.setattr(doctor, "focus_status", lambda: (False, "фокус недоступен"))
+    checks = doctor.run_checks()
+    focus = next(c for c in checks if c.key == "focus")
+    assert not focus.ok and not focus.required
+    assert "sleep 5; wayswitch doctor" in focus.hint
+    assert "GNOME" not in focus.hint and "расширения" not in focus.hint
+    setting = next(c for c in checks if "настройка" in c.name)
+    assert "GTK" in setting.name and "GNOME" in setting.name
+
+
 def test_cosmic_report_does_not_recommend_labwc(monkeypatch):
     from wayswitch.backends import cosmic
     from wayswitch.backends.base import BackendError

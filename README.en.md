@@ -17,7 +17,7 @@
 
 **Automatic Russian–English keyboard layout correction for Linux on Wayland.**
 
-**Version 1.1.0 — COSMIC, input protection and portable settings clients.**
+**Version 1.1.1 — KDE input-field fixes and clearer diagnostics.**
 
 WaySwitch fixes a word typed in the wrong layout (`ghbdtn` instead of
 «привет») right away, on Space — no hotkeys, no manual layout switching. It
@@ -114,7 +114,7 @@ reports the prerequisite if it is missing.
 ### Flatpak and AppImage
 
 Portable settings clients are available. Install and update the
-native WaySwitch service on the host to version 1.1.0 using the command above; `1.0.0`
+native WaySwitch service on the host to version 1.1.1 using the command above; `1.0.0`
 does not contain these fixes. The first-run window explains companion
 installation, startup and diagnostics. Settings and pause state are shared.
 
@@ -199,6 +199,11 @@ on Silverblue and Kinoite — after a reboot). Preferences → System → **Remo
 | `journalctl --user -u wayswitch -n 50` | the latest log lines |
 | `wayswitch dry-run` | detector decisions without touching the screen |
 
+Passing the mandatory checks does not confirm that the focused field is accessible.
+If the active application is unknown, run `sleep 5; wayswitch doctor` and focus a
+normal text field in the target application during that delay. Protected automatic
+correction waits for verified focus; the manual gesture remains available.
+
 A word was fixed by mistake — press <kbd>Shift</kbd> <kbd>Shift</kbd> right
 away. Still stuck — [open an issue](https://github.com/Wetoshkin/WaySwitch/issues/new)
 with diagnostic output (also available under About → Troubleshooting).
@@ -241,10 +246,11 @@ a udev rule and desktop integration. A Snap package is not available.
 
 ## Status
 
-WaySwitch 1.1.0. Tested on CachyOS with GNOME 51, Ubuntu with GNOME 50.1,
-Bazzite with GNOME, and COSMIC 1.11. KDE Plasma 6, Sway, Hyprland and the
-labwc/Wayfire desktops are covered by tests but not yet tried live — reports
-are welcome.
+WaySwitch 1.1.1. Tested on CachyOS with GNOME 51, Ubuntu with GNOME 50.1,
+Bazzite with GNOME, and COSMIC 1.11. A Plasma 6.6.6 Wayland VM was used to
+verify Kate/KWrite, normal and password fields in Qt/GTK, and protected
+Konsole behavior. Sway, Hyprland and the labwc/Wayfire desktops are covered
+by tests but not yet tried live — reports are welcome.
 
 With password-field protection enabled, automatic correction waits for
 verified AT-SPI focus. Use a manual gesture if the application's accessibility

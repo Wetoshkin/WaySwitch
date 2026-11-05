@@ -175,7 +175,7 @@ def run_checks() -> list[Check]:
                          "в Wayland: на экране входа нажмите на шестерёнку и выберите "
                          "сеанс без «Xorg»", key="wayland"))
 
-    checks.append(_check("Распознавание программ и полей пароля (настройка)",
+    checks.append(_check("Распознавание программ и полей пароля (настройка GTK / GNOME)",
                          toolkit_accessibility,
                          "без достоверного фокуса защищённое автоисправление ждёт; "
                          "ручное исправление доступно", required=False))
@@ -183,11 +183,13 @@ def run_checks() -> list[Check]:
                          atspi_status,
                          "без достоверного фокуса защищённое автоисправление ждёт; "
                          "ручное исправление доступно", required=False))
+    focus_hint = ("установите курсор в обычное текстовое поле нужного приложения "
+                  "после запуска «sleep 5; wayswitch doctor»")
+    if desktop == GNOME:
+        focus_hint += ("; ID окна GNOME появится после обновления расширения "
+                       "и нового входа в сеанс")
     checks.append(_check("Активное приложение (без текста и заголовка окна)", focus_status,
-                         "переключитесь в нужное приложение после запуска "
-                         "«sleep 5; wayswitch doctor»; ID окна GNOME появится после "
-                         "обновления расширения и нового входа в сеанс",
-                         required=False))
+                         focus_hint, required=False, key="focus"))
 
     cosmic_map = None
     if desktop == COSMIC:
@@ -424,7 +426,13 @@ def format_report(checks: list[Check]) -> str:
         lines.append(line)
     bad = [c for c in checks if not c.ok and c.required]
     lines.append("")
-    lines.append("Всё готово." if not bad else f"Не пройдено обязательных проверок: {len(bad)}.")
+    if bad:
+        lines.append(f"Не пройдено обязательных проверок: {len(bad)}.")
+    else:
+        lines.append("Обязательные проверки пройдены.")
+        if any(c.key == "focus" and not c.ok for c in checks):
+            lines.append("Защищённое автоисправление не подтверждено: "
+                         "нужен достоверный фокус в поле ввода; ручное исправление доступно.")
     return "\n".join(lines)
 
 
