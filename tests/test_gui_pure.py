@@ -100,11 +100,10 @@ def _notify(monkeypatch, results):
 
 def test_selection_feedback_success_is_silent(monkeypatch):
     assert texts.selection_feedback((True,)) is None
-    assert texts.selection_feedback(True) is None
-    assert _notify(monkeypatch, [(True,), True]) == []
+    assert _notify(monkeypatch, [(True,)]) == []
 
 
-@pytest.mark.parametrize("result", [(False,), None, False])
+@pytest.mark.parametrize("result", [(False,), None, False, True, (1,), (1.0,)])
 def test_selection_feedback_failure_sends_one_notification(monkeypatch, result):
     sent = _notify(monkeypatch, [result])
     assert len(sent) == 1

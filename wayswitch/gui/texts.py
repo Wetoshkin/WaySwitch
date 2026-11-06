@@ -159,7 +159,7 @@ def selection_feedback(result) -> SelectionFeedback | None:
     (True,) — исправление подтверждено, уведомление не нужно; (False,), None и
     любой неожиданный ответ — не подтвердилось, показываем одно сообщение.
     """
-    if result is True or result == (True,):
+    if isinstance(result, tuple) and len(result) == 1 and result[0] is True:
         return None
     return SelectionFeedback(
         "Исправление не удалось подтвердить",
