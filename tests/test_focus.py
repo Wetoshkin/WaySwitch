@@ -1212,6 +1212,44 @@ def test_editable_text_accepts_writer_and_browser_container_roles(role):
     assert a11y.find_focus(tree, "root") == FocusSnapshot("Editor", field="field")
 
 
+def test_defunct_paragraph_cannot_confirm_cached_focus():
+    tree = editable_tree(role=73, state=(6, a11y.FOCUSED, a11y.EDITABLE))
+    assert a11y.find_focus(tree, "root") == FocusSnapshot()
+
+
+def test_cached_calc_paragraph_under_defunct_editor_does_not_hide_live_editor():
+    tree = editable_tree(role=73)
+    tree.nodes["window"]["kids"] = ["old-editor", "current-editor"]
+    tree.nodes.update({
+        "old-editor": {"state": (6,), "kids": ["old-paragraph"]},
+        "old-paragraph": {"role": 73, "state": (a11y.FOCUSED, a11y.EDITABLE),
+                          "interfaces": (a11y.TEXT,), "caret": 7},
+        "current-editor": {"kids": ["field"]},
+    })
+    assert a11y.find_focus(tree, "root") == FocusSnapshot("Editor", field="field")
+
+
+def test_parent_destroyed_during_focus_query_cannot_confirm_live_paragraph():
+    tree = editable_tree(role=73)
+    state = tree.state
+
+    def changed(node):
+        if node == "field":
+            tree.nodes["window"]["state"] = (6,)
+        return state(node)
+
+    tree.state = changed
+    assert a11y.find_focus(tree, "root") == FocusSnapshot()
+
+
+def test_defunct_active_window_does_not_hide_current_window():
+    tree = editable_tree(role=73)
+    tree.nodes["app"]["kids"] = ["old-window", "window"]
+    tree.nodes["old-window"] = {"state": (6, a11y.ACTIVE), "kids": ["old-field"]}
+    tree.nodes["old-field"] = dict(tree.nodes["field"])
+    assert a11y.find_focus(tree, "root") == FocusSnapshot("Editor", field="field")
+
+
 @pytest.mark.parametrize("field", [
     {"state": (12,)}, {"state": (7,)}, {"interfaces": ()},
     {"interfaces": None}, {"caret": -1}, {"caret": None},
@@ -1267,6 +1305,12 @@ def test_embedded_password_at_unicode_caret_is_protected(caret, start, end):
 def test_caret_after_embedded_password_is_normal_parent_text():
     assert a11y.find_focus(embedded_tree(caret=1), "root") == FocusSnapshot(
         "Editor", field="field")
+
+
+def test_defunct_embedded_editor_cannot_confirm_safe_input():
+    tree = embedded_tree(anchor={"role": 79, "state": (6, a11y.EDITABLE),
+                                 "caret": 0, "interfaces": (a11y.TEXT,)})
+    assert a11y.find_focus(tree, "root") == FocusSnapshot()
 
 
 @pytest.mark.parametrize("broken", ["count", "range", "object", "cycle", "budget"])
