@@ -28,6 +28,7 @@ log = logging.getLogger("wayswitch")
 
 # Биты в маске состояний at-spi.
 ACTIVE = 1
+DEFUNCT = 6
 EDITABLE = 7
 FOCUSED = 12
 SHOWING = 25
@@ -296,6 +297,8 @@ def _caret_field(tree, node, parents, remaining, depth):
     ancestor = node
     uncertain = False
     while ancestor is not None:
+        if _state_bit(tree.state(ancestor), DEFUNCT):
+            return None
         role = tree.role(ancestor)
         if role in PROTECTED_ROLES:
             return node, True
@@ -310,12 +313,15 @@ def _caret_field(tree, node, parents, remaining, depth):
     seen = set()
     while node not in seen and depth <= MAX_DEPTH:
         seen.add(node)
+        state = tree.state(node)
+        if _state_bit(state, DEFUNCT):
+            return None
         role = tree.role(node)
         if role in PROTECTED_ROLES or tree.input_type(node) == "password":
             return node, True
         interfaces = tree.interfaces(node)
         if (role in (None, 0, 67) or not interfaces or TEXT not in interfaces
-                or not _state_bit(tree.state(node), EDITABLE)
+                or not _state_bit(state, EDITABLE)
                 or tree.input_type(node) is None):
             return None
         caret = tree.caret(node)
@@ -412,7 +418,8 @@ def find_focus(tree, root, focused_pid: int = 0) -> FocusSnapshot:
             remaining[0] -= 1
             if remaining[0] <= 0:
                 return FocusSnapshot()
-            if _state_bit(tree.state(window), ACTIVE):
+            state = tree.state(window)
+            if _state_bit(state, ACTIVE) and not _state_bit(state, DEFUNCT):
                 active = (window, name)
                 break
         if active:
@@ -461,6 +468,8 @@ def find_focus(tree, root, focused_pid: int = 0) -> FocusSnapshot:
         seen.add(node)
         parents[node] = parent
         state = tree.state(node)
+        if _state_bit(state, DEFUNCT):
+            continue
         if not state or role in (None, 0, 67):
             complete = False
         if _state_focused(state):
