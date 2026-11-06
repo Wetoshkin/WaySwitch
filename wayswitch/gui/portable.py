@@ -35,6 +35,11 @@ def is_system_packaged() -> bool:
     return (Path(__file__).resolve().parent.parent / ".packaged").exists()
 
 
+def can_self_update() -> bool:
+    """GUI сам проверяет обновления, только если это не пакетная установка."""
+    return not is_system_packaged()
+
+
 def application_id() -> str:
     return {"flatpak": FLATPAK_ID, "appimage": APPIMAGE_ID}.get(package_kind(), NATIVE_ID)
 

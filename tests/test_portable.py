@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from tests.test_get_sh import shell as shell
+from wayswitch import updates
 from wayswitch.gui import portable
 
 
@@ -136,7 +137,28 @@ def test_displayed_flatpak_update_verifies_only_target_and_gates_install(
 
 
 def test_is_system_packaged_detects_marker(monkeypatch, tmp_path):
-    monkeypatch.setattr(portable, "__file__", str(tmp_path / "gui" / "portable.py"))
+    monkeypatch.setattr(
+        portable, "__file__", str(tmp_path / "wayswitch" / "gui" / "portable.py")
+    )
     assert portable.is_system_packaged() is False
-    (tmp_path / ".packaged").write_text("")
+    (tmp_path / "wayswitch").mkdir()
+    (tmp_path / "wayswitch" / ".packaged").write_text("")
     assert portable.is_system_packaged() is True
+
+
+def test_check_skips_when_system_packaged(monkeypatch, tmp_path):
+    monkeypatch.setattr(updates.portable, "is_system_packaged", lambda: True)
+    calls = []
+    assert updates.check("1.0.0", path=tmp_path / "c.json",
+                         fetch=lambda *a, **k: calls.append(1)) is None
+    assert calls == []
+
+
+def test_can_self_update_follows_marker(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        portable, "__file__", str(tmp_path / "wayswitch" / "gui" / "portable.py")
+    )
+    assert portable.can_self_update() is True
+    (tmp_path / "wayswitch").mkdir()
+    (tmp_path / "wayswitch" / ".packaged").write_text("")
+    assert portable.can_self_update() is False
