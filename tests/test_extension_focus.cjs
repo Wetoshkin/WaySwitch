@@ -11,6 +11,7 @@ const context = vm.createContext({
     Extension: class {},
     global: {display: {focus_window: null}},
     Main: {modalCount: 0, inputMethod: null},
+    GLib: {get_monotonic_time: () => 1000000},
 });
 vm.runInContext(source + '\nthis.extension = new WaySwitchExtension();', context);
 assert.deepEqual(Array.from(context.extension.GetFocusedApp()), []);
@@ -99,7 +100,10 @@ context.extension._tap = keyval => keyEvents.push(keyval);
 context.extension._daemon = ':test-daemon';
 context.Main.inputMethod = {
     currentFocus: {}, content_purpose: 0, content_hints: 0,
-    commit() { throw Error('IME commit must not replace virtual keys'); },
+    commit(text) { inputEvents.push(['commit', text]); },
+    forward_key(keyval, code, state, time, pressed) {
+        if (pressed) inputEvents.push(['key', keyval, code]);
+    },
     delete_surrounding() { throw Error('Cached IME cursor must not be used'); },
     getSurroundingText() { throw Error('Surrounding text must not be read'); },
 };
@@ -113,12 +117,14 @@ const invoke = (method, value) => {
     return result;
 };
 assert.equal(invoke('TypeTextAsync', 'привет').reply, null);
-assert.deepEqual(inputEvents, []);
-assert.deepEqual(keyEvents, Array.from('привет', ch => ch.codePointAt(0)));
+assert.deepEqual(inputEvents, [['commit', 'привет']]);
+assert.deepEqual(keyEvents, []);
+inputEvents.length = 0;
 keyEvents.length = 0;
 assert.equal(invoke('BackspaceAsync', 3).reply, null);
-assert.deepEqual(inputEvents, []);
-assert.deepEqual(keyEvents, [65288, 65288, 65288]);
+assert.deepEqual(inputEvents, [['key', 65288, 22], ['key', 65288, 22], ['key', 65288, 22]]);
+assert.deepEqual(keyEvents, []);
+inputEvents.length = 0;
 keyEvents.length = 0;
 context.Main.inputMethod.currentFocus = null;
 assert.equal(invoke('TypeTextAsync', 'x').reply, null);
@@ -128,7 +134,8 @@ context.Main.inputMethod.currentFocus = {};
 context.Main.inputMethod.content_purpose = 8;
 keyEvents.length = 0;
 assert.equal(invoke('TypeTextAsync', 'x').reply, null);
-assert.deepEqual(keyEvents, [120]);
+assert.deepEqual(inputEvents, [['commit', 'x']]);
+assert.deepEqual(keyEvents, []);
 context.Main.modalCount = 1;
 keyEvents.length = 0;
 assert.equal(invoke('TypeTextAsync', 'x').error?.[0], 'org.freedesktop.DBus.Error.AccessDenied');

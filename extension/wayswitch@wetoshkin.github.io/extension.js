@@ -1,9 +1,7 @@
 // Расширение WaySwitch: отдаёт демону индекс текущей раскладки, переключает её
-// синхронно, печатает keysym-ы через виртуальное устройство Clutter и отдаёт
-// выделенный текст для «Исправить выделенное». Keysym печатается, только
-// если он есть в текущей раскладке (mutter ищет keycode в активной группе),
-// поэтому демон сначала переключает раскладку и проверяет, что каждый символ
-// в ней есть.
+// синхронно, печатает через очередь ввода GNOME и отдаёт выделенный текст.
+// Без IME-фокуса используются keysym-ы виртуального устройства Clutter:
+// демон сначала переключает раскладку и проверяет наличие каждого символа.
 //
 // Печатать, стирать и читать выделение может только сам демон WaySwitch
 // (владелец имени io.github.Wetoshkin.WaySwitch на сессионной шине): иначе любое
@@ -214,6 +212,11 @@ export default class WaySwitchExtension extends Extension {
                 `не больше ${MAX_TEXT} символов за раз`);
             return;
         }
+        if (Main.inputMethod?.currentFocus) {
+            Main.inputMethod.commit(text);
+            invocation.return_value(null);
+            return;
+        }
         for (const ch of text) {
             const keyval = Clutter.unicode_to_keysym(ch.codePointAt(0));
             this._tap(keyval);
@@ -225,8 +228,17 @@ export default class WaySwitchExtension extends Extension {
         if (!this._allowed(invocation))
             return;
         const n = Math.min(count, MAX_BACKSPACE);
-        for (let i = 0; i < n; i++)
-            this._tap(Clutter.KEY_BackSpace);
+        const im = Main.inputMethod;
+        for (let i = 0; i < n; i++) {
+            if (im?.currentFocus) {
+                // Одна IM-очередь с commit(): асинхронный IBus не меняет порядок.
+                const time = GLib.get_monotonic_time();
+                im.forward_key(Clutter.KEY_BackSpace, 22, 0, time, true);
+                im.forward_key(Clutter.KEY_BackSpace, 22, 0, time, false);
+            } else {
+                this._tap(Clutter.KEY_BackSpace);
+            }
+        }
         invocation.return_value(null);
     }
 
