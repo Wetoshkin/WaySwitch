@@ -17,7 +17,10 @@
 
 **Automatic Russian–English keyboard layout correction for Linux on Wayland.**
 
-**Version 1.1.2 — GNOME input-field detection and Writer text correction.**
+**Preparing 1.1.2 — GNOME input-field detection and Writer text correction.**
+
+The latest published release is [1.1.1](https://github.com/Wetoshkin/WaySwitch/releases/tag/v1.1.1).
+See [project status](docs/PROGRESS.md) for completed changes, verification and remaining work.
 
 WaySwitch fixes a word typed in the wrong layout (`ghbdtn` instead of
 «привет») right away, on Space — no hotkeys, no manual layout switching. It
@@ -294,8 +297,9 @@ undo, a password field, screen locking and VT changes. The Nix package was built
 and checked on Linux; a live NixOS graphical session has not been tested.
 
 Writer checks cover both directions, undo after continued typing, automatic
-capitalization and two consecutive words. Automatic correction in Calc remains
-limited: ambiguous focus events reset the input buffer. Chrome checks cover
+capitalization and two consecutive words. Calc verification remains
+incomplete: the last separate manual-correction run saved a duplicate word.
+The combined changes need another live check; see the project status. Chrome checks cover
 ordinary fields, editable page elements, passwords and readonly fields.
 The original eXpress message editor was tested in an isolated environment
 without sending messages; an authenticated chat has not been tested.
