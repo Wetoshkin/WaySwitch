@@ -30,9 +30,21 @@ def test_umbriel_backend_selected_without_hotkey_fallback(monkeypatch):
         choose_backend("auto", None, 0, desktop="umbriel")
 
 
-def test_umbriel_report_does_not_recommend_labwc(monkeypatch):
+@pytest.mark.parametrize("service_active", [False, True])
+def test_umbriel_report_does_not_recommend_labwc(monkeypatch, service_active):
+    import subprocess
+
     from wayswitch.backends import umbriel
 
+    original_run = subprocess.run
+
+    def run(command, *args, **kwargs):
+        if command == ["systemctl", "--user", "is-active", "wayswitch"]:
+            return subprocess.CompletedProcess(command, 0 if service_active else 3,
+                                               "active\n" if service_active else "inactive\n")
+        return original_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", run)
     monkeypatch.setattr(doctor, "detect_desktop", lambda: "umbriel")
     monkeypatch.setattr(umbriel, "find_socket", lambda: None)
     checks = doctor.run_checks()
@@ -41,7 +53,9 @@ def test_umbriel_report_does_not_recommend_labwc(monkeypatch):
     assert "UMBRIEL_SOCKET" in support.hint and "Umbriel" in support.hint
     assert "labwc" not in format_report(checks)
     assert not any(c.key == "layouts" for c in checks)
-    assert "автозапуск Umbriel" in next(c for c in checks if c.key == "service").hint
+    service = next(c for c in checks if c.key == "service")
+    assert service.ok is service_active
+    assert service.hint == "active." if service_active else "автозапуск Umbriel" in service.hint
 
 
 def test_nixos_dependency_report_points_to_declarative_module(monkeypatch):

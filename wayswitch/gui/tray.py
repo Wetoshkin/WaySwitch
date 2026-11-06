@@ -88,7 +88,7 @@ MENU_XML = """
   </interface>
 </node>
 """
-MENU_PATH = "/ru/siberia/WaySwitch/Menu"
+MENU_PATH = "/io/github/Wetoshkin/WaySwitch/Menu"
 ITEM_PATH = "/StatusNotifierItem"
 
 
@@ -136,7 +136,7 @@ MENU_IDS = {ident: n for n, ident in enumerate(
 
 # Имена значков из packaging/icons: ставятся установщиком в hicolor.
 INSTALLED_ICON = (portable.FLATPAK_ID if portable.package_kind() == "flatpak"
-                  else "ru.siberia.WaySwitch")
+                  else "io.github.Wetoshkin.WaySwitch")
 TRAY_ICON = INSTALLED_ICON + "-symbolic"
 TRAY_PAUSED_ICON = INSTALLED_ICON + "-paused-symbolic"
 

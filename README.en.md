@@ -127,13 +127,13 @@ Download the local bundle and `SHA256SUMS` from the same release:
 ```bash
 grep -E '^[[:xdigit:]]{64}  WaySwitch-Settings\.flatpak$' SHA256SUMS | sha256sum -c - && \
 flatpak install --user --or-update ./WaySwitch-Settings.flatpak
-flatpak run ru.siberia.WaySwitch.Gui
+flatpak run io.github.Wetoshkin.WaySwitch.Gui
 ```
 
 The bundle offers the official repository for GNOME Runtime 50. To update a local
 bundle, download the replacement, verify it against the release's `SHA256SUMS`,
 then run `flatpak install --user --or-update ./WaySwitch-Settings.flatpak`.
-Remove the GUI with `flatpak uninstall --user ru.siberia.WaySwitch.Gui`.
+Remove the GUI with `flatpak uninstall --user io.github.Wetoshkin.WaySwitch.Gui`.
 The application has not been published on Flathub. `flatpak update` works for
 a configured application repository, rather than a standalone bundle file.
 
@@ -196,6 +196,10 @@ start systemd user services: add `exec wayswitch run` (Sway) or
 settings — see the Russian README for snippets.
 
 ## Updating
+
+The GitHub namespace changes the extension, application and portable package IDs.
+See the [migration guide](docs/identifiers.md) for Flatpak, GNOME and the KDE widget.
+WaySwitch settings are preserved.
 
 Once a day WaySwitch asks GitHub whether a new version is out; if so, the
 window shows a bar with an **Update** button (also in the notification, the

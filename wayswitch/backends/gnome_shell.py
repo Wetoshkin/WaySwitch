@@ -9,9 +9,9 @@ from wayswitch.backends import gnome_common
 from wayswitch.backends.base import BackendError, LayoutBackend
 from wayswitch.keymap import LayoutSpec
 
-BUS_NAME = "ru.siberia.WaySwitch.Shell"
-OBJECT_PATH = "/ru/siberia/WaySwitch/Shell"
-INTERFACE = "ru.siberia.WaySwitch.Shell"
+BUS_NAME = "io.github.Wetoshkin.WaySwitch.Shell"
+OBJECT_PATH = "/io/github/Wetoshkin/WaySwitch/Shell"
+INTERFACE = "io.github.Wetoshkin.WaySwitch.Shell"
 
 
 def shell_extension_present() -> bool:

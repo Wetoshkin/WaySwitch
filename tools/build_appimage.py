@@ -14,8 +14,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-FLATPAK_ID = "ru.siberia.WaySwitch.Gui"
-APPIMAGE_ID = "ru.siberia.WaySwitch.AppImage"
+FLATPAK_ID = "io.github.Wetoshkin.WaySwitch.Gui"
+APPIMAGE_ID = "io.github.Wetoshkin.WaySwitch.AppImage"
 
 
 def fetch_verified(url: str, target: Path, sha256: str) -> None:
@@ -81,7 +81,7 @@ def main() -> None:
                     appdir / "usr/share/licenses/wayswitch/runtime-LICENSE")
     shutil.copyfile(ROOT / "packaging/appimage/AppRun", appdir / "AppRun")
     (appdir / "AppRun").chmod(0o755)
-    icon = ROOT / "packaging/icons/ru.siberia.WaySwitch.svg"
+    icon = ROOT / "packaging/icons/io.github.Wetoshkin.WaySwitch.svg"
     shutil.copyfile(icon, appdir / f"{APPIMAGE_ID}.svg")
     desktop = (ROOT / f"packaging/flatpak/{FLATPAK_ID}.desktop").read_text()
     (appdir / f"{APPIMAGE_ID}.desktop").write_text(

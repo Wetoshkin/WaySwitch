@@ -56,23 +56,75 @@ is_gnome() {
     *COSMIC*|*cosmic*|*Cosmic*) return 1 ;; *GNOME*) return 0 ;; *) return 1 ;;
   esac
 }
-native_gui_pid() {
+native_gui_pid() (
   [ "$ATOMIC" != 1 ] && [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ] &&
     [ -z "${SSH_CONNECTION:-}${SSH_TTY:-}" ] || return 1
+  mode=${1:-}
+  if [ -z "$mode" ] || [ "$mode" = --all ]; then
+    reply=$(busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus \
+      ListNames 2>/dev/null) || return 1
+    # busctl quotes names; split without eval or pathname expansion.
+    set -f
+    set -- $reply
+    [ "$#" -ge 2 ] && [ "$1" = as ] || return 1
+    count=$2
+    shift 2
+    [ "$#" = "$count" ] || return 1
+    found=1
+    for token do
+      case "$token" in \"*\") name=${token#\"}; name=${name%\"} ;; *) continue ;; esac
+      record=$(native_gui_pid "$name") || continue
+      if [ "$mode" = --all ]; then
+        printf '%s\n' "$record"
+        found=0
+      else
+        printf '%s' "${record##* }"
+        return 0
+      fi
+    done
+    return "$found"
+  fi
+  name=$mode
+  case "$name" in *[!a-zA-Z0-9_.-]*|.WaySwitch.Settings) return 1 ;; esac
+  case "$name" in *.WaySwitch.Settings) ;; *) return 1 ;; esac
   reply=$(busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus \
-    GetConnectionUnixProcessID s ru.siberia.WaySwitch.Settings 2>/dev/null) || return 1
+    GetNameOwner s "$name" 2>/dev/null) || return 1
+  case "$reply" in 's ":'*'"') owner=${reply#s \"}; owner=${owner%\"} ;; *) return 1 ;; esac
+  unique=${owner#:}
+  bus=${unique%%.*}; serial=${unique#*.}
+  [ "$unique" != "$serial" ] && [ -n "$bus" ] && [ -n "$serial" ] || return 1
+  case "$bus$serial" in *[!0-9]*) return 1 ;; esac
+  reply=$(busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus \
+    GetConnectionUnixProcessID s "$owner" 2>/dev/null) || return 1
   case "$reply" in 'u '[1-9]*) pid=${reply#u } ;; *) return 1 ;; esac
   case "$pid" in *[!0-9]*) return 1 ;; esac
   uid=$(ps -o uid= -p "$pid" 2>/dev/null) || return 1
   [ "$(printf '%s' "$uid" | tr -d ' ')" = "$(id -u)" ] || return 1
-  printf '%s' "$pid"
-}
+  reply=$(busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus \
+    GetNameOwner s "$name" 2>/dev/null) || return 1
+  [ "$reply" = "s \"$owner\"" ] || return 1
+  printf '%s %s %s\n' "$name" "$owner" "$pid"
+)
 stop_gui() {
-  old_pid=$(native_gui_pid) || return 1
-  kill "$old_pid" 2>/dev/null || return 1
-  # GApplication может ещё владеть именем во время обработки SIGTERM.
+  records=$(native_gui_pid --all) || return 1
+  signaled=" "
+  while read -r name owner pid; do
+    [ "$(native_gui_pid "$name")" = "$name $owner $pid" ] || continue
+    case "$signaled" in *" $pid "*) continue ;; esac
+    kill "$pid" 2>/dev/null || return 1
+    signaled="$signaled$pid "
+  done <<EOF
+$records
+EOF
+  # Wait only for the original connections, never a replacement GUI.
   for delay in 1 2 3 4 5 6 7 8 9 10; do
-    [ "$(native_gui_pid)" = "$old_pid" ] || return 0
+    remaining=0
+    while read -r name owner pid; do
+      [ "$(native_gui_pid "$name")" != "$name $owner $pid" ] || remaining=1
+    done <<EOF
+$records
+EOF
+    [ "$remaining" = 1 ] || return 0
     sleep 0.1
   done
   return 1
@@ -218,18 +270,99 @@ from_source() { # $1 = install.sh | uninstall.sh
            "Could not download the source from GitHub (no network?)."
   sudo bash "$TMP/src/packaging/$1"
 }
-TRAY_AUTOSTART="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/ru.siberia.WaySwitch.Settings.desktop"
+TRAY_AUTOSTART="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/io.github.Wetoshkin.WaySwitch.Settings.desktop"
+migrate_user_identifiers() {
+  for migration in /usr/share/wayswitch/migrate.py /usr/local/share/wayswitch/migrate.py; do
+    [ -f "$migration" ] || continue
+    python3 -I "$migration" "$@" || return 1
+  done
+}
+preserve_source_tray() {
+  python3 -I - "$1" "${2:-}" "$(dirname "$TRAY_AUTOSTART")" <<'PYTRAY'
+import configparser
+import os
+from pathlib import Path
+import shlex
+import stat
+import sys
+
+mode, backup, folder = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
+
+def own_entry(path):
+    if "wayswitch" not in path.name.lower():
+        return None
+    try:
+        before = path.lstat()
+        if not stat.S_ISREG(before.st_mode):
+            return None
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) |
+                     getattr(os, "O_NONBLOCK", 0))
+        with os.fdopen(fd, "rb") as stream:
+            opened = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(opened.st_mode) or
+                    (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino)):
+                return None
+            data = stream.read(16385)
+        if len(data) > 16384:
+            return None
+        parser = configparser.ConfigParser(interpolation=None)
+        parser.optionxform = str
+        parser.read_string(data.decode("utf-8"))
+        entry = parser["Desktop Entry"]
+        command = shlex.split(entry.get("Exec", ""))
+        if (not parser.defaults() and entry.get("Type") == "Application"
+                and entry.get("Name") == "WaySwitch" and command
+                and command[0] in {"wayswitch-gui", "/usr/bin/wayswitch-gui",
+                                   "/usr/local/bin/wayswitch-gui"}
+                and command[1:] in ([], ["--tray"])):
+            return data
+    except (OSError, UnicodeError, ValueError, KeyError, configparser.Error):
+        pass
+    return None
+
+try:
+    if folder.is_symlink():
+        raise ValueError("unsafe autostart directory")
+    source = backup if mode == "restore" else folder
+    count = 0
+    for scanned, path in enumerate(source.glob("*.desktop")):
+        if scanned >= 4096:
+            raise ValueError("too many autostart files")
+        data = own_entry(path)
+        if data is None:
+            continue
+        count += 1
+        if count > 64:
+            raise ValueError("too many WaySwitch entries")
+        if mode == "remove":
+            path.unlink()
+            continue
+        destination = backup if mode == "save" else folder
+        destination.mkdir(parents=True, exist_ok=True)
+        try:
+            fd = os.open(destination / path.name,
+                         os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        except FileExistsError:
+            continue
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+except (OSError, ValueError):
+    raise SystemExit("Could not preserve WaySwitch autostart entries")
+PYTRAY
+}
 drop_source_copy() { # копия из исходников мешает пакету: её служба и расширение перекрывают пакетные
   if [ -f "$SOURCE_UNINSTALL" ]; then
     say "  Убираю прежнюю установку из исходников (/usr/local)…" \
         "  Removing the previous from-source installation (/usr/local)…"
-    # Значок при входе сохраняем сами: старые копии uninstall.sh его удаляли.
-    tray=""; [ -f "$TRAY_AUTOSTART" ] && tray=$(cat "$TRAY_AUTOSTART")
-    sudo WAYSWITCH_MIGRATE=1 bash "$SOURCE_UNINSTALL" >/dev/null
+    # Old uninstall scripts remove their own desktop names even in migration mode.
+    tray_backup=$(mktemp -d "$TMP/tray.XXXXXX") || return 1
+    preserve_source_tray save "$tray_backup" || return 1
+    uninstall_status=0
+    sudo WAYSWITCH_MIGRATE=1 bash "$SOURCE_UNINSTALL" >/dev/null || uninstall_status=$?
+    preserve_source_tray restore "$tray_backup" || return 1
+    rm -rf "$tray_backup"
+    [ "$uninstall_status" = 0 ] || return "$uninstall_status"
     HAD=0
-    if [ -n "$tray" ] && [ ! -f "$TRAY_AUTOSTART" ]; then
-      printf '%s\n' "$tray" > "$TRAY_AUTOSTART"
-    fi
   fi
 }
 aur_helper() { for h in paru yay; do have "$h" && { echo "$h"; return; }; done; }
@@ -292,6 +425,7 @@ if [ "$MODE" = uninstall ]; then
   ask "Удалить WaySwitch?" "Remove WaySwitch?" no || exit 0
   need_sudo
   systemctl --user disable --now wayswitch 2>/dev/null || true
+  migrate_user_identifiers --uninstall || true
   if   have dpkg   && dpkg -s wayswitch >/dev/null 2>&1; then sudo apt purge -y wayswitch
   elif [ "$ATOMIC" = 1 ] && rpm -q wayswitch >/dev/null 2>&1; then sudo rpm-ostree uninstall wayswitch
   elif have rpm    && rpm -q wayswitch >/dev/null 2>&1;  then
@@ -301,8 +435,7 @@ if [ "$MODE" = uninstall ]; then
   if [ -f "$SOURCE_UNINSTALL" ]; then sudo bash "$SOURCE_UNINSTALL"
   elif [ -n "${WAYSWITCH_SRC:-}" ]; then from_source uninstall.sh
   fi
-  rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/ru.siberia.WaySwitch.Settings.desktop" \
-        "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/ru.siberia.WaySwitch.desktop"
+  preserve_source_tray remove
   restore_a11y
   stop_gui || true  # окно и значок удалённой программы больше не нужны
   say "Готово. Настройки остались в ~/.config/wayswitch — удалите папку, если они не нужны." \
@@ -368,9 +501,14 @@ WAS=$(systemctl --user is-enabled wayswitch 2>/dev/null || true)
 HAD=0; have wayswitch && HAD=1
 # После обновления восстанавливаем работавший трей, окно открывается из меню.
 GUI_WAS=0
-if gui_pid=$(native_gui_pid); then
-  gui_args=$(ps -ww -o args= -p "$gui_pid" 2>/dev/null) || gui_args=""
-  case " $gui_args " in *" --tray "*) GUI_WAS=1 ;; esac
+if gui_records=$(native_gui_pid --all); then
+  while read -r gui_name gui_owner gui_pid; do
+    [ "$(native_gui_pid "$gui_name")" = "$gui_name $gui_owner $gui_pid" ] || continue
+    gui_args=$(ps -ww -o args= -p "$gui_pid" 2>/dev/null) || gui_args=""
+    case " $gui_args " in *" --tray "*) GUI_WAS=1; break ;; esac
+  done <<EOF
+$gui_records
+EOF
 fi
 step "Устанавливаю" "Installing"
 need_sudo
@@ -399,9 +537,10 @@ esac
 
 systemctl --user daemon-reload >/dev/null 2>&1 || true
 [ "$WAS" = disabled ] || systemctl --user enable wayswitch >/dev/null 2>&1 || true
+migrate_user_identifiers || true
 # Обновление: работающая служба перечитает новый код.
 systemctl --user try-restart wayswitch >/dev/null 2>&1 || true
-enable_extension wayswitch@siberia.ru || true
+enable_extension wayswitch@wetoshkin.github.io || true
 enable_a11y || true
 
 if stop_gui && [ "$GUI_WAS" = 1 ]; then
@@ -418,8 +557,8 @@ if [ "$HAD" = 1 ] && [ "$ATOMIC" != 1 ]; then
   say "  Перезагружать компьютер не нужно. Если окно WaySwitch было открыто — откройте его снова из меню приложений." \
       "  No restart needed. If the WaySwitch window was open, open it again from the app menu."
   if is_gnome; then
-    say "  Новая версия расширения GNOME заработает после следующего входа в систему." \
-        "  The new GNOME extension version takes effect at your next login."
+    say "  В GNOME выйдите из сеанса и войдите снова, затем выполните: systemctl --user restart wayswitch." \
+        "  In GNOME, sign out and back in, then run: systemctl --user restart wayswitch."
   fi
   exit 0
 fi
@@ -427,6 +566,8 @@ step "WaySwitch установлен" "WaySwitch is installed"
 if [ "$ATOMIC" = 1 ]; then
   say "  Осталось перезагрузить компьютер. После перезагрузки откройте WaySwitch из меню приложений — он проверит систему и включит службу." \
       "  Now restart the computer. After the restart open WaySwitch from the app menu — it will check the system and enable the service."
+  say "  После перезагрузки выполните: python3 /usr/share/wayswitch/migrate.py" \
+      "  After restarting, run: python3 /usr/share/wayswitch/migrate.py"
 else
   say "  Осталось сохранить открытые документы и перезагрузить компьютер — так WaySwitch получит доступ к клавиатуре." \
       "  Now save your open documents and restart the computer — this gives WaySwitch access to the keyboard."

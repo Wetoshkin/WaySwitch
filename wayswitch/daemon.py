@@ -86,8 +86,8 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
             log.error(
                 "IBus-движок расходится с раскладкой GNOME (источники: %s): на этом "
                 "GNOME IBus не переключает раскладку, автоисправление сломало бы "
-                "текст. Включите расширение wayswitch@siberia.ru "
-                "(gnome-extensions enable wayswitch@siberia.ru) и перезапустите "
+                "текст. Включите расширение wayswitch@wetoshkin.github.io "
+                "(gnome-extensions enable wayswitch@wetoshkin.github.io) и перезапустите "
                 "демон: systemctl --user restart wayswitch",
                 [s.xkb_id for s in backend.layouts()])
             backend.supports_auto = False

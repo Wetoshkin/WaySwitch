@@ -18,7 +18,7 @@ jobs:
           pip install pytest ruff evdev
           python -m ruff check .
           python -m pytest -q
-          node --input-type=module --check < extension/wayswitch@siberia.ru/extension.js
+          node --input-type=module --check < extension/wayswitch@wetoshkin.github.io/extension.js
           node tests/test_extension_focus.cjs
       - name: Версии совпадают с тегом
         # Тег обязан совпадать с версией в pyproject.toml и PKGBUILD
@@ -61,6 +61,11 @@ jobs:
           case "$GITHUB_REF_NAME" in *a[0-9]*|*b[0-9]*|*rc[0-9]*) pre="--prerelease" ;; esac
           cat > notes.md <<'EOF'
           ## Изменения в 1.1.2
+
+          - Идентификаторы приложения, D-Bus, расширения и пакетов переведены
+            в пространство GitHub-проекта. Настройки сохраняются; порядок
+            обновления Flatpak, GNOME и виджета KDE приведён в
+            [руководстве по переходу](https://github.com/Wetoshkin/WaySwitch/blob/main/docs/identifiers.md).
 
           - Улучшено распознавание редактируемых полей Chromium/Electron по состоянию,
             интерфейсу Text и положению каретки. В Chrome проверены шесть типов полей

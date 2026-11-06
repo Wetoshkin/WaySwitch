@@ -215,7 +215,7 @@ sudo packaging/install.sh
 
 ```bash
 systemctl --user enable wayswitch
-gnome-extensions enable wayswitch@siberia.ru   # только в GNOME
+gnome-extensions enable wayswitch@wetoshkin.github.io   # только в GNOME
 ```
 
 </details>
@@ -278,13 +278,13 @@ curl -fsSL https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/
 ```bash
 grep -E '^[[:xdigit:]]{64}  WaySwitch-Settings\.flatpak$' SHA256SUMS | sha256sum -c - && \
 flatpak install --user --or-update ./WaySwitch-Settings.flatpak
-flatpak run ru.siberia.WaySwitch.Gui
+flatpak run io.github.Wetoshkin.WaySwitch.Gui
 ```
 
 Пакет предложит подключить официальный репозиторий для GNOME Runtime 50.
 Для обновления скачайте новый файл, проверьте его по `SHA256SUMS` выпуска и
 выполните `flatpak install --user --or-update ./WaySwitch-Settings.flatpak`.
-Удаление окна: `flatpak uninstall --user ru.siberia.WaySwitch.Gui`.
+Удаление окна: `flatpak uninstall --user io.github.Wetoshkin.WaySwitch.Gui`.
 Публикация приложения на Flathub ещё не выполнена; `flatpak update` обновляет
 окно после установки из настроенного репозитория, а не из отдельного файла.
 
@@ -402,8 +402,8 @@ input {
     kb_layout = us,ru
 }
 bind = SUPER SHIFT, W, exec, wayswitch toggle
-windowrule = float, class:^(ru\.siberia\.WaySwitch\.Settings)$
-windowrule = size 640 740, class:^(ru\.siberia\.WaySwitch\.Settings)$
+windowrule = float, class:^(io\.github\.Wetoshkin\.WaySwitch\.Settings)$
+windowrule = size 640 740, class:^(io\.github\.Wetoshkin\.WaySwitch\.Settings)$
 ```
 
 `~/.config/sway/config`:
@@ -413,7 +413,7 @@ input type:keyboard {
     xkb_layout us,ru
 }
 bindsym $mod+Shift+w exec wayswitch toggle
-for_window [app_id="ru.siberia.WaySwitch.Settings"] floating enable, resize set 640 740
+for_window [app_id="io.github.Wetoshkin.WaySwitch.Settings"] floating enable, resize set 640 740
 ```
 
 Последнее слово исправляется жестом (двойной Shift или своя клавиша) — он
@@ -498,6 +498,10 @@ track_hotkey = false          # labwc/Wayfire: автоисправление п
 </details>
 
 ## Обновление
+
+При переходе на пространство имён GitHub меняются идентификаторы расширения,
+окна и переносимых пакетов. Порядок обновления Flatpak, GNOME и виджета KDE —
+в [руководстве по переходу](docs/identifiers.md); настройки WaySwitch сохраняются.
 
 **Как узнать о новой версии.** Раз в сутки WaySwitch спрашивает GitHub,
 вышла ли новая версия. Если вышла — в окне появится полоса «Вышла версия …»

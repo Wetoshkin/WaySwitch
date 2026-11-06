@@ -4,7 +4,7 @@ const vm = require('node:vm');
 const path = require('node:path');
 
 const source = fs.readFileSync(path.join(__dirname,
-    '../extension/wayswitch@siberia.ru/extension.js'), 'utf8')
+    '../extension/wayswitch@wetoshkin.github.io/extension.js'), 'utf8')
     .replace(/^import .*;\r?\n/gm, '')
     .replace('export default class WaySwitchExtension', 'class WaySwitchExtension');
 const context = vm.createContext({

@@ -6,7 +6,7 @@
 // в ней есть.
 //
 // Печатать, стирать и читать выделение может только сам демон WaySwitch
-// (владелец имени ru.siberia.WaySwitch на сессионной шине): иначе любое
+// (владелец имени io.github.Wetoshkin.WaySwitch на сессионной шине): иначе любое
 // приложение с доступом к шине, в том числе из песочницы Flatpak, могло бы
 // печатать в чужие окна. Текст, который печатается, в журнал не пишется.
 
@@ -18,16 +18,16 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Keyboard from 'resource:///org/gnome/shell/ui/status/keyboard.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
-const BUS_NAME = 'ru.siberia.WaySwitch.Shell';
-const OBJECT_PATH = '/ru/siberia/WaySwitch/Shell';
-const DAEMON_NAME = 'ru.siberia.WaySwitch';
+const BUS_NAME = 'io.github.Wetoshkin.WaySwitch.Shell';
+const OBJECT_PATH = '/io/github/Wetoshkin/WaySwitch/Shell';
+const DAEMON_NAME = 'io.github.Wetoshkin.WaySwitch';
 // Ограничения на один вызов: исправление слова — десятки символов, выделенный
 // фрагмент — до нескольких тысяч.
 const MAX_TEXT = 4000;
 const MAX_BACKSPACE = 512;
 const IFACE_XML = `
 <node>
-  <interface name="ru.siberia.WaySwitch.Shell">
+  <interface name="io.github.Wetoshkin.WaySwitch.Shell">
     <method name="GetLayout">
       <arg type="u" name="index" direction="out"/>
       <arg type="s" name="id" direction="out"/>

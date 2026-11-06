@@ -110,7 +110,7 @@ def test_generated_source_wrapper_ignores_caller_checkout(shell, tmp_path, name,
 # --- ярлык и значок ---------------------------------------------------------
 
 def _desktop_text() -> str:
-    return (ROOT / "ru.siberia.WaySwitch.Settings.desktop").read_text(encoding="utf-8")
+    return (ROOT / "io.github.Wetoshkin.WaySwitch.Settings.desktop").read_text(encoding="utf-8")
 
 
 def _app_id() -> str:
@@ -118,7 +118,7 @@ def _app_id() -> str:
     from wayswitch.gui.app import APP_ID
     from wayswitch.gui.portable import NATIVE_ID
 
-    assert APP_ID == NATIVE_ID == "ru.siberia.WaySwitch.Settings"
+    assert APP_ID == NATIVE_ID == "io.github.Wetoshkin.WaySwitch.Settings"
     return APP_ID
 
 
@@ -128,19 +128,19 @@ def test_desktop_file_name_matches_app_id():
     Иначе GNOME не связывает запущенное окно с записью: в доке и в списке
     приложений рисуется заглушка «нет значка», а иногда появляется второй значок.
     """
-    assert (ROOT / "ru.siberia.WaySwitch.Settings.desktop").exists()
+    assert (ROOT / "io.github.Wetoshkin.WaySwitch.Settings.desktop").exists()
     assert (ROOT / f"{_app_id()}.desktop").exists()
 
 
 def test_desktop_entry_points_to_own_icon():
     text = _desktop_text()
-    assert "Icon=ru.siberia.WaySwitch" in text
+    assert "Icon=io.github.Wetoshkin.WaySwitch" in text
     assert "StartupWMClass=" + _app_id() in text
-    assert (ROOT / "icons" / "ru.siberia.WaySwitch.svg").exists()
+    assert (ROOT / "icons" / "io.github.Wetoshkin.WaySwitch.svg").exists()
 
 
 def test_icon_is_scalable_svg():
-    text = (ROOT / "icons" / "ru.siberia.WaySwitch.svg").read_text(encoding="utf-8")
+    text = (ROOT / "icons" / "io.github.Wetoshkin.WaySwitch.svg").read_text(encoding="utf-8")
     assert text.lstrip().startswith("<svg")
     assert 'viewBox="0 0 128 128"' in text
     # Буквы — контурами: текст в SVG без нужного шрифта разваливается.
@@ -150,8 +150,8 @@ def test_icon_is_scalable_svg():
 def test_symbolic_tray_icons_use_fill_only():
     """GTK и AppIndicator перекрашивают symbolic-значки по fill; обводка
     осталась бы тёмной на тёмной панели."""
-    for name in ("ru.siberia.WaySwitch-symbolic.svg",
-                 "ru.siberia.WaySwitch-paused-symbolic.svg"):
+    for name in ("io.github.Wetoshkin.WaySwitch-symbolic.svg",
+                 "io.github.Wetoshkin.WaySwitch-paused-symbolic.svg"):
         text = (ROOT / "icons" / name).read_text(encoding="utf-8")
         assert 'viewBox="0 0 16 16"' in text
         assert "stroke" not in text and "<text" not in text
@@ -161,16 +161,16 @@ def test_installer_installs_icon_and_removes_old_entry():
     text = (ROOT / "install.sh").read_text(encoding="utf-8")
     assert "share/icons/hicolor" in text and "scalable/apps" in text
     assert "symbolic/apps" in text
-    assert "ru.siberia.WaySwitch.svg" in text
+    assert "io.github.Wetoshkin.WaySwitch.svg" in text
     # старое имя ярлыка (до 2.0) не должно оставаться вторым пунктом в меню
-    assert "rm -f /usr/local/share/applications/ru.siberia.WaySwitch.desktop" in text
+    assert '"$SRC/packaging/migrate.py" --prefix /usr/local' in text
 
 
 def test_autostart_uses_same_name_as_desktop_entry():
     from wayswitch.gui import autostart
 
-    assert autostart.DESKTOP_NAME == "ru.siberia.WaySwitch.Settings.desktop"
-    assert "Icon=ru.siberia.WaySwitch" in autostart.tray_desktop_text()
+    assert autostart.DESKTOP_NAME == "io.github.Wetoshkin.WaySwitch.Settings.desktop"
+    assert "Icon=io.github.Wetoshkin.WaySwitch" in autostart.tray_desktop_text()
 
 
 def test_versions_agree():
@@ -183,10 +183,10 @@ def test_versions_agree():
     repo = ROOT.parent
     pyproject = (repo / "pyproject.toml").read_text(encoding="utf-8")
     assert re.search(r'^version = "([^"]+)"', pyproject, re.M).group(1) == __version__
-    meta = json.loads((repo / "extension" / "wayswitch@siberia.ru" / "metadata.json")
+    meta = json.loads((repo / "extension" / "wayswitch@wetoshkin.github.io" / "metadata.json")
                       .read_text(encoding="utf-8"))
     assert meta["version-name"] == __version__
-    plasmoid = json.loads((repo / "packaging" / "kde" / "ru.siberia.wayswitch" / "metadata.json")
+    plasmoid = json.loads((repo / "packaging/kde/io.github.Wetoshkin.wayswitch/metadata.json")
                           .read_text(encoding="utf-8"))
     assert plasmoid["KPlugin"]["Version"] == __version__
     pkgbuild = (repo / "packaging" / "arch" / "PKGBUILD").read_text(encoding="utf-8")

@@ -1,0 +1,43 @@
+{
+  "app-id": "io.github.Wetoshkin.WaySwitch.Gui",
+  "runtime": "org.gnome.Platform",
+  "runtime-version": "50",
+  "sdk": "org.gnome.Sdk",
+  "command": "wayswitch-gui",
+  "finish-args": [
+    "--socket=wayland",
+    "--share=ipc",
+    "--share=network",
+    "--talk-name=io.github.Wetoshkin.WaySwitch",
+    "--talk-name=org.kde.StatusNotifierWatcher",
+    "--filesystem=xdg-config/wayswitch:create"
+  ],
+  "modules": [{
+    "name": "wayswitch-gui",
+    "buildsystem": "simple",
+    "build-commands": [
+      "install -d /app/share/wayswitch /app/bin",
+      "cp -r wayswitch /app/share/wayswitch/",
+      "find /app/share/wayswitch -name __pycache__ -type d -exec rm -rf {} +",
+      "install -m755 wayswitch-gui /app/bin/wayswitch-gui",
+      "install -Dm644 io.github.Wetoshkin.WaySwitch.Gui.desktop /app/share/applications/io.github.Wetoshkin.WaySwitch.Gui.desktop",
+      "install -Dm644 io.github.Wetoshkin.WaySwitch.Gui.metainfo.xml /app/share/metainfo/io.github.Wetoshkin.WaySwitch.Gui.metainfo.xml",
+      "install -Dm644 io.github.Wetoshkin.WaySwitch.svg /app/share/icons/hicolor/scalable/apps/io.github.Wetoshkin.WaySwitch.Gui.svg",
+      "install -Dm644 io.github.Wetoshkin.WaySwitch.svg /app/share/icons/hicolor/scalable/apps/io.github.Wetoshkin.WaySwitch.svg",
+      "install -Dm644 io.github.Wetoshkin.WaySwitch-symbolic.svg /app/share/icons/hicolor/symbolic/apps/io.github.Wetoshkin.WaySwitch.Gui-symbolic.svg",
+      "install -Dm644 io.github.Wetoshkin.WaySwitch-paused-symbolic.svg /app/share/icons/hicolor/symbolic/apps/io.github.Wetoshkin.WaySwitch.Gui-paused-symbolic.svg",
+      "install -Dm644 LICENSE /app/share/licenses/wayswitch/LICENSE",
+      "install -Dm644 wayswitch/data/LICENSE /app/share/licenses/wayswitch/DATA-LICENSE"
+    ],
+    "sources": [
+      {"type": "dir", "path": "../../wayswitch", "dest": "wayswitch", "skip": ["__pycache__", "*.pyc"]},
+      {"type": "file", "path": "wayswitch-gui"},
+      {"type": "file", "path": "io.github.Wetoshkin.WaySwitch.Gui.desktop"},
+      {"type": "file", "path": "io.github.Wetoshkin.WaySwitch.Gui.metainfo.xml"},
+      {"type": "file", "path": "../icons/io.github.Wetoshkin.WaySwitch.svg"},
+      {"type": "file", "path": "../icons/io.github.Wetoshkin.WaySwitch-symbolic.svg"},
+      {"type": "file", "path": "../icons/io.github.Wetoshkin.WaySwitch-paused-symbolic.svg"},
+      {"type": "file", "path": "../../LICENSE"}
+    ]
+  }]
+}

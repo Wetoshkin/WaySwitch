@@ -12,7 +12,7 @@
    переключение средствами рабочего стола.
 3. Выполните `wayswitch doctor`. Устраните ошибки обязательных проверок.
 4. В GNOME включите расширение WaySwitch и при необходимости войдите заново:
-   `gnome-extensions enable wayswitch@siberia.ru`.
+   `gnome-extensions enable wayswitch@wetoshkin.github.io`.
 5. Откройте простой текстовый редактор и окно WaySwitch. Убедитесь, что
    одновременно работает только один экземпляр демона.
 

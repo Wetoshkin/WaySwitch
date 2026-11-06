@@ -41,14 +41,15 @@ python3Packages.buildPythonApplication {
       ../../wayswitch/data/en.ngrams.json.gz
       ../60-wayswitch.rules
       ../wayswitch.service
-      ../ru.siberia.WaySwitch.Settings.desktop
-      ../icons/ru.siberia.WaySwitch.svg
-      ../icons/ru.siberia.WaySwitch-symbolic.svg
-      ../icons/ru.siberia.WaySwitch-paused-symbolic.svg
-      ../kde/ru.siberia.wayswitch/metadata.json
-      ../kde/ru.siberia.wayswitch/contents/ui/main.qml
-      (../../extension + "/wayswitch@siberia.ru/metadata.json")
-      (../../extension + "/wayswitch@siberia.ru/extension.js")
+      ../migrate.py
+      ../io.github.Wetoshkin.WaySwitch.Settings.desktop
+      ../icons/io.github.Wetoshkin.WaySwitch.svg
+      ../icons/io.github.Wetoshkin.WaySwitch-symbolic.svg
+      ../icons/io.github.Wetoshkin.WaySwitch-paused-symbolic.svg
+      ../kde/io.github.Wetoshkin.wayswitch/metadata.json
+      ../kde/io.github.Wetoshkin.wayswitch/contents/ui/main.qml
+      (../../extension + "/wayswitch@wetoshkin.github.io/metadata.json")
+      (../../extension + "/wayswitch@wetoshkin.github.io/extension.js")
     ];
   };
 
@@ -68,21 +69,22 @@ python3Packages.buildPythonApplication {
   '';
 
   postInstall = ''
+    install -Dm644 packaging/migrate.py "$out/share/wayswitch/migrate.py"
     install -Dm644 packaging/60-wayswitch.rules "$out/lib/udev/rules.d/60-wayswitch.rules"
     install -Dm644 packaging/wayswitch.service "$out/lib/systemd/user/wayswitch.service"
     substituteInPlace "$out/lib/systemd/user/wayswitch.service" \
       --replace-fail /usr/local/bin/wayswitch "$out/bin/wayswitch"
-    install -Dm644 packaging/ru.siberia.WaySwitch.Settings.desktop \
-      "$out/share/applications/ru.siberia.WaySwitch.Settings.desktop"
-    install -Dm644 packaging/icons/ru.siberia.WaySwitch.svg \
-      "$out/share/icons/hicolor/scalable/apps/ru.siberia.WaySwitch.svg"
-    install -Dm644 packaging/icons/ru.siberia.WaySwitch-symbolic.svg \
-      "$out/share/icons/hicolor/symbolic/apps/ru.siberia.WaySwitch-symbolic.svg"
-    install -Dm644 packaging/icons/ru.siberia.WaySwitch-paused-symbolic.svg \
-      "$out/share/icons/hicolor/symbolic/apps/ru.siberia.WaySwitch-paused-symbolic.svg"
+    install -Dm644 packaging/io.github.Wetoshkin.WaySwitch.Settings.desktop \
+      "$out/share/applications/io.github.Wetoshkin.WaySwitch.Settings.desktop"
+    install -Dm644 packaging/icons/io.github.Wetoshkin.WaySwitch.svg \
+      "$out/share/icons/hicolor/scalable/apps/io.github.Wetoshkin.WaySwitch.svg"
+    install -Dm644 packaging/icons/io.github.Wetoshkin.WaySwitch-symbolic.svg \
+      "$out/share/icons/hicolor/symbolic/apps/io.github.Wetoshkin.WaySwitch-symbolic.svg"
+    install -Dm644 packaging/icons/io.github.Wetoshkin.WaySwitch-paused-symbolic.svg \
+      "$out/share/icons/hicolor/symbolic/apps/io.github.Wetoshkin.WaySwitch-paused-symbolic.svg"
     mkdir -p "$out/share/gnome-shell/extensions" "$out/share/plasma/plasmoids"
-    cp -r extension/wayswitch@siberia.ru "$out/share/gnome-shell/extensions/"
-    cp -r packaging/kde/ru.siberia.wayswitch "$out/share/plasma/plasmoids/"
+    cp -r extension/wayswitch@wetoshkin.github.io "$out/share/gnome-shell/extensions/"
+    cp -r packaging/kde/io.github.Wetoshkin.wayswitch "$out/share/plasma/plasmoids/"
     install -Dm644 LICENSE "$out/share/licenses/wayswitch/LICENSE"
     install -Dm644 wayswitch/data/LICENSE "$out/share/licenses/wayswitch/DATA-LICENSE"
   '';

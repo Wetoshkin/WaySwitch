@@ -14,7 +14,7 @@ from wayswitch import config as cfgmod
 from wayswitch.gui import autostart, dialogs, gesture_keys, portable, texts
 from wayswitch.gui.widgets import StepRow, boxed_list, clear_list, flat_icon_button, keycap
 
-EXTENSION_UUID = "wayswitch@siberia.ru"
+EXTENSION_UUID = "wayswitch@wetoshkin.github.io"
 
 
 def enable_extension() -> bool:

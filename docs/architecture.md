@@ -34,7 +34,7 @@ WaySwitch исправляет русско-английскую расклад�
 | Окно, первый запуск, панель | `wayswitch/gui/`, `panel.py` |
 | Выделение и преобразования | `selection.py`, `textops.py` |
 | Обновления и звук | `updates.py`, `sound.py` |
-| GNOME Shell | `extension/wayswitch@siberia.ru/` |
+| GNOME Shell | `extension/wayswitch@wetoshkin.github.io/` |
 | Установка и пакеты | `packaging/`, `tools/stage.sh`, `tools/build_*.sh` |
 
 Если каталог не указан, Python-модуль находится в `wayswitch/`.
@@ -53,7 +53,7 @@ WaySwitch исправляет русско-английскую расклад�
   Текущее состояние раскладки может быть недоступно, поэтому этот путь
   имеет дополнительные ограничения.
 
-Идентификаторы `ru.siberia.WaySwitch` и `wayswitch@siberia.ru` — часть
+Идентификаторы `io.github.Wetoshkin.WaySwitch` и `wayswitch@wetoshkin.github.io` — часть
 интерфейса приложения и расширения, а не контактные адреса.
 
 ## Границы и данные

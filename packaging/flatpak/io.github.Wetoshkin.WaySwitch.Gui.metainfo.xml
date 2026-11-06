@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>ru.siberia.WaySwitch.Gui</id>
+  <id>io.github.Wetoshkin.WaySwitch.Gui</id>
   <name>WaySwitch Settings</name>
   <summary>Control the native WaySwitch keyboard correction service</summary>
   <metadata_license>CC0-1.0</metadata_license>
@@ -16,7 +16,7 @@
     <p>The first-run window explains native installation and recovery. Removing
     this window does not remove or stop the native correction service.</p>
   </description>
-  <launchable type="desktop-id">ru.siberia.WaySwitch.Gui.desktop</launchable>
+  <launchable type="desktop-id">io.github.Wetoshkin.WaySwitch.Gui.desktop</launchable>
   <url type="homepage">https://github.com/Wetoshkin/WaySwitch</url>
   <url type="bugtracker">https://github.com/Wetoshkin/WaySwitch/issues</url>
   <url type="help">https://github.com/Wetoshkin/WaySwitch#readme</url>

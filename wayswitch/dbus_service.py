@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-BUS_NAME = "ru.siberia.WaySwitch"
-OBJECT_PATH = "/ru/siberia/WaySwitch"
-INTERFACE = "ru.siberia.WaySwitch.Daemon"
+BUS_NAME = "io.github.Wetoshkin.WaySwitch"
+OBJECT_PATH = "/io/github/Wetoshkin/WaySwitch"
+INTERFACE = "io.github.Wetoshkin.WaySwitch.Daemon"
 INTROSPECTION_XML = f"""
 <node>
   <interface name="{INTERFACE}">

@@ -51,7 +51,7 @@ def _check(name: str, fn, hint: str, required: bool = True, key: str = "") -> Ch
 
 # Состояние расширения GNOME Shell → (ok, ключ проверки для окна, обязательна
 # ли, текст). Один источник и для `wayswitch doctor`, и для первого запуска.
-EXTENSION_UUID = "wayswitch@siberia.ru"
+EXTENSION_UUID = "wayswitch@wetoshkin.github.io"
 RELOGIN = "выйдите из сеанса и войдите снова — тогда GNOME загрузит новую версию"
 EXTENSION_STATES = {
     "ok": (True, "extension", True, ""),
@@ -60,7 +60,7 @@ EXTENSION_STATES = {
                 "которой устанавливали"),
     "disabled": (False, "extension", True,
                  "расширение выключено: включите его (кнопка «Включить» в окне WaySwitch "
-                 "или gnome-extensions enable wayswitch@siberia.ru)"),
+                 "или gnome-extensions enable wayswitch@wetoshkin.github.io)"),
     # Включено, но GNOME его ещё не загрузил (поставили в этом сеансе) или
     # держит старую копию после обновления: кнопкой «Включить» тут ничего не
     # изменить, нужен новый вход. Не блокируем: старая копия умеет главное.
