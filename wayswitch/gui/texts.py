@@ -145,6 +145,30 @@ SELECTION_KEY_ROWS = (
 )
 
 
+@dataclass(frozen=True)
+class SelectionFeedback:
+    """Уведомление, когда служба не подтвердила исправление выделенного."""
+
+    title: str
+    body: str
+
+
+def selection_feedback(result) -> SelectionFeedback | None:
+    """Что показать по ответу DaemonProxy.call("FixSelection").
+
+    (True,) — исправление подтверждено, уведомление не нужно; (False,), None и
+    любой неожиданный ответ — не подтвердилось, показываем одно сообщение.
+    """
+    if result is True or result == (True,):
+        return None
+    return SelectionFeedback(
+        "Исправление не удалось подтвердить",
+        "Проверьте текст в поле: исправление могло выполниться частично. "
+        "Подходит выделение в одну строку в обычном редактируемом поле. "
+        "Вызов из меню может менять фокус — можно нажать назначенную клавишу.",
+    )
+
+
 def format_times(n: float) -> str:
     """1 → «с первого раза», 2 → «2 раза», 5 → «5 раз»."""
     n = int(n)

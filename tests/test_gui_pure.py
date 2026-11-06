@@ -3,6 +3,8 @@
 import ast
 from pathlib import Path
 
+import pytest
+
 from wayswitch.doctor import Check
 from wayswitch.gui import gesture_keys, texts
 from wayswitch.gui.app import parse_gui_args, update_text
@@ -57,6 +59,89 @@ def test_selection_menu_requires_confirmed_backend_capability():
     item = next(i for i in menu_layout({"selection_supported": True})
                 if i.ident == "fix_selection")
     assert item.enabled and item.label == "Исправить выделенное"
+
+
+# --- уведомление о неподтверждённом исправлении выделенного -----------------------
+
+def _fake_gi(monkeypatch):
+    """Подменить gi на время теста: модули gui импортируют его только в функции."""
+    import sys
+    import types
+
+    class Notification:
+        def __init__(self, title):
+            self.title = title
+            self.body = None
+
+        @staticmethod
+        def new(title):
+            return Notification(title)
+
+        def set_body(self, body):
+            self.body = body
+
+    gi = types.ModuleType("gi")
+    repository = types.ModuleType("gi.repository")
+    repository.Gio = types.SimpleNamespace(Notification=Notification)
+    monkeypatch.setitem(sys.modules, "gi", gi)
+    monkeypatch.setitem(sys.modules, "gi.repository", repository)
+
+
+def _notify(monkeypatch, results):
+    """Прогнать notify_selection_result по результатам; вернуть уведомления."""
+    from wayswitch.gui.app import notify_selection_result
+
+    _fake_gi(monkeypatch)
+    sent = []
+    for result in results:
+        notify_selection_result(lambda ident, note: sent.append((ident, note)), result)
+    return sent
+
+
+def test_selection_feedback_success_is_silent(monkeypatch):
+    assert texts.selection_feedback((True,)) is None
+    assert texts.selection_feedback(True) is None
+    assert _notify(monkeypatch, [(True,), True]) == []
+
+
+@pytest.mark.parametrize("result", [(False,), None, False])
+def test_selection_feedback_failure_sends_one_notification(monkeypatch, result):
+    sent = _notify(monkeypatch, [result])
+    assert len(sent) == 1
+    ident, note = sent[0]
+    assert ident == "selection-failed"
+    assert note.title == texts.selection_feedback(result).title
+    assert note.body == texts.selection_feedback(result).body
+
+
+def test_selection_feedback_notifies_once_per_failed_action(monkeypatch):
+    sent = _notify(monkeypatch, [(False,), (True,), None, (False,)])
+    assert len(sent) == 3
+
+
+def test_selection_feedback_wording_does_not_guess_or_claim_unchanged():
+    feedback = texts.selection_feedback(None)
+    assert feedback == texts.selection_feedback((False,))
+    text = feedback.title + " " + feedback.body
+    assert "не удалось подтвердить" in text
+    assert "Проверьте" in feedback.body
+    assert "одну строку" in feedback.body
+    assert "обычном редактируемом поле" in feedback.body
+    assert "назначенную клавишу" in feedback.body
+    # Не утверждаем, что текст остался прежним, и не угадываем причину.
+    for claim in ("не изменил", "остал", "нечего", "выделите", "раскладк"):
+        assert claim not in text
+
+
+def test_tray_fix_selection_reports_result():
+    source = (GUI / "app.py").read_text(encoding="utf-8")
+    assert '"fix_selection": self._fix_selection' in source
+    assert 'lambda: self.proxy.call("FixSelection")' not in source
+    handler = next(node for node in ast.walk(ast.parse(source))
+                   if isinstance(node, ast.FunctionDef) and node.name == "_fix_selection")
+    code = ast.unparse(handler)
+    assert "notify_selection_result" in code
+    assert "self.send_notification" in code and "FixSelection" in code
 
 
 def test_cosmic_unlock_confirmation_has_actionable_gui_state():

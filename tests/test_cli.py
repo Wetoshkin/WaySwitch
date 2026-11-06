@@ -3,6 +3,12 @@ import pytest
 from wayswitch import __version__
 from wayswitch.cli import build_parser
 
+SELECTION_COMMANDS = [
+    ("fix-selection", "FixSelection", "исправлено"),
+    ("translit", "TranslitSelection", "готово"),
+    ("number-words", "NumberWordsSelection", "готово"),
+]
+
 
 def test_parser_subcommands():
     p = build_parser()
@@ -37,12 +43,8 @@ def test_selection_command_explains_unavailable_backend(command, status, monkeyp
     assert "недоступно" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("command,method", [
-    ("fix-selection", "FixSelection"),
-    ("translit", "TranslitSelection"),
-    ("number-words", "NumberWordsSelection"),
-])
-def test_selection_command_uses_supported_backend(command, method, monkeypatch, capsys):
+@pytest.mark.parametrize("command,method,message", SELECTION_COMMANDS)
+def test_selection_command_uses_supported_backend(command, method, message, monkeypatch, capsys):
     from wayswitch import cli
 
     calls = []
@@ -53,4 +55,52 @@ def test_selection_command_uses_supported_backend(command, method, monkeypatch, 
 
     monkeypatch.setattr(cli, "call_daemon", call)
     assert cli.main([command]) == 0
+    captured = capsys.readouterr()
     assert calls == ["GetStatus", method]
+    assert captured.out.strip() == message
+    assert captured.err == ""
+
+
+@pytest.mark.parametrize("reply", [(False,), None, (), (True, False), (None,)])
+@pytest.mark.parametrize("command,method", [(c, m) for c, m, _ in SELECTION_COMMANDS])
+def test_selection_command_does_not_claim_success(command, method, reply, monkeypatch, capsys):
+    from wayswitch import cli
+
+    calls = []
+
+    def call(name):
+        calls.append(name)
+        return ({"selection_supported": True},) if name == "GetStatus" else reply
+
+    monkeypatch.setattr(cli, "call_daemon", call)
+    assert cli.main([command]) == 1
+    captured = capsys.readouterr()
+    out = captured.out
+    assert calls == ["GetStatus", method]
+    assert "Не удалось подтвердить" in out
+    assert "Проверьте" in out
+    assert "одну строку" in out
+    assert out.count("Не удалось подтвердить") == 1
+    assert "Traceback" not in out + captured.err
+    assert "нечего" not in out
+    assert "выделите" not in out.lower()
+    assert captured.err == ""
+
+
+@pytest.mark.parametrize("reply", [None, (), ("x",), (None,)])
+def test_selection_command_handles_bad_status_reply(reply, monkeypatch, capsys):
+    from wayswitch import cli
+
+    calls = []
+
+    def call(name):
+        calls.append(name)
+        return reply
+
+    monkeypatch.setattr(cli, "call_daemon", call)
+    assert cli.main(["fix-selection"]) == 1
+    captured = capsys.readouterr()
+    assert calls == ["GetStatus"]
+    assert "недоступно" in captured.out
+    assert "Traceback" not in captured.out + captured.err
+    assert captured.err == ""
