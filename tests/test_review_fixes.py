@@ -20,7 +20,6 @@ from tests.fakes import (
 from wayswitch import keycodes as kc
 from wayswitch.a11y import FocusSnapshot
 from wayswitch.actuator import (
-    DONE,
     FAILED,
     Backspace,
     Plan,
@@ -106,7 +105,7 @@ def test_key_after_layout_change_preserves_mode_before_backspace():
     assert typist.taps() == []
 
 
-def test_text_typist_error_after_backspace_retries_typing():
+def test_text_typist_error_after_backspace_does_not_repeat_uncertain_write():
     class Flaky(RecordingTextTypist):
         failed = False
 
@@ -117,8 +116,8 @@ def test_text_typist_error_after_backspace_retries_typing():
             super().type_text(text)
 
     typist = Flaky()
-    assert execute(_plan(), typist, FakeBackend(current=0)) == DONE
-    assert typist.calls == [("backspace", 3), ("type", "abc")]
+    assert execute(_plan(), typist, FakeBackend(current=0)) == FAILED
+    assert typist.failed and typist.calls == [("backspace", 3)]
 
 
 def test_timeout_is_not_retried_to_avoid_double_typing():

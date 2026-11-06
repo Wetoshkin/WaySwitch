@@ -131,3 +131,19 @@ def test_lock_between_shift_and_letter_only_releases_shift():
                      key_delay=0.1, sleep=lambda _: locked.append(True), stop=lambda: bool(locked))
     assert result == ABORTED and typist.taps() == []
     assert (kc.KEY_LEFTSHIFT, 0) in typist.events
+def test_partial_text_transport_error_is_not_retried():
+    from tests.fakes import FakeBackend, RecordingTextTypist
+    from wayswitch.actuator import FAILED, Plan, Type, execute
+
+    class PartialTypist(RecordingTextTypist):
+        written = ""
+
+        def type_text(self, text):
+            self.calls.append(("type", text))
+            self.written += text[:2]
+            raise RuntimeError("transport failed after a partial write")
+
+    typist = PartialTypist()
+    assert execute(Plan([Type("hello", [])]), typist, FakeBackend()) == FAILED
+    assert typist.calls == [("type", "hello")]
+    assert typist.written == "he"
