@@ -183,6 +183,16 @@ are invisible, and automatic correction requires explicit `backend.track_hotkey`
 Additional layouts need ordinary cyclic XKB shortcuts such as
 `grp:alt_shift_toggle`; ambiguous bidirectional shortcuts leave the service passive.
 
+### Remote desktop (RDP)
+
+WaySwitch reads keyboard devices belonging to the local session. Separate RDP
+sessions are unsupported: their input may bypass these devices, and `uaccess`
+grants device access to the active local session. If `/dev/uinput` is unavailable,
+the service waits for access and continues startup automatically when it returns.
+Use `wayswitch doctor` and `journalctl --user -u wayswitch -n 30` to diagnose it.
+Missing udev rules or the `uinput` kernel module must be fixed before startup
+can continue.
+
 ## Gestures
 
 | Gesture | Action |

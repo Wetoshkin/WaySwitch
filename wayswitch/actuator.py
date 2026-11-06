@@ -430,9 +430,14 @@ class UInputTypist:
 
     def __init__(self):
         from evdev import UInput, ecodes  # импорт здесь: модуль есть только на Linux
+        from evdev.uinput import UInputError
 
         self._ecodes = ecodes
-        self._ui = UInput({ecodes.EV_KEY: list(range(1, 128))}, name=self.NAME)
+        try:
+            self._ui = UInput({ecodes.EV_KEY: list(range(1, 128))}, name=self.NAME)
+        except UInputError as exc:
+            # Проверка доступа evdev выбрасывает Exception, а не OSError.
+            raise OSError(str(exc)) from exc
 
     def key(self, code: int, value: int) -> None:
         self._ui.write(self._ecodes.EV_KEY, code, value)

@@ -114,7 +114,8 @@ def uinput_status() -> tuple[bool, str]:
         # getattr: на Windows (разработка, тесты) O_NONBLOCK нет.
         fd = os.open("/dev/uinput", os.O_WRONLY | getattr(os, "O_NONBLOCK", 0))
     except PermissionError:
-        return False, "нет прав на /dev/uinput"
+        return False, ("нет прав на /dev/uinput: uaccess требует активного локального сеанса; "
+                       "отдельный RDP-сеанс может не иметь доступа к устройствам")
     except OSError as e:
         return False, f"/dev/uinput не открывается ({e.strerror or e}) — модуль uinput не загружен?"
     os.close(fd)

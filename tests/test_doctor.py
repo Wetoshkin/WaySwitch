@@ -182,7 +182,7 @@ def test_uinput_status_permission(monkeypatch):
 
     monkeypatch.setattr(doctor.os, "open", denied)
     ok, detail = doctor.uinput_status()
-    assert not ok and "прав" in detail
+    assert not ok and "прав" in detail and "RDP" in detail and "локальн" in detail
 
 
 def test_uinput_status_module_missing(monkeypatch):

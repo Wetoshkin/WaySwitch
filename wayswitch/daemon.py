@@ -29,17 +29,32 @@ STARTUP_DELAY = 5
 RESTART = 75  # не в RestartPreventExitStatus: systemd перезапустит службу
 
 
+def _open_uinput() -> UInputTypist:
+    waiting = False
+    while True:
+        try:
+            typist = UInputTypist()
+        except OSError as exc:
+            if not waiting:
+                log.warning(
+                    "/dev/uinput недоступен: %s; ожидание доступа. uaccess выдаёт права "
+                    "активному локальному сеансу, отдельный RDP-сеанс может их не иметь. "
+                    "Проверьте локальный вход и wayswitch doctor", exc)
+                waiting = True
+            time.sleep(STARTUP_DELAY)
+        else:
+            if waiting:
+                log.info("доступ к /dev/uinput восстановлен, запуск продолжается")
+            return typist
+
+
 def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     from gi.repository import GLib
 
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
     config = cfgmod.load(config_path)
-    try:
-        typist = UInputTypist()
-    except OSError as e:
-        log.error("не открыть /dev/uinput: %s (правило udev? см. wayswitch doctor)", e)
-        return 1
+    typist = _open_uinput()
     # При входе служба может стартовать раньше, чем KWin опубликовал раскладки
     # или Shell включил расширение: даём среде минуту, прежде чем сдаться.
     backend = None
