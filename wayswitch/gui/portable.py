@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from wayswitch.gui.terminal import manual_command
 
@@ -27,6 +28,11 @@ def package_kind() -> str | None:
     if os.environ.get("WAYSWITCH_PACKAGE") == "appimage":
         return "appimage"
     return None
+
+
+def is_system_packaged() -> bool:
+    """True, если установлено через менеджер пакетов дистрибутива (RPM/deb/AUR)."""
+    return (Path(__file__).resolve().parent.parent / ".packaged").exists()
 
 
 def application_id() -> str:

@@ -133,3 +133,10 @@ def test_displayed_flatpak_update_verifies_only_target_and_gates_install(
         assert "FAILED" not in result.stdout + result.stderr
         assert (tmp_path / "installed.txt").read_text().strip() == \
             "install --user --or-update ./WaySwitch-Settings.flatpak"
+
+
+def test_is_system_packaged_detects_marker(monkeypatch, tmp_path):
+    monkeypatch.setattr(portable, "__file__", str(tmp_path / "gui" / "portable.py"))
+    assert portable.is_system_packaged() is False
+    (tmp_path / ".packaged").write_text("")
+    assert portable.is_system_packaged() is True

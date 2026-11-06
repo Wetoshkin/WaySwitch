@@ -256,7 +256,8 @@ def main(argv: list[str] | None = None) -> int:
 
         def _periodic_update(self):
             self.check_updates(force=False)
-            GLib.timeout_add_seconds(UPDATE_PERIOD_SEC, self._periodic_update)
+            if not portable.package_kind() and not portable.is_system_packaged():
+                GLib.timeout_add_seconds(UPDATE_PERIOD_SEC, self._periodic_update)
             return GLib.SOURCE_REMOVE
 
         def check_updates(self, force: bool, done=None):
