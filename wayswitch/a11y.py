@@ -82,6 +82,12 @@ class FocusSnapshot(NamedTuple):
         return self.password if self.app and self.age(now) <= MAX_AGE_SEC else None
 
 
+class TextSelection(NamedTuple):
+    start: int
+    end: int
+    text: str
+
+
 class _FocusWatch(NamedTuple):
     query_connection: object
     live: threading.Event
@@ -647,6 +653,13 @@ class _DbusTree:
         got = self._call(node, TEXT, "GetNSelections", None, "(i)")
         return got[0] if got else None
 
+    def selection_range(self, node):
+        got = self._call(node, TEXT, "GetSelection", self._GLib.Variant("(i)", (0,)), "(ii)")
+        if (isinstance(got, (tuple, list)) and len(got) == 2
+                and all(type(value) is int for value in got)):
+            return got[0], got[1]
+        return None
+
     def text_range(self, node, start, end):
         if (type(start) is not int or type(end) is not int
                 or not 0 <= start <= end <= 0x7FFFFFFF or end - start > 1024):
@@ -794,6 +807,83 @@ def query_focus() -> FocusSnapshot:
     if current != context:
         snap = FocusSnapshot()
     return snap._replace(app_ids=current.app_ids)
+
+
+def _selection_ready(expected, valid, limit):
+    now = time.monotonic()
+    return (isinstance(expected, FocusSnapshot) and expected.field is not None
+            and type(limit) is int and 0 < limit <= 1024
+            and type(expected.taken_at) in (int, float) and 0 < expected.taken_at <= now
+            and expected.protection(now) is False and valid() is True)
+
+
+def _read_selection(tree, expected, valid, limit) -> TextSelection | None:
+    try:
+        if not _selection_ready(expected, valid, limit):
+            return None
+        context = query_shell_context()
+        if (context is None or context.protected()
+                or context.app_ids != expected.app_ids):
+            return None
+
+        def same_focus():
+            if (not _selection_ready(expected, valid, limit)
+                    or query_shell_context() != context):
+                return False
+            snap = find_focus(tree, ROOT, context.pid)
+            return (snap.app == expected.app and snap.field == expected.field
+                    and snap.password is False and query_shell_context() == context
+                    and _selection_ready(expected, valid, limit))
+
+        def metadata():
+            selections = tree.selection_count(expected.field)
+            if type(selections) is not int or selections != 1:
+                return None
+            count = tree.character_count(expected.field)
+            bounds = tree.selection_range(expected.field)
+            if (type(count) is not int or not 0 <= count <= 0x7FFFFFFF
+                    or not isinstance(bounds, (tuple, list)) or len(bounds) != 2):
+                return None
+            start, end = bounds
+            if (type(start) is not int or type(end) is not int
+                    or not 0 <= start < end <= count or end - start > limit):
+                return None
+            return count, start, end
+
+        before = metadata()
+        if before is None or not same_focus():
+            return None
+        _count, start, end = before
+        text = tree.text_range(expected.field, start, end)
+        if (type(text) is not str or len(text) != end - start
+                or "\r" in text or "\n" in text):
+            return None
+        if metadata() != before or not same_focus():
+            return None
+        return TextSelection(start, end, text)
+    except Exception:  # noqa: BLE001 — provider failures must not expose selected text
+        return None
+
+
+def read_selection(expected: FocusSnapshot, valid: Callable[[], bool],
+                   limit: int) -> TextSelection | None:
+    """Read one bounded selection; execution still needs its own fresh validation."""
+    connection = None
+    try:
+        if not _selection_ready(expected, valid, limit):
+            return None
+        connection = _new_a11y_connection()
+        if connection is None:
+            return None
+        return _read_selection(_DbusTree(connection), expected, valid, limit)
+    except Exception:  # noqa: BLE001 — provider errors may contain document text
+        return None
+    finally:
+        if connection is not None:
+            try:
+                connection.close_sync(None)
+            except Exception:  # noqa: BLE001 — cleanup never exposes provider diagnostics
+                pass
 
 
 def bridge_available() -> tuple[bool, str]:
