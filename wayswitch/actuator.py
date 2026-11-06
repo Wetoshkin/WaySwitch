@@ -187,16 +187,16 @@ class _Run:
             self.write_checked = self._before_write() is True
         finally:
             # Проверка может доставить физический ввод даже при отказе или ошибке.
-            interrupted = self.native_aborted()
+            interrupted = self.native_aborted(before_write=True)
         return self.write_checked and not interrupted
 
-    def native_aborted(self) -> bool:
+    def native_aborted(self, *, before_write: bool = False) -> bool:
         interrupted = self._abort()
         stopped = self._stop()
         # Допечатанные символы уже используют новую раскладку или состояние Caps Lock.
         if interrupted and (self.switched or self.caps_toggle is not None) and not stopped:
             self.committed = True
-        return (interrupted and not self.committed) or stopped
+        return (interrupted and (before_write or not self.committed)) or stopped
 
     def blocked(self) -> bool:
         """Перед стирающей или печатающей клавишей: зажат физический Shift.
@@ -393,7 +393,7 @@ def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: flo
                     return False
                 if not run.write_checked:
                     if (run.blocked() or run.native_aborted() or not run.validate_write()
-                            or run.native_aborted()):
+                            or run.native_aborted(before_write=True)):
                         return False
                 run.commit()
                 prepared = True
@@ -428,7 +428,7 @@ def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: flo
             if isinstance(step, (Backspace, Type)) and (run.blocked() or run.aborted()):
                 return ABORTED
             if isinstance(step, (Backspace, Type)) and not run.write_checked:
-                if not run.validate_write() or run.aborted():
+                if not run.validate_write() or run.native_aborted(before_write=True):
                     return ABORTED
             if isinstance(step, Backspace):
                 run.committed = True

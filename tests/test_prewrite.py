@@ -3,7 +3,17 @@ import pytest
 from tests.fakes import RU, US, FakeBackend, RecordingTextTypist, RecordingTypist, make_keymap
 from tests.test_native_execution import FOCUS
 from wayswitch import keycodes as kc
-from wayswitch.actuator import ABORTED, DONE, FAILED, Backspace, Plan, SwitchLayout, Type, execute
+from wayswitch.actuator import (
+    ABORTED,
+    DONE,
+    FAILED,
+    Backspace,
+    Plan,
+    SwitchLayout,
+    ToggleCaps,
+    Type,
+    execute,
+)
 from wayswitch.editable import SpanResult
 
 
@@ -11,6 +21,7 @@ class Field:
     def __init__(self):
         self.text = "old"
         self.selected = True
+        self.caps = False
 
     def write(self, text):
         self.text = ("" if self.selected else self.text) + text
@@ -29,11 +40,17 @@ def make_transport(kind):
             super().key(code, value)
             if value and code == kc.KEY_BACKSPACE:
                 field.delete(1)
+            elif value and code == kc.KEY_CAPSLOCK:
+                field.caps = not field.caps
             elif value and code not in kc.MODIFIER_KEYS:
                 field.write(keymap.char(code, backend.current(),
                                         bool(self.stuck() & kc.SHIFT_KEYS), False))
 
     class Text(RecordingTextTypist):
+        def toggle_caps(self):
+            field.caps = not field.caps
+            return True
+
         def backspace(self, count):
             super().backspace(count)
             field.delete(count)
@@ -115,6 +132,38 @@ def test_validation_runs_once_even_when_own_write_clears_selection(transport):
 
     assert execute(plan, typist, backend, before_write=validate) == DONE
     assert field.text == "ab" and checks == [(US, True)]
+
+
+@pytest.mark.parametrize("mode", ["layout", "caps"])
+@pytest.mark.parametrize("probe", [1, 2])
+def test_postvalidation_physical_input_cannot_authorize_first_write(transport, mode, probe):
+    field, backend, typist, plan = transport
+    if mode == "caps":
+        plan.steps[0] = ToggleCaps()
+    ready = [False]
+    probes = []
+
+    def validate():
+        ready[0] = True
+        return True
+
+    def abort():
+        if ready[0]:
+            probes.append(True)
+            if len(probes) == probe:
+                ready[0] = False
+                field.selected = False
+                field.text += "x"
+                return True
+        return False
+
+    result = execute(plan, typist, backend, restore_group=RU,
+                     abort=abort, before_write=validate)
+    allowed = {ABORTED} if probe == 1 else {ABORTED, FAILED}
+    assert result in allowed
+    assert field.text == "oldx"
+    assert backend.current() == (US if mode == "layout" else RU)
+    assert field.caps is (mode == "caps")
 
 
 @pytest.mark.parametrize("raises", [False, True])
