@@ -705,7 +705,9 @@ class Controller:
                                reason="capitals", group_before=current, switch=False,
                                trigger=(device_id, code))
             return
-        decision = self.detector.decide(keys, current, other, self._context_tuple())
+        decision = self.detector.decide(
+            keys, current, other, self._context_tuple(),
+            two_capitals=self.config.general.two_capitals_fix and not self.buffer.caps)
         log.debug("решение: %s (%s)", decision.action, decision.reason)
         if decision.action == "fix":
             lang = decision.b.lang
