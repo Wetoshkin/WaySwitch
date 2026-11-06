@@ -49,6 +49,16 @@ def test_menu_layout_shows_update():
     assert "update" not in [i.ident for i in menu_layout({"auto_correct": True})]
 
 
+def test_selection_menu_requires_confirmed_backend_capability():
+    for status in (None, {}, {"selection_supported": False}):
+        item = next(i for i in menu_layout(status) if i.ident == "fix_selection")
+        assert not item.enabled
+        assert "недоступно" in item.label
+    item = next(i for i in menu_layout({"selection_supported": True})
+                if i.ident == "fix_selection")
+    assert item.enabled and item.label == "Исправить выделенное"
+
+
 def test_cosmic_unlock_confirmation_has_actionable_gui_state():
     status = {"lock_confirmation_required": True, "locked": False, "paused": False}
     view = texts.status_view(status)

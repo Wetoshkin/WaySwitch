@@ -42,6 +42,7 @@ def extension_version() -> int | None:
 class GnomeShellBackend(LayoutBackend):
     name = "shell"
     supports_auto = True
+    supports_selection = True
 
     def __init__(self, settle_ms: int = 30):
         from gi.repository import Gio, GLib

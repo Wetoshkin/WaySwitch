@@ -228,6 +228,7 @@ class Controller:
             "lock_confirmation_required": self.lock_confirmation_required,
             "busy": self.busy,
             "backend": getattr(self.backend, "name", "?"),
+            "selection_supported": getattr(self.backend, "supports_selection", False) is True,
             "layout_index": self.backend.current(),
             "layout": self._layout_alphabet(),
             "layout_supported": self._groups() is not None,

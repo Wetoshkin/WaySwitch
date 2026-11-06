@@ -1,3 +1,5 @@
+import pytest
+
 from wayswitch import __version__
 from wayswitch.cli import build_parser
 
@@ -16,3 +18,39 @@ def test_version(capsys):
 
     assert main(["version"]) == 0
     assert __version__ in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("command", ["fix-selection", "translit", "number-words"])
+@pytest.mark.parametrize("status", [{}, {"selection_supported": False}])
+def test_selection_command_explains_unavailable_backend(command, status, monkeypatch, capsys):
+    from wayswitch import cli
+
+    calls = []
+
+    def call(method):
+        calls.append(method)
+        return (status,) if method == "GetStatus" else (False,)
+
+    monkeypatch.setattr(cli, "call_daemon", call)
+    assert cli.main([command]) == 1
+    assert calls == ["GetStatus"]
+    assert "недоступно" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("command,method", [
+    ("fix-selection", "FixSelection"),
+    ("translit", "TranslitSelection"),
+    ("number-words", "NumberWordsSelection"),
+])
+def test_selection_command_uses_supported_backend(command, method, monkeypatch, capsys):
+    from wayswitch import cli
+
+    calls = []
+
+    def call(name):
+        calls.append(name)
+        return ({"selection_supported": True},) if name == "GetStatus" else (True,)
+
+    monkeypatch.setattr(cli, "call_daemon", call)
+    assert cli.main([command]) == 0
+    assert calls == ["GetStatus", method]

@@ -15,6 +15,7 @@ class BackendError(RuntimeError):
 class LayoutBackend(ABC):
     name = "abstract"
     supports_auto = False  # можно ли доверять current() для автоисправления
+    supports_selection = False
     # Переключать раскладку перед каждой печатью, даже «на ту же»: в Sway и
     # Hyprland у каждого устройства своя группа, и наша виртуальная
     # клавиатура могла остаться в старой.
