@@ -104,6 +104,7 @@ class MenuItem(NamedTuple):
 def menu_layout(status: dict | None, update: str | None = None) -> list[MenuItem]:
     """Пункты меню значка. Зависят от состояния демона и наличия обновления."""
     running = status is not None
+    selection_supported = bool(status and status.get("selection_supported") is True)
     auto = bool(status and status.get("auto_correct"))
     paused = bool(status and texts.pause_method(status) == "Resume")
     pause_enabled = running and not bool(status and status.get("lock_confirmation_required")
@@ -115,7 +116,8 @@ def menu_layout(status: dict | None, update: str | None = None) -> list[MenuItem
         MenuItem("pause", "Возобновить" if paused else "Пауза", pause_enabled,
                  icon="media-playback-start-symbolic" if paused
                  else "media-playback-pause-symbolic"),
-        MenuItem("fix_selection", "Исправить выделенное", running,
+        MenuItem("fix_selection", "Исправить выделенное" if selection_supported
+                 else "Исправить выделенное (недоступно)", selection_supported,
                  icon="edit-select-all-symbolic"),
         MenuItem("sep2", kind="separator"),
     ]

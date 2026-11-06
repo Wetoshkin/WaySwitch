@@ -284,7 +284,9 @@ Firefox Flatpak checks on Bazzite cover input, textarea, contenteditable and the
 address bar. Telegram was checked in an ordinary field before login; its
 authenticated message editor remains untested. ONLYOFFICE Desktop Editors 10.0.0
 (Flatpak on Bazzite) did not expose an AT-SPI field tree on the tested setup;
-automatic correction was not confirmed.
+automatic correction was not confirmed. In a separate control using the official
+DEB on Ubuntu, the AT-SPI connection worked, but the document and Find controls
+did not expose editable fields even with screen-reader support enabled.
 
 When retyping uses virtual key presses, observed physical input stops further
 changes and can leave a partial correction. A physical key can still arrive
