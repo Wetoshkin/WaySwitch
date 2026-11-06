@@ -1,4 +1,4 @@
-"""Bounded native word replacement for LibreOffice editable paragraphs."""
+"""Bounded native word replacement for LibreOffice Writer paragraphs."""
 
 import time
 from contextlib import contextmanager
@@ -17,8 +17,15 @@ class SpanResult(NamedTuple):
     target_text: str | None = None
 
 
+def _writer(focus):
+    return (isinstance(focus, a11y.FocusSnapshot)
+            and any(app.casefold().removesuffix(".desktop") == "libreoffice-writer"
+                    for app in focus.app_ids))
+
+
 def try_replace(focus, source, target, commit, stopped) -> SpanResult | None:
-    if focus is not None and focus.app and focus.app.casefold() not in {"soffice", "libreoffice"}:
+    if (focus is not None and focus.app
+            and (focus.app.casefold() not in {"soffice", "libreoffice"} or not _writer(focus))):
         return None
     if not _normal(focus):
         return SpanResult("aborted")
@@ -49,7 +56,7 @@ def try_replace(focus, source, target, commit, stopped) -> SpanResult | None:
 
 
 def _normal(focus):
-    return (isinstance(focus, a11y.FocusSnapshot) and focus.field is not None
+    return (_writer(focus) and focus.field is not None
             and focus.app is not None and focus.app.casefold() in {"soffice", "libreoffice"}
             and focus.protection(time.monotonic()) is False)
 

@@ -27,6 +27,25 @@ def test_non_libreoffice_has_no_native_attempt(monkeypatch):
     assert editable.try_replace(focus, "hello", "руддщ", forbidden, lambda: False) is None
 
 
+@pytest.mark.parametrize("component", ["libreoffice-calc", "libreoffice-impress"])
+def test_writer_native_path_does_not_open_other_libreoffice_components(
+        native, monkeypatch, component):
+    calls = []
+    monkeypatch.setattr(a11y, "_new_a11y_connection", lambda: calls.append(True))
+    focus = native.focus._replace(app_ids=(component, "org.libreoffice"))
+    result = editable.try_replace(focus, SOURCE, TARGET, native.commit, native.stopped)
+    assert calls == []
+    assert result is None
+
+
+def test_direct_native_range_requires_writer_component(native, monkeypatch):
+    native.focus = native.focus._replace(app_ids=("libreoffice-calc", "org.libreoffice"))
+    native.context = native.context._replace(app_ids=native.focus.app_ids)
+    monkeypatch.setattr(a11y, "query_shell_context", lambda: native.context)
+    assert replace(native) == editable.SpanResult("aborted")
+    assert native.tree.reads == native.tree.writes == native.committed == []
+
+
 FIELD = (":1.2", "/field")
 SOURCE = "ghbdtn "
 TARGET = "привет "
