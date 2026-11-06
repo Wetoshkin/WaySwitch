@@ -45,12 +45,11 @@ class GnomeIbusBackend(LayoutBackend):
 
     def _on_engine_changed(self, _bus, name: str) -> None:
         index = gnome_common.index_of_engine(name, self._specs)
-        external = index != self._expected
+        external = index is None or index != self._expected
         self._expected = None
         self._current = index
-        if index is not None:
-            for cb in self._callbacks:
-                cb(index, external)
+        for cb in self._callbacks:
+            cb(index, external)
 
     def layouts(self) -> list[LayoutSpec]:
         return list(self._specs)
@@ -110,5 +109,5 @@ class GnomeIbusBackend(LayoutBackend):
         """
         real = gnome_common.read_current_index(self._specs)
         if real is None or self._current is None:
-            return True  # не смогли прочитать — не мешаем работать
+            return False
         return real == self._current

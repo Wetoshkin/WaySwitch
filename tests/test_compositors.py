@@ -85,6 +85,26 @@ def make_sway(fake):
     return backend, events
 
 
+@pytest.mark.parametrize("names", [("English (US)",),
+                                   ("Russian", "English (US)", "English (Dvorak)")])
+def test_sway_one_or_extra_sources_keep_indices(names):
+    fake = FakeSway(index=len(names) - 1, names=names)
+    backend, _ = make_sway(fake)
+    assert backend.current() == len(names) - 1
+    backend.set(0)
+    assert backend.wait_applied(0, 1)
+    assert fake.commands == ["input type:keyboard xkb_switch_layout 0"]
+
+
+def test_sway_preserves_unknown_extra_description_without_reindexing_ru_en():
+    fake = FakeSway(index=2, names=("Custom local source", "Russian", "English (US)"))
+    backend, _ = make_sway(fake)
+    specs = backend.layouts()
+    assert len(specs) == 3 and specs[0].kind != "xkb"
+    backend.set(1)
+    assert backend.wait_applied(1, .1)
+
+
 def test_sway_reads_layouts_and_switches():
     fake = FakeSway(index=1)
     backend, _ = make_sway(fake)
@@ -106,9 +126,69 @@ def test_sway_external_change_event():
     assert seen == [(1, True), (0, False)]
 
 
-def test_sway_needs_two_layouts():
+def test_sway_needs_an_actual_layout_list():
     with pytest.raises(BackendError):
-        make_sway(FakeSway(names=("English (US)",)))
+        make_sway(FakeSway(names=()))
+
+
+def test_compositor_extra_sources_cycle_with_existing_track_opt_in(tmp_path, monkeypatch):
+    env = {"XDG_CONFIG_HOME": str(tmp_path), "XKB_DEFAULT_LAYOUT": "de,ru,us",
+           "XKB_DEFAULT_OPTIONS": "grp:alt_shift_toggle", "XDG_RUNTIME_DIR": str(tmp_path)}
+    typist = RecordingTypist()
+    backend = compositor.CompositorBackend(typist, settle_ms=0, track=True, env=env)
+    assert backend.current() == 0
+    for code, value in [(kc.KEY_LEFTALT, 1), (kc.KEY_LEFTSHIFT, 1),
+                        (kc.KEY_LEFTSHIFT, 0), (kc.KEY_LEFTALT, 0)]:
+        backend.observe_physical(code, value)
+    assert backend.current() == 1
+    monkeypatch.setattr("wayswitch.backends.hotkey.time.sleep", lambda _: None)
+    backend.set(2)
+    assert backend.wait_applied(2, .1)
+    assert backend.supports_auto is True
+
+
+def test_compositor_ambiguous_cycle_or_missing_hotkey_starts_passively(tmp_path):
+    for option in ("grp:alt_shift_toggle_bidir", "grp:lshift_toggle", "grp:rshift_toggle", ""):
+        env = {"XDG_CONFIG_HOME": str(tmp_path), "XKB_DEFAULT_LAYOUT": "us,de,ru",
+               "XKB_DEFAULT_OPTIONS": option, "XDG_RUNTIME_DIR": str(tmp_path)}
+        backend = compositor.CompositorBackend(RecordingTypist(), track=True, env=env)
+        assert backend.current() is None and not backend.supports_auto
+
+
+def test_compositor_unverifiable_fifth_group_is_passive(tmp_path):
+    env = {"XDG_CONFIG_HOME": str(tmp_path), "XKB_DEFAULT_LAYOUT": "de,fr,pl,us,ru",
+           "XKB_DEFAULT_OPTIONS": "grp:alt_shift_toggle", "XDG_RUNTIME_DIR": str(tmp_path)}
+    backend = compositor.CompositorBackend(RecordingTypist(), track=True, env=env)
+    assert backend.current() is None and not backend.supports_auto
+
+
+def test_compositor_single_source_starts_without_a_switch_hotkey(tmp_path):
+    env = {"XDG_CONFIG_HOME": str(tmp_path), "XKB_DEFAULT_LAYOUT": "us",
+           "XDG_RUNTIME_DIR": str(tmp_path)}
+    backend = compositor.CompositorBackend(RecordingTypist(), env=env)
+    assert backend.layouts() == [LayoutSpec("us")]
+    assert backend.current() is None and not backend.supports_auto
+
+
+@pytest.mark.parametrize("option,modifier,key", [
+    ("grp:shift_caps_toggle", kc.KEY_LEFTSHIFT, kc.KEY_CAPSLOCK),
+    ("grp:alt_caps_toggle", kc.KEY_LEFTALT, kc.KEY_CAPSLOCK),
+    ("grp:alt_space_toggle", kc.KEY_LEFTALT, kc.KEY_SPACE),
+    ("grp:win_space_toggle", kc.KEY_LEFTMETA, kc.KEY_SPACE),
+])
+def test_compositor_does_not_count_reversed_order_of_modifier_and_regular_key(
+        option, modifier, key, tmp_path):
+    env = {"XDG_CONFIG_HOME": str(tmp_path), "XKB_DEFAULT_LAYOUT": "de,us,ru",
+           "XKB_DEFAULT_OPTIONS": option, "XDG_RUNTIME_DIR": str(tmp_path)}
+    backend = compositor.CompositorBackend(RecordingTypist(), track=True, env=env)
+    backend.observe_physical(key, 1)
+    backend.observe_physical(modifier, 1)
+    assert backend.current() == 0
+    backend.observe_physical(modifier, 0)
+    backend.observe_physical(key, 0)
+    backend.observe_physical(modifier, 1)
+    backend.observe_physical(key, 1)
+    assert backend.current() == 1
 
 
 def test_sway_ipc_framing():
@@ -150,6 +230,22 @@ def make_hypr(fake):
     return backend, events
 
 
+def test_hyprland_extra_sources_keep_native_index():
+    class ExtraHypr(FakeHypr):
+        def json(self, command):
+            if command == "getoption input:kb_layout":
+                return {"str": "de,us,ru"}
+            return super().json(command)
+
+    fake = ExtraHypr(active="Russian")
+    backend, _ = make_hypr(fake)
+    assert backend.current() == 2
+    backend.set(1)
+    fake.active = "English (US)"
+    assert backend.wait_applied(1, 1)
+    assert fake.sent == ["switchxkblayout all 1"]
+
+
 def test_hyprland_reads_layouts_and_switches():
     fake = FakeHypr()
     backend, _ = make_hypr(fake)
@@ -159,6 +255,16 @@ def test_hyprland_reads_layouts_and_switches():
     backend.set(1)
     assert fake.sent == ["switchxkblayout all 1"]
     assert backend.wait_applied(1, 0.5)
+
+
+def test_hyprland_unknown_source_event_revokes_previous_group_and_can_return():
+    backend, events = make_hypr(FakeHypr())
+    changes = []
+    backend.on_change(lambda *args: changes.append(args))
+    events["cb"]("activelayout>>kbd,Custom local source")
+    assert backend.current() is None and changes == [(None, True)]
+    events["cb"]("activelayout>>kbd,Russian")
+    assert backend.current() == 1 and changes[-1] == (1, True)
 
 
 def test_hyprland_prefers_layout_index_when_present():
@@ -251,9 +357,10 @@ def test_compositor_backend_switches_with_toggle(tmp_path):
 def test_compositor_backend_explains_missing_config(tmp_path):
     with pytest.raises(BackendError, match="XKB_DEFAULT_LAYOUT"):
         compositor.CompositorBackend(RecordingTypist(), env={"XDG_CONFIG_HOME": str(tmp_path)})
-    env = {"XDG_CONFIG_HOME": str(tmp_path), "XKB_DEFAULT_LAYOUT": "us,ru"}
-    with pytest.raises(BackendError, match="grp:"):
-        compositor.CompositorBackend(RecordingTypist(), env=env)
+    env = {"XDG_CONFIG_HOME": str(tmp_path), "XKB_DEFAULT_LAYOUT": "us,ru",
+           "XDG_RUNTIME_DIR": str(tmp_path)}
+    backend = compositor.CompositorBackend(RecordingTypist(), env=env)
+    assert backend.current() is None and not backend.supports_auto
 
 
 def test_json_roundtrip_of_sway_reply():

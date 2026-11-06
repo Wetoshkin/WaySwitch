@@ -75,8 +75,10 @@ with a physical keyboard is still needed; see [Status](#status).
 
 ## Install
 
-**You need** a Wayland session (not X11) and two layouts — Russian and a
-Latin one. Supported installation targets include Ubuntu 24.04+, Debian 13+,
+**You need** a Wayland session (not X11). Corrections require Russian and
+English layouts. Other input sources can remain installed: WaySwitch leaves
+them alone and resumes when you return to ru/en. Without a ru/en pair the
+application starts with a warning. Supported installation targets include Ubuntu 24.04+, Debian 13+,
 Fedora 41+, openSUSE Tumbleweed, Arch and their compatible derivatives.
 The installer checks the system before making changes.
 
@@ -168,10 +170,18 @@ because the compositor's compiled keymap does not expose original XKB options.
 
 A package and system module are provided for NixOS; see the
 [setup guide](docs/nixos.md) for dependencies, device access and service startup.
-Umbriel uses native IPC and requires exactly two layouts shared by ordinary
+Umbriel uses native IPC and requires the same layout list and order on ordinary
 keyboards and `uinput`, plus a graphical session registered with logind.
 Unknown session state blocks both automatic and manual correction.
 Automatic Caps Lock deactivation is unavailable without XKB option information.
+
+With several ru/en variants, WaySwitch uses the current variant and the first
+opposite language in system order. GNOME needs the WaySwitch extension for
+additional input sources; the fallback system shortcut cannot reliably track
+three or more. labwc/Wayfire retain their counter limitation: mouse switches
+are invisible, and automatic correction requires explicit `backend.track_hotkey`.
+Additional layouts need ordinary cyclic XKB shortcuts such as
+`grp:alt_shift_toggle`; ambiguous bidirectional shortcuts leave the service passive.
 
 ## Gestures
 

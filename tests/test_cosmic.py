@@ -58,6 +58,20 @@ def backend():
     return obj
 
 
+def test_extra_groups_use_actual_map_indices_and_require_confirmation():
+    from tests.fakes import RU_TABLE, US_TABLE
+    from wayswitch.keymap import LayoutSpec, TableKeymap
+
+    obj = backend()
+    obj.keymap = TableKeymap([US_TABLE, RU_TABLE, US_TABLE],
+                             [LayoutSpec("de"), LayoutSpec("ru"), LayoutSpec("us")])
+    obj._group = 2
+    assert obj.keymap.opposite_group(obj.current()) == 1
+    obj.set(1)
+    obj.transport.events.append(lambda: obj.group(1))
+    assert obj.wait_applied(1, .1) and obj.transport.sent == [1]
+
+
 def test_switch_needs_ack_external_change_is_reported():
     obj = backend()
     changes = []

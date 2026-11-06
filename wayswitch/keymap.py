@@ -17,6 +17,9 @@ from functools import cached_property
 
 CYRILLIC = set("абвгдеёжзийклмнопрстуфхцчшщъыьэюя")
 LATIN = set("abcdefghijklmnopqrstuvwxyz")
+LAYOUT_SCOPE = ("WaySwitch исправляет ввод только между русской и английской раскладками. "
+                "Другие источники можно оставить в системе: при их выборе WaySwitch "
+                "не изменяет текст")
 # Буквенные клавиши, по которым определяем алфавит группы.
 _ALPHABET_PROBE = (30, 31, 32, 33, 34, 35, 36, 37, 38)  # KEY_A..KEY_L
 # Цифровой блок: те же символы, что у основных клавиш, но печатать ими нельзя
@@ -30,6 +33,7 @@ NUMPAD_KEYS = frozenset({
 class LayoutSpec:
     layout: str
     variant: str = ""
+    kind: str = "xkb"
 
     @classmethod
     def parse(cls, source_id: str) -> LayoutSpec:
@@ -113,13 +117,39 @@ class Keymap(ABC):
             return "latin"
         return "other"
 
+    @cached_property
+    def _languages(self) -> list[str | None]:
+        from wayswitch.backends.xkbnames import language_for_spec
+
+        specs = getattr(self, "specs", None)
+        result = []
+        for group in range(self.num_groups):
+            alphabet = {"ru": "ru", "latin": "en"}.get(self.alphabet(group))
+            language = language_for_spec(specs[group]) if specs is not None else alphabet
+            result.append(language if language == alphabet else None)
+        return result
+
+    def language(self, group: int | None) -> str | None:
+        if type(group) is not int or not 0 <= group < self.num_groups:
+            return None
+        return self._languages[group]
+
+    def opposite_group(self, current: int | None) -> int | None:
+        language = self.language(current)
+        if language is None:
+            return None
+        target = "en" if language == "ru" else "ru"
+        return next((g for g in range(self.num_groups) if self.language(g) == target), None)
+
     def decode(self, keys: Iterable, group: int) -> str:
         return "".join(self.char(k.code, group, k.shift, k.caps) for k in keys)
 
 
 class TableKeymap(Keymap):
-    def __init__(self, tables: list[dict[int, tuple[str, str]]]):
+    def __init__(self, tables: list[dict[int, tuple[str, str]]],
+                 specs: list[LayoutSpec] | None = None):
         self._tables = tables
+        self.specs = specs
 
     @property
     def num_groups(self) -> int:
@@ -194,15 +224,22 @@ class XkbKeymap(Keymap):
 
     @classmethod
     def from_names(cls, specs: list[LayoutSpec], options: list[str]) -> XkbKeymap:
+        from wayswitch.backends.xkbnames import language_for_spec
+
         lib = _load_lib()
-        names = _XkbRuleNames(
-            rules=b"evdev", model=b"pc105",
-            layout=",".join(s.layout for s in specs).encode(),
-            variant=",".join(s.variant for s in specs).encode(),
-            options=",".join(options).encode(),
-        )
-        return cls._compile(lib, lambda ctx: lib.xkb_keymap_new_from_names(
-            ctx, ctypes.byref(names), 0), specs)
+        tables = []
+        # Одна карта на источник: старый XKB усекает общий список после четырёх групп.
+        for spec in specs:
+            if language_for_spec(spec) is None:
+                tables.append({})
+                continue
+            names = _XkbRuleNames(rules=b"evdev", model=b"pc105",
+                                  layout=spec.layout.encode(), variant=spec.variant.encode(),
+                                  options=",".join(options).encode())
+            km = cls._compile(lib, lambda ctx, names=names: lib.xkb_keymap_new_from_names(
+                ctx, ctypes.byref(names), 0), [spec])
+            tables.append(km._table(0))
+        return cls(tables, specs)
 
     @classmethod
     def from_buffer(cls, data: bytes) -> XkbKeymap:

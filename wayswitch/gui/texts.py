@@ -12,6 +12,8 @@ import time
 from collections import deque
 from dataclasses import dataclass
 
+from wayswitch.keymap import LAYOUT_SCOPE
+
 # Как бэкенд называется для человека: «Раскладка: русская · через …».
 BACKEND_HUMAN = {
     "shell": "через расширение GNOME Shell",
@@ -35,7 +37,7 @@ SENSITIVITY_CHOICES = ("Осторожная", "Обычная", "Смелая")
 # Варианты «Жест»; порядок = config.MANUAL_MODES.
 MANUAL_CHOICES = ("Двойной Shift", "Нажатие клавиши", "Клавиша Pause", "Выключен")
 
-LAYOUT_HUMAN = {"ru": "русская", "latin": "английская"}
+LAYOUT_HUMAN = {"ru": "русская", "latin": "английская", "other": "другая (не поддерживается)"}
 
 # Раскладки XKB по-человечески — для шага «Проверка системы».
 XKB_HUMAN = {"us": "English (US)", "gb": "English (UK)", "ru": "Русская",
@@ -112,6 +114,10 @@ def status_view(status: dict | None) -> StatusView:
     backend = BACKEND_HUMAN.get(str(status.get("backend") or ""), "")
     layout = layout_human(status.get("layout"))
     where = f"Раскладка: {layout}" + (f" · {backend}" if backend else "")
+    if status.get("layout_supported") is False:
+        return StatusView("manual", "Ожидание русской или английской раскладки",
+                          LAYOUT_SCOPE + ". Нужны оба языка и доступное переключение",
+                          True, True)
     if not status.get("active") or not status.get("auto_correct", True):
         # Служба работает, но на пробеле не исправляет: либо выключено в
         # параметрах, либо раскладку прочитать нечем (только ручной жест).
@@ -234,9 +240,11 @@ ONBOARDING_CHECKS = {
     "wayland": ("Сессия Wayland", "{detail}",
                 "Сейчас включён старый режим графики X11. Выйдите из системы, на экране "
                 "входа нажмите на шестерёнку и выберите сеанс без «Xorg»", None),
-    "layouts": ("Две раскладки", "{detail}",
-                "Добавьте русскую и английскую раскладки в настройках системы",
+    "layouts": ("Русская и английская раскладки", "{detail}",
+                "Добавьте русскую и английскую раскладки в настройках системы. "
+                "Другие удалять не нужно. До появления пары ru/en исправления недоступны",
                 "layouts"),
+    "layout_scope": ("Рабочие языки", LAYOUT_SCOPE, LAYOUT_SCOPE, None),
     "uinput": ("Виртуальная клавиатура", "Можно печатать исправления",
                "Перезагрузите компьютер", None),
     "keyboards": ("Доступ к клавиатуре", "Клавиатура читается",

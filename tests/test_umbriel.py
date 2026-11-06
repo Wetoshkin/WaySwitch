@@ -17,7 +17,8 @@ from wayswitch.backends.base import BackendError
 from wayswitch.keymap import LayoutSpec
 
 NAMES = ["English (US)", "Russian"]
-RULES = {"English (US)": LayoutSpec("us"), "Russian": LayoutSpec("ru")}
+RULES = {"English (US)": LayoutSpec("us"), "Russian": LayoutSpec("ru"),
+         "German": LayoutSpec("de"), "French": LayoutSpec("fr")}
 
 
 def state(index=0, names=None):
@@ -47,7 +48,7 @@ class Ipc:
             return state(self.index, self.names)
         assert payload == {"cmd": "action", "action": "keyboard-layout-next"}
         if self.applies:
-            self.index = 1 - self.index
+            self.index = (self.index + 1) % len(self.names)
         return {"ok": None}
 
 
@@ -189,8 +190,9 @@ def test_native_set_verifies_state_instead_of_optimistic_acknowledgment():
     assert b.current() == 1 and b.wait_applied(1, .05)
     assert ipc.requests.count({"cmd": "action", "action": "keyboard-layout-next"}) == 1
     ipc.applies = False
-    b.set(0)
-    assert b.current() == 1 and not b.wait_applied(0, .02)
+    with pytest.raises(BackendError):
+        b.set(0)
+    assert b.current() is None and not b.wait_applied(0, .02)
     assert ipc.requests.count({"cmd": "action", "action": "keyboard-layout-next"}) == 2
 
 
@@ -223,11 +225,11 @@ def test_invalid_target_never_sends_an_action(index):
 
 
 @pytest.mark.parametrize("names", [["English (US)"], NAMES + ["German"]])
-def test_native_backend_requires_two_groups_before_any_action(names):
+def test_native_backend_preserves_one_or_more_groups_without_action(names):
     ipc = Ipc()
     ipc.names = names
-    with pytest.raises(BackendError):
-        backend(ipc)
+    b = backend(ipc)
+    assert len(b.layouts()) == len(names)
     assert ipc.requests == [{"cmd": "keyboard-layouts"}]
 
 
@@ -262,11 +264,49 @@ def test_unexpected_event_during_switch_cannot_be_discarded_as_stale(applies):
     changes, reloads = [], []
     b.on_change(lambda *args: changes.append(args))
     b.on_layouts_changed = lambda: reloads.append(True)
-    b.set(1)
+    if applies:
+        b.set(1)
+    else:
+        with pytest.raises(BackendError):
+            b.set(1)
     changes.clear()
     watch.callback(event(0))
-    assert b.current() is None and changes == [(None, True)] and reloads == [True]
+    assert b.current() is None and changes == ([(None, True)] if applies else [])
+    assert reloads == [True]
     assert not b.wait_applied(1, .01) and watch.closed == 1
+
+
+def test_multi_step_switch_keeps_indices_and_accepts_queued_intermediate_events():
+    ipc, watch = Ipc(), Watch()
+    ipc.names = ["English (US)", "German", "French", "Russian"]
+    b = backend(ipc, watch)
+    changes = []
+    b.on_change(lambda *args: changes.append(args))
+    b.set(3)
+    assert b.wait_applied(3, .05) and b.current() == 3
+    assert ipc.requests.count(umbriel.NEXT) == 3
+    for index in (1, 2, 3):
+        watch.callback(event(index, ipc.names))
+    assert b.current() == 3 and all(not external for _, external in changes)
+    ipc.index = 0
+    watch.callback(event(0, ipc.names))
+    assert changes[-1] == (0, True)
+
+
+def test_multi_step_switch_stops_before_next_action_when_state_skips_a_group():
+    class SkippingIpc(Ipc):
+        def request(self, payload, timeout=2.0):
+            reply = super().request(payload, timeout)
+            if payload == umbriel.NEXT:
+                self.index = (self.index + 1) % len(self.names)
+            return reply
+
+    ipc = SkippingIpc()
+    ipc.names = ["English (US)", "German", "Russian"]
+    b = backend(ipc)
+    with pytest.raises(BackendError):
+        b.set(2)
+    assert b.current() is None and ipc.requests.count(umbriel.NEXT) == 1
 
 
 @pytest.mark.parametrize("failure", [None, {"err": "private diagnostic"}, event(True),

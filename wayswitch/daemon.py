@@ -17,7 +17,7 @@ from wayswitch.backends.select import choose_backend
 from wayswitch.controller import Controller
 from wayswitch.dbus_service import DaemonService
 from wayswitch.detector import SENSITIVITY, Detector, LanguageModel
-from wayswitch.keymap import XkbKeymap
+from wayswitch.keymap import LAYOUT_SCOPE, XkbKeymap
 from wayswitch.keys import DeviceWatcher
 from wayswitch.session import SessionGuard
 from wayswitch.sound import ensure_and_play
@@ -77,7 +77,7 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         typist_for_controller = ShellTypist(backend, keys=typist)
     else:
         typist_for_controller = typist
-        if backend.name == "ibus" and not backend.verify_layout():
+        if backend.name == "ibus" and backend.current() is not None and not backend.verify_layout():
             # На GNOME 46+ глобальный движок IBus — не то же самое, что
             # раскладка компоузитора: set_global_engine() меняет движок, а
             # раскладка ввода остаётся прежней. Демон тогда уверен, что
@@ -95,11 +95,12 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
               XkbKeymap.from_names(backend.layouts(), backend.xkb_options() or []))
     models = {}
     for group in range(keymap.num_groups):
-        lang = {"ru": "ru", "latin": "en"}.get(keymap.alphabet(group))
+        lang = keymap.language(group)
         if lang and lang not in models:
             models[lang] = LanguageModel.load(lang)
-    if set(models) != {"ru", "en"} or keymap.num_groups != 2:
-        log.warning("нужны ровно две раскладки: русская и латинская; авторежим выключен")
+    log.info(LAYOUT_SCOPE)
+    if set(models) != {"ru", "en"}:
+        log.warning("не найдена пара русской и английской раскладок; исправления недоступны")
         backend.supports_auto = False
     detector = Detector(keymap, models, cfgmod.load_exceptions(),
                         SENSITIVITY[config.general.sensitivity])

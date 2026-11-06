@@ -100,8 +100,8 @@ class KdePlasmaBackend(LayoutBackend):
         except Exception as e:  # noqa: BLE001 — нет шины/службы: бэкенд недоступен
             raise BackendError(f"KWin не отдаёт org.kde.keyboard: {e}") from None
         self._specs = parse_layouts_list(rows, read_kxkbrc_variants())
-        if len(self._specs) < 2:
-            raise BackendError("в KDE настроена одна раскладка")
+        if not self._specs:
+            raise BackendError("в KDE не найдены раскладки")
         self._callbacks: list[Callable[[int, bool], None]] = []
         self._expected: int | None = None
         self._current = self._query()
