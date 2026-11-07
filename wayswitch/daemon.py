@@ -78,6 +78,11 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         # Расширения нет: печатаем сканкодами через uinput. Раскладку
         # переключает композитор, паузу после переключения ждёт wait_applied.
         log.info("печать символов: uinput (бэкенд %s)", backend.name)
+        if backend.name == "kde":
+            from wayswitch.editable import try_replace_kde
+
+            # Только KDE: нативный span-протокол для Writer через AT-SPI.
+            typist.replace_span = try_replace_kde
         typist_for_controller = typist
     elif backend.name == "shell" and config.backend.shell_typing == "uinput":
         # Печать сканкодами через uinput, хотя раскладку переключает расширение:

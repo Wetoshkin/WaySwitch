@@ -8,6 +8,8 @@ from wayswitch import a11y
 
 EDITABLE = "org.a11y.atspi.EditableText"
 MAX_SPAN = 512
+KDE_APPS = frozenset({"soffice", "libreoffice", "soffice.bin"})
+_OK, _ABORT, _UNSUPPORTED = "ok", "abort", "unsupported"
 
 
 class SpanResult(NamedTuple):
@@ -106,33 +108,44 @@ def _edits(events, before, after, start, kind, length, count_before, count_after
 
 
 def _replace(tree, focus, source, target, commit, stopped, events) -> SpanResult:
+    if not _normal(focus) or not _span(source) or not _span(target):
+        return SpanResult("aborted")
+    node = focus.field
+    try:
+        context = a11y.query_shell_context()
+    except Exception:  # noqa: BLE001 — unknown context is a failed native attempt, not a retry
+        return SpanResult("failed")
+
+    def safe():
+        if stopped() or not _normal(focus):
+            return False
+        current = a11y.query_shell_context()
+        if (context is None or current != context or context.protected()
+                or not context.ime_focus or type(context.pid) is not int or context.pid <= 0
+                or not focus.app_ids or context.app_ids != focus.app_ids):
+            return False
+        state = tree.state(node)
+        interfaces = tree.interfaces(node)
+        selections = tree.selection_count(node)
+        pid = tree.pid(node)
+        return (bool(state) and a11y._state_bit(state, a11y.EDITABLE)
+                and a11y._state_bit(state, a11y.FOCUSED) and tree.role(node) in {73, 83}
+                and interfaces is not None and a11y.TEXT in interfaces
+                and EDITABLE in interfaces
+                and tree.input_type(node) not in {None, "password"}
+                and tree.app_of(node) == focus.app and a11y._same_application(pid, context.pid)
+                and type(selections) is int and selections == 0
+                and not stopped() and a11y.query_shell_context() == context)
+
+    return _replace_checked(tree, focus, source, target, commit, stopped, events, safe)
+
+
+def _replace_checked(tree, focus, source, target, commit, stopped, events, safe) -> SpanResult:
     attempted = False
     try:
-        if not _normal(focus) or not _span(source) or not _span(target):
-            return SpanResult("aborted")
         node = focus.field
-        context = a11y.query_shell_context()
-
-        def safe():
-            if stopped() or not _normal(focus):
-                return False
-            current = a11y.query_shell_context()
-            if (context is None or current != context or context.protected()
-                    or not context.ime_focus or type(context.pid) is not int or context.pid <= 0
-                    or not focus.app_ids or context.app_ids != focus.app_ids):
-                return False
-            state = tree.state(node)
-            interfaces = tree.interfaces(node)
-            selections = tree.selection_count(node)
-            pid = tree.pid(node)
-            return (bool(state) and a11y._state_bit(state, a11y.EDITABLE)
-                    and a11y._state_bit(state, a11y.FOCUSED) and tree.role(node) in {73, 83}
-                    and interfaces is not None and a11y.TEXT in interfaces
-                    and EDITABLE in interfaces
-                    and tree.input_type(node) not in {None, "password"}
-                    and tree.app_of(node) == focus.app and a11y._same_application(pid, context.pid)
-                    and type(selections) is int and selections == 0
-                    and not stopped() and a11y.query_shell_context() == context)
+        if not _span(source) or not _span(target):
+            return SpanResult("aborted")
 
         def read(start, end):
             if not safe():
@@ -195,6 +208,138 @@ def _replace(tree, focus, source, target, commit, stopped, events) -> SpanResult
                           target if case_changed else None)
     except Exception:  # noqa: BLE001 — never log provider errors containing field contents
         return SpanResult("failed", attempted)
+
+
+def _kde_identity(focus) -> bool:
+    return (isinstance(focus, a11y.FocusSnapshot) and type(focus.app) is str
+            and focus.app.casefold() in KDE_APPS)
+
+
+def _kde_field(field) -> bool:
+    return (type(field) is tuple and len(field) == 2
+            and all(type(part) is str and part for part in field)
+            and field[1] != "/org/a11y/atspi/null")
+
+
+def _kde_focus(focus, now) -> bool:
+    return (_kde_identity(focus) and _kde_field(focus.field)
+            and focus.app_ids == ()
+            and type(focus.taken_at) in (int, float)
+            and not isinstance(focus.taken_at, bool)
+            and 0 < focus.taken_at <= now
+            and focus.password is False
+            and focus.protection(now) is False)
+
+
+def _kde_guard(tree, focus, context, stopped):
+    """Live-проверка KDE-фокуса; ошибки метаданных не разрешают чтение текста."""
+    stable_pid = None
+    validated_focus = focus
+
+    def check():
+        nonlocal stable_pid, validated_focus
+        try:
+            if stopped():
+                return _ABORT
+            started = time.monotonic()
+            if not _kde_focus(validated_focus, started):
+                return _ABORT
+            current = a11y.query_shell_context()
+            if current is None or current != context or current.protected():
+                return _ABORT
+            live = a11y.find_focus(tree, a11y.ROOT)
+            if (live.app != focus.app or live.field != focus.field
+                    or live.password is not False):
+                return _ABORT
+            node = focus.field
+            if tree.app_of(node) != focus.app:
+                return _ABORT
+            state = tree.state(node)
+            interfaces = tree.interfaces(node)
+            input_type = tree.input_type(node)
+            selections = tree.selection_count(node)
+            pid = tree.pid(node)
+            role = tree.role(node)
+            if not (bool(state) and a11y._state_bit(state, a11y.EDITABLE)
+                    and a11y._state_bit(state, a11y.FOCUSED)):
+                return _ABORT
+            if interfaces is None or a11y.TEXT not in interfaces or EDITABLE not in interfaces:
+                return _ABORT
+            if type(input_type) is not str or input_type == "password":
+                return _ABORT
+            if type(selections) is not int or selections != 0:
+                return _ABORT
+            if type(pid) is not int or pid <= 0:
+                return _ABORT
+            if stable_pid is None:
+                stable_pid = pid
+            elif pid != stable_pid:
+                return _ABORT
+            if type(role) is not int or role not in {61, 73, 79, 83}:
+                return _ABORT
+            if stopped() or a11y.query_shell_context() != context:
+                return _ABORT
+            if not 0 <= time.monotonic() - started <= a11y.MAX_AGE_SEC:
+                return _ABORT
+            # Продлеваем доверие только полным живым подтверждением того же поля.
+            validated_focus = focus._replace(taken_at=started)
+            return _UNSUPPORTED if role in {61, 79} else _OK
+        except Exception:  # noqa: BLE001 — unknown metadata cannot authorize a read
+            return _ABORT
+
+    return check
+
+
+def try_replace_kde(focus, source, target, commit, stopped) -> SpanResult | None:
+    """KDE-вход: нативный span только для подтверждённого Writer-параграфа."""
+    if not isinstance(focus, a11y.FocusSnapshot):
+        return SpanResult("aborted")
+    if not _kde_identity(focus):
+        # Не LibreOffice: обычный транспорт должен работать как раньше.
+        return None if focus.app else SpanResult("aborted")
+    if not _kde_focus(focus, time.monotonic()):
+        return SpanResult("aborted")
+    try:
+        context = a11y.query_shell_context()
+    except Exception:  # noqa: BLE001 — неизвестный контекст не разрешает попытку
+        return SpanResult("aborted")
+    if context != a11y.ShellContext():
+        return SpanResult("aborted")
+    connection = None
+    attempted = False
+
+    def begin():
+        nonlocal attempted
+        result = commit()
+        if result is False:
+            return False
+        attempted = True
+        return result
+
+    try:
+        connection = a11y._new_a11y_connection()
+        if connection is None:
+            return SpanResult("failed")
+        tree = a11y._DbusTree(connection)
+        check = _kde_guard(tree, focus, context, stopped)
+        state = check()
+        if state == _UNSUPPORTED:
+            # Роль/компонент не поддерживается, но живой фокус уже доказан:
+            # никакой подготовки и записей не было, можно вернуться к клавишам.
+            return None
+        if state != _OK:
+            return SpanResult("aborted")
+        with _text_changes(connection, focus.field) as events:
+            return _replace_checked(tree, focus, source, target, begin, stopped, events,
+                                    lambda: check() == _OK)
+    except Exception:  # noqa: BLE001 — metadata and transport errors must not expose text
+        return SpanResult("failed", attempted)
+    finally:
+        if connection is not None:
+            try:
+                connection.close_sync(None)
+            except Exception:  # noqa: BLE001 — never turn teardown into a keyboard fallback
+                pass
 
 
 @contextmanager

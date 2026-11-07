@@ -391,14 +391,20 @@ def test_maximum_span_read_is_bounded(native):
     assert max(end - start for start, end in native.tree.reads) == 1024
 
 
-def test_dbus_native_methods_use_bytes_for_insert_and_provider_offsets_for_ranges():
+@pytest.mark.parametrize("toolkit,size", [("gtk", 13), ("Qt", 7)])
+def test_dbus_native_methods_use_toolkit_insert_units_and_provider_range_offsets(toolkit, size):
     tree = object.__new__(a11y._DbusTree)
     tree._GLib = SimpleNamespace(Variant=lambda signature, args: (signature, args))
     calls = []
 
     def call(node, interface, method, args, reply):
-        assert node == FIELD
+        assert node == ((FIELD[0], "/app") if method == "Get" and args[1][1] == "ToolkitName"
+                        else FIELD)
         calls.append((interface, method, args, reply))
+        if method == "GetApplication":
+            return ((FIELD[0], "/app"),)
+        if method == "Get" and args[1][1] == "ToolkitName":
+            return (toolkit,)
         return {"GetText": (TARGET,), "InsertText": (True,), "DeleteText": (True,),
                 "GetNSelections": (0,), "Get": (12,)}[method]
 
@@ -410,12 +416,50 @@ def test_dbus_native_methods_use_bytes_for_insert_and_provider_offsets_for_range
     assert tree.character_count(FIELD) == 12
     assert calls == [
         (a11y.TEXT, "GetText", ("(ii)", (5, 12)), "(s)"),
-        (editable.EDITABLE, "InsertText", ("(isi)", (5, TARGET, 13)), "(b)"),
+        (a11y.ACC, "GetApplication", None, "((so))"),
+        ("org.freedesktop.DBus.Properties", "Get",
+         ("(ss)", ("org.a11y.atspi.Application", "ToolkitName")), "(v)"),
+        (editable.EDITABLE, "InsertText", ("(isi)", (5, TARGET, size)), "(b)"),
         (editable.EDITABLE, "DeleteText", ("(ii)", (12, 19)), "(b)"),
         (a11y.TEXT, "GetNSelections", None, "(i)"),
         ("org.freedesktop.DBus.Properties", "Get",
          ("(ss)", (a11y.TEXT, "CharacterCount")), "(v)"),
     ]
+
+
+@pytest.mark.parametrize("toolkit,size", [("Qt", 3), ("gtk", 6)])
+def test_dbus_insert_non_bmp_uses_utf16_units_only_for_qt(toolkit, size):
+    tree = object.__new__(a11y._DbusTree)
+    tree._GLib = SimpleNamespace(Variant=lambda signature, args: (signature, args))
+    tree._property = lambda *_args: toolkit
+    calls = []
+
+    def call(node, interface, method, args, reply):
+        calls.append((method, args))
+        return ((FIELD[0], "/app"),) if method == "GetApplication" else (True,)
+
+    tree._call = call
+    assert tree.insert_text(FIELD, 0, "😀я") is True
+    assert calls[-1] == ("InsertText", ("(isi)", (0, "😀я", size)))
+
+
+@pytest.mark.parametrize("application,toolkit", [
+    (None, "Qt"), (((":other", "/app"),), "Qt"),
+    (((FIELD[0], "/app"),), None), (((FIELD[0], "/app"),), ""),
+])
+def test_dbus_insert_without_proven_toolkit_does_not_write(application, toolkit):
+    tree = object.__new__(a11y._DbusTree)
+    tree._GLib = SimpleNamespace(Variant=lambda signature, args: (signature, args))
+    tree._property = lambda *_args: toolkit
+    calls = []
+
+    def call(node, interface, method, args, reply):
+        calls.append(method)
+        return application if method == "GetApplication" else (True,)
+
+    tree._call = call
+    assert tree.insert_text(FIELD, 0, TARGET) is None
+    assert "InsertText" not in calls
 
 
 @pytest.mark.parametrize("start,end", [(0, 1025), (-1, 5), (5, 4), (False, 5)])
@@ -696,3 +740,285 @@ def test_case_adjusted_source_is_not_returned_after_focus_becomes_protected(nati
     native.tree.position = len(native.tree.text)
     native.tree.after_insert = lambda: setattr(native.tree, "kind", "password")
     assert replace(native) == editable.SpanResult("failed", True)
+
+
+# --- KDE: нативный параграф Writer через живой AT-SPI -------------------------
+
+KDE_APP = (":1.2", "/app")
+KDE_WINDOW = (":1.2", "/window")
+
+
+class KdeTree(Tree):
+    def __init__(self, events):
+        super().__init__(events)
+        self.app = "soffice.bin"
+        self.field_role = 73
+        self.owner_pid = 1234
+        self.pid_values = None
+        self.pid_calls = 0
+
+    def children(self, node):
+        return {a11y.ROOT: [KDE_APP], KDE_APP: [KDE_WINDOW],
+                KDE_WINDOW: [FIELD]}.get(node, [])
+
+    def app_name(self, node):
+        return self.app if node == KDE_APP else ""
+
+    def prepare(self, _node):
+        pass
+
+    def state(self, node):
+        if node == FIELD:
+            return super().state(node)
+        return [(1 << a11y.ACTIVE) if node == KDE_WINDOW else 0]
+
+    def role(self, node):
+        return self.field_role if node == FIELD else 23
+
+    def interfaces(self, node):
+        return super().interfaces(node) if node == FIELD else [a11y.TEXT]
+
+    def input_type(self, node):
+        return self.kind if node == FIELD else ""
+
+    def app_of(self, node):
+        return self.app
+
+    def pid(self, node):
+        self.pid_calls += 1
+        if self.pid_values is not None:
+            return self.pid_values[min(self.pid_calls - 1, len(self.pid_values) - 1)]
+        return self.owner_pid
+
+
+@pytest.fixture
+def kde_native(monkeypatch):
+    events = []
+    tree = KdeTree(events)
+    context = a11y.ShellContext()
+    monkeypatch.setattr(a11y, "query_shell_context", lambda: context)
+    focus = a11y.FocusSnapshot("soffice.bin", False, time.monotonic(), (), FIELD)
+    connection = SimpleNamespace(close_sync=lambda _cancellable: None)
+
+    @contextmanager
+    def changes(_connection, _field):
+        yield events
+
+    monkeypatch.setattr(a11y, "_new_a11y_connection", lambda: connection)
+    monkeypatch.setattr(a11y, "_DbusTree", lambda _conn: tree)
+    monkeypatch.setattr(editable, "_text_changes", changes)
+    committed = []
+    return SimpleNamespace(tree=tree, events=events, context=context, focus=focus,
+                           connection=connection, committed=committed,
+                           commit=lambda: committed.append(True), stopped=lambda: False)
+
+
+def kde_replace(native, source=SOURCE, target=TARGET):
+    return editable.try_replace_kde(native.focus, source, target, native.commit,
+                                    native.stopped)
+
+
+def test_kde_native_paragraph_success(kde_native):
+    assert kde_replace(kde_native) == editable.SpanResult("done", True)
+    assert kde_native.tree.text == "Test " + TARGET
+    assert kde_native.tree.writes == [("insert", 5, TARGET), ("delete", 12, 19)]
+    assert kde_native.committed == [True]
+
+
+def test_kde_long_edit_uses_fresh_live_focus_proofs(kde_native, monkeypatch):
+    clock = [kde_native.focus.taken_at]
+    monkeypatch.setattr(editable.time, "monotonic", lambda: clock[0])
+    read = kde_native.tree.text_range
+
+    def delayed_read(*args):
+        clock[0] += .8
+        return read(*args)
+
+    kde_native.tree.text_range = delayed_read
+    assert kde_replace(kde_native) == editable.SpanResult("done", True)
+    assert clock[0] - kde_native.focus.taken_at > a11y.MAX_AGE_SEC
+    assert kde_native.tree.text == "Test " + TARGET
+
+
+def test_kde_gap_between_live_proofs_retains_original(kde_native, monkeypatch):
+    clock = [kde_native.focus.taken_at]
+    monkeypatch.setattr(editable.time, "monotonic", lambda: clock[0])
+    kde_native.tree.after_insert = lambda: clock.__setitem__(0, clock[0] + a11y.MAX_AGE_SEC + .1)
+    assert kde_replace(kde_native) == editable.SpanResult("failed", True)
+    assert kde_native.tree.text == "Test " + TARGET + SOURCE
+    assert kde_native.tree.writes == [("insert", 5, TARGET)]
+
+
+def test_kde_slow_live_proof_cannot_renew_trust(kde_native, monkeypatch):
+    clock = [kde_native.focus.taken_at]
+    monkeypatch.setattr(editable.time, "monotonic", lambda: clock[0])
+    input_type = kde_native.tree.input_type
+
+    def delayed_type(node):
+        clock[0] += a11y.MAX_AGE_SEC + .1
+        return input_type(node)
+
+    kde_native.tree.input_type = delayed_type
+    check = editable._kde_guard(kde_native.tree, kde_native.focus, kde_native.context,
+                                kde_native.stopped)
+    assert check() == "abort"
+    assert kde_native.tree.reads == kde_native.tree.writes == []
+
+
+@pytest.mark.parametrize("app", ["soffice", "libreoffice", "soffice.bin"])
+def test_kde_accepts_only_recognized_libreoffice_identity(kde_native, app):
+    kde_native.tree.app = app
+    kde_native.focus = kde_native.focus._replace(app=app)
+    assert kde_replace(kde_native) == editable.SpanResult("done", True)
+
+
+def test_kde_displayed_case_source_is_resolved(kde_native):
+    kde_native.tree.text = "Test Ghbdtn "
+    kde_native.tree.position = len(kde_native.tree.text)
+    assert kde_replace(kde_native) == editable.SpanResult(
+        "done", True, "Ghbdtn ", "Привет ")
+    assert kde_native.tree.text == "Test Привет "
+
+
+def test_kde_prefix_suffix_and_physical_append_are_preserved(kde_native):
+    kde_native.tree.text = "Lead Test " + SOURCE + " tail"
+    kde_native.tree.position = len("Lead Test " + SOURCE)
+    kde_native.tree.after_insert = lambda: kde_native.tree.append("X")
+    assert kde_replace(kde_native) == editable.SpanResult("done", True)
+    assert kde_native.tree.text == "Lead Test " + TARGET + "X tail"
+    assert kde_native.tree.writes == [("insert", 10, TARGET), ("delete", 17, 24)]
+
+
+@pytest.mark.parametrize("change", [
+    lambda n: setattr(n, "focus", n.focus._replace(password=True)),
+    lambda n: setattr(n, "focus", n.focus._replace(app=None)),
+    lambda n: setattr(n, "focus", n.focus._replace(taken_at=0)),
+    lambda n: setattr(n, "focus", n.focus._replace(field=None)),
+    lambda n: setattr(n.tree, "editable", False),
+    lambda n: setattr(n.tree, "focused", False),
+    lambda n: setattr(n.tree, "kind", "password"),
+    lambda n: setattr(n.tree, "kind", None),
+    lambda n: setattr(n.tree, "selections", 1),
+    lambda n: setattr(n.tree, "owner_pid", 0),
+    lambda n: setattr(n.tree, "owner_pid", True),
+    lambda n: setattr(n, "stopped", lambda: True),
+    lambda n: setattr(n.tree, "field_role", None),
+])
+def test_kde_unsafe_metadata_never_reads_or_writes(kde_native, change):
+    change(kde_native)
+    assert kde_replace(kde_native).status == "aborted"
+    assert not kde_native.tree.reads and not kde_native.tree.writes
+    assert not kde_native.committed
+
+
+def test_kde_moved_field_is_cancelled_before_any_read(kde_native):
+    kde_native.focus = kde_native.focus._replace(field=(":1.2", "/other"))
+    assert kde_replace(kde_native).status == "aborted"
+    assert not kde_native.tree.reads and not kde_native.tree.writes
+    assert not kde_native.committed
+
+
+def test_kde_wrong_application_owner_identity_is_cancelled(kde_native):
+    kde_native.tree.app_of = lambda _node: "other.bin"
+    assert kde_replace(kde_native).status == "aborted"
+    assert not kde_native.tree.reads and not kde_native.tree.writes
+
+
+def test_kde_changed_owner_pid_is_cancelled_before_read(kde_native):
+    kde_native.tree.pid_values = [1234, 5678]
+    assert kde_replace(kde_native).status == "aborted"
+    assert not kde_native.tree.reads and not kde_native.tree.writes
+    assert not kde_native.committed
+
+
+def test_kde_changed_shell_context_is_cancelled_before_read(kde_native, monkeypatch):
+    contexts = [kde_native.context, kde_native.context._replace(app_ids=("other",))]
+    monkeypatch.setattr(a11y, "query_shell_context",
+                        lambda: contexts.pop(0) if contexts else
+                        kde_native.context._replace(app_ids=("other",)))
+    assert kde_replace(kde_native).status == "aborted"
+    assert not kde_native.tree.reads and not kde_native.tree.writes
+
+
+@pytest.mark.parametrize("context", [
+    a11y.ShellContext(("libreoffice-writer",), True, True, 8, 0, 1234),
+    a11y.ShellContext(("libreoffice-writer",), False, True, 0, 64, 1234),
+])
+def test_kde_protected_shell_context_is_never_accepted(kde_native, monkeypatch, context):
+    monkeypatch.setattr(a11y, "query_shell_context", lambda: context)
+    assert kde_replace(kde_native).status == "aborted"
+    assert not kde_native.tree.reads and not kde_native.tree.writes
+
+
+def test_kde_safe_unsupported_role_returns_none_before_subscription(kde_native, monkeypatch):
+    kde_native.tree.field_role = 61
+    entered = []
+
+    @contextmanager
+    def changes(_connection, _field):
+        entered.append(True)
+        yield kde_native.events
+
+    monkeypatch.setattr(editable, "_text_changes", changes)
+    assert kde_replace(kde_native) is None
+    assert not entered
+    assert not kde_native.tree.reads and not kde_native.tree.writes
+    assert not kde_native.committed
+
+
+@pytest.mark.parametrize("change", [
+    lambda n: setattr(n.tree, "kind", "password"),
+    lambda n: setattr(n.tree, "owner_pid", 0),
+    lambda n: setattr(n.tree, "selections", 1),
+    lambda n: setattr(n, "focus", n.focus._replace(taken_at=0)),
+])
+def test_kde_unsupported_role_only_when_live_metadata_is_safe(kde_native, change):
+    kde_native.tree.field_role = 61
+    change(kde_native)
+    assert kde_replace(kde_native).status == "aborted"
+    assert not kde_native.tree.reads and not kde_native.tree.writes
+
+
+def test_kde_non_libreoffice_returns_none_without_native_connection(kde_native, monkeypatch):
+    def forbidden():
+        raise AssertionError("No native connection for another KDE app")
+
+    monkeypatch.setattr(a11y, "_new_a11y_connection", forbidden)
+    kde_native.focus = kde_native.focus._replace(app="chrome")
+    assert kde_replace(kde_native) is None
+    assert not kde_native.tree.reads and not kde_native.tree.writes
+
+
+def test_gnome_entry_still_requires_writer_app_id_for_kde_style_focus(monkeypatch):
+    calls = []
+    monkeypatch.setattr(a11y, "_new_a11y_connection", lambda: calls.append(True))
+    focus = a11y.FocusSnapshot("soffice.bin", False, time.monotonic(), (), FIELD)
+    assert editable.try_replace(focus, SOURCE, TARGET, lambda: True, lambda: False) is None
+    assert calls == []
+
+
+@pytest.mark.parametrize("role", [0, 40, 60, 67, 999])
+def test_kde_role_changed_after_live_focus_never_enables_key_fallback(
+        kde_native, monkeypatch, role):
+    monkeypatch.setattr(a11y, "find_focus", lambda *_args: kde_native.focus)
+    kde_native.tree.field_role = role
+    assert kde_replace(kde_native) == editable.SpanResult("aborted")
+    assert kde_native.tree.reads == kde_native.tree.writes == kde_native.committed == []
+
+
+@pytest.mark.parametrize("context", [
+    a11y.ShellContext(("other.desktop",), False, True, 0, 0, 9999),
+    a11y.ShellContext((), False, True, 0, 0, 1234),
+    a11y.ShellContext((), False, False, 0, 0, 1234),
+])
+def test_kde_rejects_unprotected_context_from_another_session(
+        kde_native, monkeypatch, context):
+    monkeypatch.setattr(a11y, "query_shell_context", lambda: context)
+    assert kde_replace(kde_native) == editable.SpanResult("aborted")
+    assert kde_native.tree.reads == kde_native.tree.writes == kde_native.committed == []
+
+
+def test_kde_rejects_snapshot_with_conflicting_shell_identity(kde_native):
+    kde_native.focus = kde_native.focus._replace(app_ids=("libreoffice-writer",))
+    assert kde_replace(kde_native) == editable.SpanResult("aborted")
+    assert kde_native.tree.reads == kde_native.tree.writes == kde_native.committed == []
