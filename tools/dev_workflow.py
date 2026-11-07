@@ -54,7 +54,12 @@ def check_gate(head):
         raise Rejected("development gate must cover all jobs; keep gate needs as an inline list")
 
 
-def check(base, head="HEAD"):
+def check(base, head="HEAD", fallback_base=None):
+    if fallback_base:
+        available = subprocess.run(["git", "cat-file", "-e", f"{base}^{{commit}}"],
+                                   capture_output=True)
+        if available.returncode:
+            base = git("merge-base", fallback_base, head)
     git("rev-parse", "--verify", f"{base}^{{commit}}")
     git("rev-parse", "--verify", f"{head}^{{commit}}")
     for sha in git("rev-list", "--reverse", f"{base}..{head}").splitlines():
@@ -150,13 +155,14 @@ def main():
     checking = commands.add_parser("check")
     checking.add_argument("--base", required=True)
     checking.add_argument("--head", default="HEAD")
+    checking.add_argument("--fallback-base")
     pushing = commands.add_parser("pre-push")
     pushing.add_argument("remote")
     pushing.add_argument("location")
     args = parser.parse_args()
     try:
         if args.command == "check":
-            check(args.base, args.head)
+            check(args.base, args.head, args.fallback_base)
         elif args.command == "preflight":
             preflight()
         elif args.command == "pre-push":

@@ -17,7 +17,7 @@ jobs:
           if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
             BASE_SHA=origin/main
           fi
-          python -I tools/dev_workflow.py check --base "$BASE_SHA"
+          python -I tools/dev_workflow.py check --base "$BASE_SHA" --fallback-base origin/main
 
   test:
     needs: development-policy

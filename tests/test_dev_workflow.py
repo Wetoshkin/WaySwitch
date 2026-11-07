@@ -166,3 +166,14 @@ def test_checker_source_can_be_published_without_false_positive(repository):
     commit(repo, "checker.py", TOOL.read_text(encoding="utf-8"))
     result = invoke(repo, "check", "--base", base)
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("private", [False, True])
+def test_missing_previous_tip_uses_available_base_and_checks_new_history(repository, private):
+    repo, base = repository
+    git(repo, "update-ref", "refs/remotes/origin/main", base)
+    commit(repo, ".env" if private else "normal.py", "value = 1\n")
+    result = invoke(repo, "check", "--base", "f" * 40, "--fallback-base", "origin/main")
+    assert result.returncode == (1 if private else 0), result.stderr
+    if private:
+        assert "private or working file" in result.stderr
