@@ -40,6 +40,7 @@ log = logging.getLogger("wayswitch")
 _UNSET = object()  # «кэш ещё не заполнялся»: None значило бы «файла нет»
 RELEASE_WAIT = 0.3  # сколько ждать отпускания физических клавиш перед печатью
 SELECTION_RELEASE_WAIT = 2.0  # «Исправить выделенное» с сочетания: ждать отпускания
+SELECTION_FOCUS_WAIT = 2.0  # после простоя ждём первый асинхронный снимок фокуса
 SELECTION_MAX = 300  # больше — это уже не опечатка во фразе
 
 
@@ -549,8 +550,13 @@ class Controller:
         if close is not None:
             close()
 
-    def _sync_focus(self) -> bool:
-        """Один буфер принадлежит одному полю, включая ожидание и исполнение фикса."""
+    def _sync_focus(self, *, initial_binding: bool = False) -> bool:
+        """Один буфер принадлежит одному полю, включая ожидание и исполнение фикса.
+
+        initial_binding — только для первой привязки явной selection-команды:
+        busy там уже зарезервирован до poke/pump, и переход unknown→fresh не
+        должен считаться прерыванием. Остальные вызовы сохраняют инвалидацию.
+        """
         snap = self.probe.snapshot() if self.probe is not None else focus.FocusSnapshot()
         protection = snap.protection(self.clock())
         scope = (self.probe, snap.generation, snap.field, snap.app, protection)
@@ -571,7 +577,7 @@ class Controller:
         self._hold_keys = None
         self._last_fix = None
         self._pending_gesture = None
-        if self.busy:
+        if self.busy and not initial_binding:
             self._operation_invalidated = self._busy_reset = True
         return False
 
@@ -972,6 +978,65 @@ class Controller:
             return None
         return selection
 
+    def _selection_cancelled(self, probe, epoch: int) -> bool:
+        """Отменена ли уже зарезервированная явная команда.
+
+        busy выставлен до подготовки, а флаги прерывания обнулены тогда же:
+        любое их значение сейчас — новое событие (клавиша, клик, пауза,
+        блокировка, смена probe), его нельзя затирать.
+        """
+        return (self.probe is not probe or self._probe_epoch != epoch
+                or self.paused or self.locked or self.screen_locked()
+                or self._abort_requested or self._operation_invalidated
+                or self._busy_reset)
+
+    def _prepare_selection_focus(self, probe, epoch: int):
+        """Разбудить опрос и дождаться свежего доверенного поля.
+
+        После IDLE_STOP_SEC AtspiProbe очищает снимок и завершает поток, поэтому
+        первая явная команда сама будит его через poke() и даёт ограниченное
+        время на асинхронный ответ. busy уже зарезервирован: реентрантный вызов
+        из poke/pump отклоняется, а пауза/блокировка/ввод остаются отменой.
+        """
+        try:
+            probe.poke()
+        except Exception as exc:  # noqa: BLE001 — провайдер не должен ронять команду
+            log.warning("исправить выделенное: опрос фокуса не разбужен (%s)",
+                        type(exc).__name__)
+            return None
+        deadline = time.monotonic() + SELECTION_FOCUS_WAIT
+        while True:
+            if self._selection_cancelled(probe, epoch):
+                return None
+            try:
+                snap = probe.snapshot()
+            except Exception as exc:  # noqa: BLE001 — не показывать payload провайдера
+                log.warning("исправить выделенное: снимок фокуса недоступен (%s)",
+                            type(exc).__name__)
+                return None
+            if (isinstance(snap, focus.FocusSnapshot)
+                    and snap.protection(self.clock()) is True):
+                return None
+            if self._selection_snapshot_ok(snap, self.clock()):
+                break
+            if time.monotonic() >= deadline:
+                return None
+            self.pump()
+            self.sleep(0.01)
+        if self._selection_cancelled(probe, epoch):
+            return None
+        try:
+            self._sync_focus(initial_binding=True)
+        except Exception as exc:  # noqa: BLE001 — источник фокуса не разрешает чтение
+            log.warning("исправить выделенное: фокус недоступен (%s)", type(exc).__name__)
+            return None
+        if self._selection_cancelled(probe, epoch):
+            return None
+        expected = self._selection_snapshot()
+        if expected is None or self._selection_cancelled(probe, epoch):
+            return None
+        return expected
+
     def transform_selection(self, action: str, text: str | None = None) -> bool:
         """Действие над выделенным текстом: «layout» — другая раскладка,
         «translit» — транслитерация, «numbers» — число прописью.
@@ -984,27 +1049,30 @@ class Controller:
         if not self._manual_allowed() or not self._selection_supported():
             return False
         probe, epoch = self.probe, self._probe_epoch
-        try:
-            self._sync_focus()
-        except Exception as exc:  # noqa: BLE001 — источник фокуса не разрешает чтение
-            log.warning("исправить выделенное: фокус недоступен (%s)", type(exc).__name__)
-            return False
-        expected = self._selection_snapshot()
-        if expected is None:
-            log.info("исправить выделенное: фокус не подтверждён")
-            return False
-        groups = self._groups()
-        if groups is None:
-            return False
-        secret = self._secret_focus()
-        # busy — ДО чтения: реентрантный selection-запрос (из pump или самого
-        # провайдера) не должен начать ещё одно чтение.
+        # busy — ДО poke/pump: реентрантный selection-запрос из провайдера или
+        # pump, а также физический ввод должны видеть уже занятую операцию.
         self.busy = True
         self._abort_requested = self._operation_invalidated = False
         self._busy_reset = False
         self._lost_input = False
+        self._busy_keys = []
         result = ABORTED
         try:
+            expected = self._prepare_selection_focus(probe, epoch)
+            if expected is None:
+                log.info("исправить выделенное: фокус не подтверждён")
+                return False
+            groups = self._groups()
+            if groups is None:
+                return False
+            try:
+                secret = self._secret_focus()
+            except Exception as exc:  # noqa: BLE001 — не показывать payload провайдера
+                log.warning("исправить выделенное: снимок фокуса недоступен (%s)",
+                            type(exc).__name__)
+                return False
+            if self._selection_cancelled(probe, epoch):
+                return False
             selection = self._read_bound_selection(expected, probe, epoch)
             if selection is None:
                 log.info("исправить выделенное: выделение не прочитано")
@@ -1061,7 +1129,12 @@ class Controller:
             self._lost_input = False
             self._busy_keys = []
             self._busy_reset = False
-        if result != DONE or not self._sync_focus() or self._operation_invalidated:
+        try:
+            synced = self._sync_focus()
+        except Exception as exc:  # noqa: BLE001 — не показывать payload провайдера
+            log.warning("исправить выделенное: фокус недоступен (%s)", type(exc).__name__)
+            synced = False
+        if result != DONE or not synced or self._operation_invalidated:
             log.info("исправить выделенное: %s", result)
             self._emit_status()
             return False
@@ -1069,7 +1142,14 @@ class Controller:
         self._last_fix = None
         if self.on_fixed:
             self.on_fixed(True)
-        if self.on_corrected and not secret and not self._secret_focus():
+        report_safe = False
+        if self.on_corrected and not secret:
+            try:
+                report_safe = not self._secret_focus()
+            except Exception as exc:  # noqa: BLE001 — не показывать payload провайдера
+                log.warning("исправить выделенное: снимок фокуса недоступен (%s)",
+                            type(exc).__name__)
+        if report_safe:
             # Наружу — только начало: сигнал видят все программы сеанса.
             self.on_corrected(_clip(selection.text), _clip(new_text), True)
         self._emit_status()
