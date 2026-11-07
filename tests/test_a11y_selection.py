@@ -27,7 +27,12 @@ class SelectionTree(DictTree):
         self.bounds = (5, 11)
         self.reply = "ghbdtn"
         self.after_range = lambda: None
+        self.after_focus = lambda: None
         self.after_read = lambda: None
+
+    def prepare(self, node):
+        super().prepare(node)
+        self.after_focus()
 
     def character_count(self, node):
         assert node == FIELD
@@ -218,6 +223,21 @@ def test_post_read_changes_never_return_selection(selection, change):
 
 def test_focus_change_during_metadata_is_caught_before_text(selection):
     selection.tree.after_range = lambda: selection.tree.nodes[PANEL].update(role=40)
+    assert read(selection) is None
+    assert selection.tree.reads == []
+
+
+@pytest.mark.parametrize("change", ["count", "range", "multiple"])
+def test_selection_change_during_focus_revalidation_prevents_text_read(selection, change):
+    def mutate():
+        if change == "count":
+            selection.tree.count += 1
+        elif change == "range":
+            selection.tree.bounds = (6, 12)
+        else:
+            selection.tree.selections = 2
+
+    selection.tree.after_focus = mutate
     assert read(selection) is None
     assert selection.tree.reads == []
 

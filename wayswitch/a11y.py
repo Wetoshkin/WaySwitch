@@ -851,7 +851,7 @@ def _read_selection(tree, expected, valid, limit) -> TextSelection | None:
             return count, start, end
 
         before = metadata()
-        if before is None or not same_focus():
+        if before is None or not same_focus() or metadata() != before:
             return None
         _count, start, end = before
         text = tree.text_range(expected.field, start, end)
