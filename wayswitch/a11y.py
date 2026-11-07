@@ -54,6 +54,7 @@ IDLE_STOP_SEC = 30.0
 
 # ATSPI_ROLE_PASSWORD_TEXT / TERMINAL: VTE не сообщает о скрытом вводе getpass.
 PROTECTED_ROLES = frozenset({40, 60})
+MENU_ROLES = frozenset({33, 34, 35, 41})
 TEXT = "org.a11y.atspi.Text"
 HYPERTEXT = "org.a11y.atspi.Hypertext"
 HYPERLINK = "org.a11y.atspi.Hyperlink"
@@ -436,6 +437,7 @@ def find_focus(tree, root, focused_pid: int = 0) -> FocusSnapshot:
     window, app_name = active
     tree.prepare(window)
     queue = [(window, 0, None)]
+    deferred = []
     web = []
     seen = set()
     roles = {}
@@ -443,8 +445,11 @@ def find_focus(tree, root, focused_pid: int = 0) -> FocusSnapshot:
     complete = True
     native_phase = True
     unverified_focus = set()
-    while (queue or web) and remaining[0] > 0:
+    while (queue or deferred or web) and remaining[0] > 0:
         if not queue:
+            if deferred:
+                queue, deferred = deferred, []
+                continue
             if not complete:
                 return FocusSnapshot()
             if native_phase:
@@ -489,13 +494,11 @@ def find_focus(tree, root, focused_pid: int = 0) -> FocusSnapshot:
             if kids is None:
                 complete = False
             children = [(child, depth + 1, node) for child in kids or []]
-            if _state_bit(state, SHOWING):
-                # Соседнее поле проверяем раньше потомков видимой панели.
-                insert = next((i for i, (_, _, queued_parent) in enumerate(queue)
-                               if queued_parent != parent), len(queue))
-                queue[insert:insert] = children
-            else:
+            if _state_bit(state, SHOWING) and role not in MENU_ROLES:
                 queue.extend(children)
+            else:
+                # Qt отмечает закрытые меню как SHOWING: их потомки проверяются позже.
+                deferred.extend(children)
         else:
             complete = False
     return FocusSnapshot()

@@ -1544,6 +1544,49 @@ def test_visible_pane_does_not_hide_focused_sibling_with_its_children(role, prot
         "Editor", protected, field="field")
 
 
+@pytest.mark.parametrize("role,protected", [(73, False), (40, True)])
+@pytest.mark.parametrize("visible_menu", [False, True])
+def test_nested_visible_document_is_reached_before_deep_toolbar_lists(
+        role, protected, visible_menu):
+    items = [f"item{i}" for i in range(a11y.MAX_NODES)]
+    nodes = {"root": {"kids": ["app"]},
+             "app": {"name": "Editor", "kids": ["window"]},
+             "window": {"state": (a11y.ACTIVE, a11y.SHOWING), "kids": ["layout"]},
+             "layout": {"state": (a11y.SHOWING,), "kids": ["document", "toolbar"]},
+             "document": {"state": (a11y.SHOWING,), "kids": ["layer"]},
+             "layer": {"state": (a11y.SHOWING,), "kids": ["paragraph"]},
+             "toolbar": {"state": (a11y.SHOWING,), "kids": ["controls"]},
+             "controls": {"state": (a11y.SHOWING,), "kids": ["combo"]},
+             "combo": {"state": (a11y.SHOWING,), "kids": ["items"]},
+             "items": {"state": (a11y.SHOWING,), "kids": items},
+             "paragraph": {"state": (a11y.FOCUSED, a11y.EDITABLE, a11y.SHOWING),
+                           "role": role, "interfaces": (a11y.TEXT,), "caret": 0}}
+    nodes.update((item, {"state": (a11y.SHOWING,)}) for item in items)
+    if visible_menu:
+        menus = [f"menu{i}" for i in range(a11y.MAX_NODES)]
+        nodes["window"]["kids"].insert(0, "menubar")
+        nodes["menubar"] = {"role": 34, "state": (a11y.SHOWING,), "kids": menus}
+        nodes.update((menu, {"role": 35, "state": (a11y.SHOWING,)}) for menu in menus)
+    assert a11y.find_focus(DictTree(nodes), "root") == FocusSnapshot(
+        "Editor", protected, field="paragraph")
+
+
+@pytest.mark.parametrize("role,protected", [(61, False), (40, True)])
+def test_deferred_menu_field_is_checked_before_stale_web_focus(role, protected):
+    tree = editable_tree()
+    tree.nodes["window"].update(
+        state=(a11y.ACTIVE, a11y.SHOWING), kids=["web", "menu"])
+    tree.nodes["web"] = {"role": 95, "state": (a11y.FOCUSED, a11y.SHOWING),
+                         "kids": ["field"]}
+    tree.nodes["menu"] = {"role": 34, "state": (a11y.SHOWING,), "kids": ["panel"]}
+    tree.nodes["panel"] = {"state": (a11y.SHOWING,), "kids": ["menu-field"]}
+    tree.nodes["menu-field"] = {
+        "role": role, "state": (a11y.FOCUSED, a11y.EDITABLE, a11y.SHOWING),
+        "interfaces": (a11y.TEXT,), "caret": 0}
+    assert a11y.find_focus(tree, "root") == FocusSnapshot(
+        "Editor", protected, field="menu-field")
+
+
 @pytest.mark.parametrize("role,protected", [(40, True), (60, True), (79, False)])
 def test_numeric_role_identifies_protected_input(role, protected):
     nodes = {"root": {"kids": ["app"]},
