@@ -12,11 +12,13 @@ case "$1" in
         cat <<'EOF'
 
 WaySwitch установлен. Дальше от имени обычного пользователя:
-  1. В GNOME: gnome-extensions enable wayswitch@siberia.ru
+  1. python3 /usr/share/wayswitch/migrate.py
   2. Выйдите из сеанса и войдите снова (правила udev и расширение
      применяются к новому сеансу).
-  3. Откройте WaySwitch из меню приложений — первый запуск проверит
-     систему и включит службу. Подробная проверка: wayswitch doctor
+  3. После входа в GNOME: gnome-extensions enable wayswitch@wetoshkin.github.io
+  4. systemctl --user restart wayswitch
+  5. Откройте WaySwitch из меню приложений — первый запуск проверит
+     систему. Подробная проверка: wayswitch doctor
 EOF
         ;;
 esac

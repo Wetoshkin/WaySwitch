@@ -89,6 +89,23 @@ def test_fix_selection_nothing_selected():
     assert backend.set_calls == [] and corrected == []
 
 
+def test_status_reports_selection_support_separately_from_selection_contents():
+    ctrl, backend, _ = make_ctrl("")
+    assert ctrl.status().get("selection_supported") is False
+    backend.supports_selection = True
+    assert ctrl.status().get("selection_supported") is True
+
+
+def test_backend_selection_capabilities():
+    from wayswitch.backends.base import LayoutBackend
+    from wayswitch.backends.gnome_shell import GnomeShellBackend
+    from wayswitch.backends.kde_plasma import KdePlasmaBackend
+
+    assert LayoutBackend.supports_selection is False
+    assert GnomeShellBackend.supports_selection is True
+    assert KdePlasmaBackend.supports_selection is False
+
+
 def test_selection_key_from_config():
     """Клавиша «Исправить выделенное» — та, что выбрал человек, не Shift+Pause."""
     cfg = Config()

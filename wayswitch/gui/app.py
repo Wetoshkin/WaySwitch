@@ -18,7 +18,7 @@ from wayswitch.gui.daemon_proxy import DaemonProxy
 from wayswitch.gui.dialogs import REPO_URL  # noqa: F401 — реэкспорт для тестов
 from wayswitch.gui.tray import StatusNotifier
 
-# Своё имя, отдельное от демона (ru.siberia.WaySwitch): с общим GApplication
+# Своё имя, отдельное от демона (io.github.Wetoshkin.WaySwitch): с общим GApplication
 # пытается зарегистрироваться на уже занятом имени, не находит там org.gtk.Actions
 # и падает с «Failed to register», не показав окна. С отдельным именем окно
 # открывается, а демон остаётся доступен через DaemonProxy.
@@ -72,6 +72,8 @@ def main(argv: list[str] | None = None) -> int:
 
     argv = sys.argv[1:] if argv is None else argv
     tray_only = parse_gui_args(argv)
+    if portable.package_kind() is None:
+        autostart.migrate_tray()
 
     class App(Adw.Application):
         def __init__(self):

@@ -172,6 +172,12 @@ def main(argv: list[str] | None = None) -> int:
 
         return gui_main()
     try:
+        if ns.command in {"fix-selection", "translit", "number-words"}:
+            (status,) = call_daemon("GetStatus")
+            if status.get("selection_supported") is not True:
+                print("Исправление выделенного недоступно для текущей службы. "
+                      "Проверьте поддержку среды и обновите службу WaySwitch.")
+                return 1
         if ns.command == "pause":
             call_daemon("Pause")
             print("пауза")

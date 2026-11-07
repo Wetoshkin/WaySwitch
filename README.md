@@ -26,12 +26,12 @@
 
 **Автоматическое исправление русско-английской раскладки для Linux на Wayland.**
 
-**Версия 1.1.1 — исправление полей ввода KDE и уточнённая диагностика.**
+**Версия 1.1.2 — распознавание полей GNOME и исправление текста в Writer.**
 
 WaySwitch чинит слово, набранное не в той раскладке (`ghbdtn` вместо
 «привет»), сразу же, на пробеле — без горячих клавиш и без переключения
 раскладки вручную. Работает под Wayland в GNOME (Ubuntu, Fedora), COSMIC, KDE Plasma,
-Sway, Hyprland, а также в Xfce, MATE, Budgie и LXQt — там, где обычные утилиты
+Sway, Hyprland, Umbriel, а также в Xfce, MATE, Budgie и LXQt — там, где обычные утилиты
 такого рода не могут ни слушать клавиатуру, ни печатать за пользователя.
 **Linux Mint (Cinnamon) пока не поддерживается.**
 
@@ -113,6 +113,9 @@ openSUSE Tumbleweed, Arch и производные) и две раскладк�
 английская. Сомневаетесь — просто запустите команду ниже: она сама проверит
 систему и скажет, если что-то не подходит.
 
+**NixOS:** используйте отдельные [пакет и системный модуль](docs/nixos.md).
+Команда ниже предназначена для остальных дистрибутивов.
+
 ### Одной командой
 
 1. Откройте терминал: нажмите клавишу с логотипом Windows (в Linux она
@@ -158,9 +161,10 @@ openSUSE Tumbleweed, Arch и производные) и две раскладк�
 | Fedora Silverblue, Kinoite, Bazzite и другие atomic-системы | добавит `.rpm` через `rpm-ostree`; после этого нужно перезагрузиться |
 | openSUSE Tumbleweed и Slowroll | установит `.rpm` через `zypper` |
 | Arch, CachyOS, EndeavourOS, Manjaro | поставит пакет из AUR через `paru` или `yay`, если он там есть; иначе соберёт из исходников |
+| NixOS | используйте [пакет и системный модуль](docs/nixos.md), без общего установщика |
 | Остальные | установит из исходников через `packaging/install.sh` |
 
-Во всех случаях скрипт включает автозапуск (`systemctl --user enable
+В поддерживаемых им дистрибутивах скрипт включает автозапуск (`systemctl --user enable
 wayswitch`), а в GNOME — расширение WaySwitch.
 
 </details>
@@ -211,7 +215,7 @@ sudo packaging/install.sh
 
 ```bash
 systemctl --user enable wayswitch
-gnome-extensions enable wayswitch@siberia.ru   # только в GNOME
+gnome-extensions enable wayswitch@wetoshkin.github.io   # только в GNOME
 ```
 
 </details>
@@ -265,7 +269,7 @@ curl -fsSL https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/
 
 Доступны два переносимых формата окна настроек. Клавиатуру читает и
 исправляет текст отдельная нативная служба WaySwitch, установленная на хосте
-командой выше. Обновите её вместе с окном до версии 1.1.1: версия `1.0.0` не содержит
+командой выше. Обновите её вместе с окном до версии 1.1.2: версия `1.0.0` не содержит
 новых исправлений. Мастер первого запуска объясняет установку службы,
 автозапуск и диагностику; настройки и пауза общие для обоих компонентов.
 
@@ -274,13 +278,13 @@ curl -fsSL https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/
 ```bash
 grep -E '^[[:xdigit:]]{64}  WaySwitch-Settings\.flatpak$' SHA256SUMS | sha256sum -c - && \
 flatpak install --user --or-update ./WaySwitch-Settings.flatpak
-flatpak run ru.siberia.WaySwitch.Gui
+flatpak run io.github.Wetoshkin.WaySwitch.Gui
 ```
 
 Пакет предложит подключить официальный репозиторий для GNOME Runtime 50.
 Для обновления скачайте новый файл, проверьте его по `SHA256SUMS` выпуска и
 выполните `flatpak install --user --or-update ./WaySwitch-Settings.flatpak`.
-Удаление окна: `flatpak uninstall --user ru.siberia.WaySwitch.Gui`.
+Удаление окна: `flatpak uninstall --user io.github.Wetoshkin.WaySwitch.Gui`.
 Публикация приложения на Flathub ещё не выполнена; `flatpak update` обновляет
 окно после установки из настроенного репозитория, а не из отдельного файла.
 
@@ -314,6 +318,15 @@ GNOME. Проверено в COSMIC 1.11 с несколькими клавиа�
 
 В COSMIC автоматическое выключение Caps Lock не выполняется: скомпилированная
 карта не сообщает исходные XKB-опции, а Caps может быть назначен на другое действие.
+
+### NixOS и Umbriel
+
+Для NixOS подготовлены пакет и системный модуль; зависимости, доступ к
+устройствам и запуск службы описаны в [руководстве](docs/nixos.md).
+В Umbriel используется его IPC. Нужны ровно две раскладки, одинаковые у обычных
+клавиатур и `uinput`, и графический сеанс, зарегистрированный в logind.
+При неизвестном состоянии сеанса блокируются автоматическое и ручное исправление.
+Автоматическое выключение Caps Lock недоступно без сведений об XKB-опциях.
 
 ## <img src=".github/assets/sec-start.png" width="28" align="top"> Первые шаги
 
@@ -389,8 +402,8 @@ input {
     kb_layout = us,ru
 }
 bind = SUPER SHIFT, W, exec, wayswitch toggle
-windowrule = float, class:^(ru\.siberia\.WaySwitch\.Settings)$
-windowrule = size 640 740, class:^(ru\.siberia\.WaySwitch\.Settings)$
+windowrule = float, class:^(io\.github\.Wetoshkin\.WaySwitch\.Settings)$
+windowrule = size 640 740, class:^(io\.github\.Wetoshkin\.WaySwitch\.Settings)$
 ```
 
 `~/.config/sway/config`:
@@ -400,7 +413,7 @@ input type:keyboard {
     xkb_layout us,ru
 }
 bindsym $mod+Shift+w exec wayswitch toggle
-for_window [app_id="ru.siberia.WaySwitch.Settings"] floating enable, resize set 640 740
+for_window [app_id="io.github.Wetoshkin.WaySwitch.Settings"] floating enable, resize set 640 740
 ```
 
 Последнее слово исправляется жестом (двойной Shift или своя клавиша) — он
@@ -485,6 +498,10 @@ track_hotkey = false          # labwc/Wayfire: автоисправление п
 </details>
 
 ## Обновление
+
+При переходе на пространство имён GitHub меняются идентификаторы расширения,
+окна и переносимых пакетов. Порядок обновления Flatpak, GNOME и виджета KDE —
+в [руководстве по переходу](docs/identifiers.md); настройки WaySwitch сохраняются.
 
 **Как узнать о новой версии.** Раз в сутки WaySwitch спрашивает GitHub,
 вышла ли новая версия. Если вышла — в окне появится полоса «Вышла версия …»
@@ -587,10 +604,10 @@ curl -fsSL https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/
    стоп-правилами для цифр, смешанных алфавитов, camelCase, путей и URL.
 5. Исправление: переключение раскладки, Backspace и перепечатка. Раскладку
    переключает композитор: в GNOME — расширение WaySwitch, в KDE — D-Bus
-   KWin, в Sway и Hyprland — их IPC, в средах на labwc и Wayfire — сочетание
-   клавиш XKB. Первый Backspace — точка невозврата: начатое исправление
-   исполнитель старается завершить перепечатку. Сбой устройства или приложения
-   всё же может прервать ввод.
+   KWin, в Sway, Hyprland и Umbriel — их IPC, в средах на labwc и Wayfire — сочетание
+   клавиш XKB. При перепечатке клавишами обнаруженный физический ввод останавливает
+   дальнейшие изменения; слово может остаться изменённым частично. Физическая
+   клавиша всё же может попасть между проверкой и отправкой виртуальной клавиши.
 
 Демон никогда не захватывает клавиатуру — если он зависнет, клавиатура
 продолжит работать как обычно. На отложенной части словаря: полнота 96,5 %
@@ -629,12 +646,29 @@ curl -fsSL https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/
 
 ## Статус и ограничения
 
-WaySwitch 1.1.1. Проверено на CachyOS с GNOME 51, Ubuntu с GNOME 50.1,
+WaySwitch 1.1.2. Проверено на CachyOS с GNOME 51, Ubuntu с GNOME 50.1,
 Bazzite с GNOME и COSMIC 1.11. На Plasma 6.6.6 Wayland в VM проверены
 Kate/KWrite, обычные и парольные поля Qt/GTK и защищённое поведение Konsole.
 Sway, Hyprland и среды на labwc/Wayfire покрыты тестами, но живьём пока не
 проверялись — будем рады отчётам.
 
+Umbriel проверен в нативном Wayland-сеансе Ubuntu: обычный ввод, отмена,
+парольное поле, блокировка и смена VT. Nix-пакет собран и проверен на Linux;
+живой графический сеанс NixOS пока не проверен.
+
+- В Writer проверены исправление в обе стороны, отмена после допечатывания,
+  автозаглавные буквы и два слова подряд. В Calc автоматическое исправление
+  остаётся ограниченным: неоднозначные события фокуса сбрасывают буфер ввода.
+- В Chrome проверены обычные поля и редактируемые блоки страницы, пароли
+  и readonly. В eXpress проверен исходный редактор сообщения на изолированном
+  стенде без отправки; авторизованный чат пока не проверялся.
+- В Firefox Flatpak на Bazzite проверены input, textarea, contenteditable
+  и адресная строка. В Telegram проверено обычное поле до авторизации;
+  редактор авторизованного чата не проверен. В ONLYOFFICE Desktop Editors 10.0.0
+  (Flatpak на Bazzite) на проверенном стенде дерево полей AT-SPI не появилось;
+  автоматическое исправление не подтверждено. В отдельном контроле официального
+  DEB на Ubuntu подключение к AT-SPI работало, но документ и поиск не предоставили
+  редактируемых полей даже после включения поддержки экранного диктора.
 - Поля с автодополнением (например, адресная строка браузера) могут вести
   себя неожиданно при перепечатке.
 - При включённой защите полей пароля автоматическое исправление ждёт

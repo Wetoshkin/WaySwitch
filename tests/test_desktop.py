@@ -30,6 +30,15 @@ def test_cosmic_is_not_gnome_or_labwc():
     assert "cosmic" not in desktop.COMPOSITOR_DESKTOPS
 
 
+def test_umbriel_is_not_gnome_or_labwc():
+    assert detect_desktop({"XDG_CURRENT_DESKTOP": "Umbriel:GNOME"}) == "umbriel"
+    assert detect_desktop({"UMBRIEL_SOCKET": "/run/user/1000/umbriel-wayland-0.sock"}) \
+        == "umbriel"
+    assert detect_desktop({"XDG_CURRENT_DESKTOP": "GNOME", "UMBRIEL_SOCKET": "/old"}) \
+        == GNOME
+    assert "umbriel" not in desktop.COMPOSITOR_DESKTOPS
+
+
 def test_other_desktops_are_recognised():
     from wayswitch.backends import desktop as d
 
@@ -95,6 +104,13 @@ class _FakeRun:
             stdout = self.text
 
         return Result()
+
+
+def test_session_env_preserves_umbriel_socket(monkeypatch):
+    monkeypatch.delenv("XDG_CURRENT_DESKTOP", raising=False)
+    monkeypatch.delenv("UMBRIEL_SOCKET", raising=False)
+    run = _FakeRun("XDG_CURRENT_DESKTOP=Umbriel\nUMBRIEL_SOCKET=/run/user/1000/umbriel.sock\n")
+    assert _session_env(run)["UMBRIEL_SOCKET"] == "/run/user/1000/umbriel.sock"
 
 
 def test_session_env_asks_user_manager_when_variable_empty(monkeypatch):

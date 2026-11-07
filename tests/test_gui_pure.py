@@ -24,9 +24,10 @@ def test_tray_autostart_migrates_legacy_name(tmp_path, monkeypatch):
     from wayswitch.gui import autostart
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    legacy = tmp_path / "autostart" / "ru.siberia.WaySwitch.desktop"
+    legacy = tmp_path / "autostart" / "org.example.WaySwitch.desktop"
     legacy.parent.mkdir(parents=True)
-    legacy.write_text("x", encoding="utf-8")
+    legacy.write_text("[Desktop Entry]\nType=Application\nName=WaySwitch\n"
+                      "Exec=wayswitch-gui --tray\n", encoding="utf-8")
     assert autostart.is_tray_enabled()
     autostart.set_tray_enabled(True)
     assert not legacy.exists()
@@ -46,6 +47,16 @@ def test_menu_layout_shows_update():
     idents = [i.ident for i in menu_layout({"auto_correct": True}, update="2.1.0")]
     assert "update" in idents
     assert "update" not in [i.ident for i in menu_layout({"auto_correct": True})]
+
+
+def test_selection_menu_requires_confirmed_backend_capability():
+    for status in (None, {}, {"selection_supported": False}):
+        item = next(i for i in menu_layout(status) if i.ident == "fix_selection")
+        assert not item.enabled
+        assert "недоступно" in item.label
+    item = next(i for i in menu_layout({"selection_supported": True})
+                if i.ident == "fix_selection")
+    assert item.enabled and item.label == "Исправить выделенное"
 
 
 def test_cosmic_unlock_confirmation_has_actionable_gui_state():
@@ -70,6 +81,38 @@ def test_parse_gui_args():
     assert parse_gui_args(["gui"]) is False
     assert parse_gui_args(["--tray"]) is True
     assert parse_gui_args(["gui", "--tray"]) is True
+
+
+def test_portable_startup_does_not_migrate_native_autostart(monkeypatch):
+    import sys
+    import types
+
+    import pytest
+
+    from wayswitch.gui import app, autostart, portable
+
+    class StartupReached(Exception):
+        pass
+
+    class Application:
+        def __init_subclass__(cls):
+            raise StartupReached
+
+    gi = types.ModuleType("gi")
+    gi.require_version = lambda *args: None
+    repository = types.ModuleType("gi.repository")
+    repository.Adw = types.SimpleNamespace(Application=Application)
+    repository.Gio = repository.GLib = types.SimpleNamespace()
+    monkeypatch.setitem(sys.modules, "gi", gi)
+    monkeypatch.setitem(sys.modules, "gi.repository", repository)
+    calls = []
+    monkeypatch.setattr(autostart, "migrate_tray", lambda: calls.append(True))
+    for kind in (None, "flatpak", "appimage"):
+        calls.clear()
+        monkeypatch.setattr(portable, "package_kind", lambda k=kind: k)
+        with pytest.raises(StartupReached):
+            app.main([])
+        assert calls == ([True] if kind is None else [])
 
 
 def test_gui_app_id_does_not_clash_with_daemon():

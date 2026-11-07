@@ -1,9 +1,9 @@
 {
-  "uuid": "wayswitch@siberia.ru",
+  "uuid": "wayswitch@wetoshkin.github.io",
   "name": "WaySwitch",
   "description": "Состояние раскладки и печать символов для демона WaySwitch по D-Bus.",
   "shell-version": ["46", "47", "48", "49", "50", "51"],
   "url": "https://github.com/Wetoshkin/WaySwitch",
-  "version": 5,
-  "version-name": "1.1.1"
+  "version": 6,
+  "version-name": "1.1.2"
 }

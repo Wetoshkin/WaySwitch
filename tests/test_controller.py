@@ -620,7 +620,8 @@ def test_key_typed_after_first_backspace_skips_rest_of_word(env):
 
     reenter_during_fix(env, press_g, at_event=60)
     type_text(env, "ghbdtn ")
-    assert env["corrected"] == [("ghbdtn", "привет", False)]
+    assert env["corrected"] == []
+    assert ctrl.stats["corrections"] == 0
     before = len(env["typist"].taps())
     type_text(env, "кот")  # раскладка уже русская
     assert not ctrl.manual_word()

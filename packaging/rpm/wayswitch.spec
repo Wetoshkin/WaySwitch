@@ -59,17 +59,18 @@ udevadm control --reload-rules >/dev/null 2>&1 || :
 /usr/lib/udev/rules.d/60-wayswitch.rules
 /usr/lib/modules-load.d/wayswitch.conf
 /usr/lib/systemd/user/wayswitch.service
+/usr/share/wayswitch/
 %dir /usr/share/gnome-shell
 %dir /usr/share/gnome-shell/extensions
-/usr/share/gnome-shell/extensions/wayswitch@siberia.ru/
+/usr/share/gnome-shell/extensions/wayswitch@wetoshkin.github.io/
 %dir /usr/share/plasma
 %dir /usr/share/plasma/plasmoids
-/usr/share/plasma/plasmoids/ru.siberia.wayswitch/
+/usr/share/plasma/plasmoids/io.github.Wetoshkin.wayswitch/
 %config(noreplace) /etc/xdg/autostart/wayswitch-session.desktop
-/usr/share/applications/ru.siberia.WaySwitch.Settings.desktop
-/usr/share/icons/hicolor/scalable/apps/ru.siberia.WaySwitch.svg
-/usr/share/icons/hicolor/symbolic/apps/ru.siberia.WaySwitch-symbolic.svg
-/usr/share/icons/hicolor/symbolic/apps/ru.siberia.WaySwitch-paused-symbolic.svg
+/usr/share/applications/io.github.Wetoshkin.WaySwitch.Settings.desktop
+/usr/share/icons/hicolor/scalable/apps/io.github.Wetoshkin.WaySwitch.svg
+/usr/share/icons/hicolor/symbolic/apps/io.github.Wetoshkin.WaySwitch-symbolic.svg
+/usr/share/icons/hicolor/symbolic/apps/io.github.Wetoshkin.WaySwitch-paused-symbolic.svg
 
 %changelog
 * Sat Oct 24 2026 Wetoshkin <12889519+Wetoshkin@users.noreply.github.com> - %{ws_version}-1

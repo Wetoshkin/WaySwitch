@@ -158,17 +158,16 @@ else
 fi
 
 echo "== Значки и ярлык"
+"$PY" "$SRC/packaging/migrate.py" --prefix /usr/local
 ICONS=/usr/local/share/icons/hicolor
 mkdir -p "$ICONS/scalable/apps" "$ICONS/symbolic/apps" /usr/local/share/applications
-install -m 644 "$SRC/packaging/icons/ru.siberia.WaySwitch.svg" "$ICONS/scalable/apps/"
-install -m 644 "$SRC/packaging/icons/ru.siberia.WaySwitch-symbolic.svg" "$ICONS/symbolic/apps/"
-install -m 644 "$SRC/packaging/icons/ru.siberia.WaySwitch-paused-symbolic.svg" "$ICONS/symbolic/apps/"
-# Имя записи совпадает с APP_ID окна (ru.siberia.WaySwitch.Settings): иначе
+install -m 644 "$SRC/packaging/icons/io.github.Wetoshkin.WaySwitch.svg" "$ICONS/scalable/apps/"
+install -m 644 "$SRC/packaging/icons/io.github.Wetoshkin.WaySwitch-symbolic.svg" "$ICONS/symbolic/apps/"
+install -m 644 "$SRC/packaging/icons/io.github.Wetoshkin.WaySwitch-paused-symbolic.svg" "$ICONS/symbolic/apps/"
+# Имя записи совпадает с APP_ID окна (io.github.Wetoshkin.WaySwitch.Settings): иначе
 # GNOME не связывает запущенное окно с ярлыком и рисует заглушку вместо значка.
-install -m 644 "$SRC/packaging/ru.siberia.WaySwitch.Settings.desktop" \
-    /usr/local/share/applications/ru.siberia.WaySwitch.Settings.desktop
-# Старое имя (до 2.0) — убрать, иначе в списке приложений две записи.
-rm -f /usr/local/share/applications/ru.siberia.WaySwitch.desktop
+install -m 644 "$SRC/packaging/io.github.Wetoshkin.WaySwitch.Settings.desktop" \
+    /usr/local/share/applications/io.github.Wetoshkin.WaySwitch.Settings.desktop
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
     gtk-update-icon-cache -f -t "$ICONS" >/dev/null 2>&1 || true
 fi
@@ -181,11 +180,12 @@ install -Dm644 "$SRC/packaging/wayswitch-session.desktop" /etc/xdg/autostart/way
 # Копия uninstall.sh: get.sh удаляет ею установку из исходников, если
 # потом ставится пакет (иначе две копии мешают друг другу).
 install -Dm755 "$SRC/packaging/uninstall.sh" /usr/local/share/wayswitch/uninstall.sh
+install -Dm644 "$SRC/packaging/migrate.py" /usr/local/share/wayswitch/migrate.py
 
 echo "== Виджет для лотка KDE Plasma"
-rm -rf /usr/local/share/plasma/plasmoids/ru.siberia.wayswitch
+rm -rf /usr/local/share/plasma/plasmoids/io.github.Wetoshkin.wayswitch
 mkdir -p /usr/local/share/plasma/plasmoids
-cp -r "$SRC/packaging/kde/ru.siberia.wayswitch" /usr/local/share/plasma/plasmoids/
+cp -r "$SRC/packaging/kde/io.github.Wetoshkin.wayswitch" /usr/local/share/plasma/plasmoids/
 
 echo "== systemd user-сервис для $SUDO_USER"
 UNIT_DIR="$USER_HOME/.config/systemd/user"
@@ -193,8 +193,9 @@ sudo -u "$SUDO_USER" mkdir -p "$UNIT_DIR"
 install -o "$SUDO_USER" -g "$USER_GID" -m 644 "$SRC/packaging/wayswitch.service" "$UNIT_DIR/wayswitch.service"
 as_user systemctl --user daemon-reload 2>/dev/null || true
 
-EXT_UUID=wayswitch@siberia.ru
+EXT_UUID=wayswitch@wetoshkin.github.io
 if [ "$DE" = "gnome" ]; then
+    as_user "$PY" "$SRC/packaging/migrate.py"
     echo "== Расширение GNOME Shell"
     EXT_DIR="$USER_HOME/.local/share/gnome-shell/extensions/$EXT_UUID"
     # Каталог — целиком заново: файлы, удалённые в новой версии, не должны остаться.
@@ -217,12 +218,6 @@ else
     echo "== Расширение GNOME Shell не нужно (среда $DE)"
 fi
 
-if [ -f "$UNIT_DIR/../../autostart/ru.siberia.WaySwitch.desktop" ]; then
-    # Автозапуск значка под старым именем (до 2.0.0a2): иначе два значка.
-    mv "$UNIT_DIR/../../autostart/ru.siberia.WaySwitch.desktop" \
-       "$UNIT_DIR/../../autostart/ru.siberia.WaySwitch.Settings.desktop"
-fi
-
 if as_user systemctl --user is-active --quiet wayswitch 2>/dev/null; then
     echo "== Перезапуск службы (обновление)"
     as_user systemctl --user restart wayswitch || true
@@ -233,9 +228,10 @@ cat <<EOF
 Готово. Дальше от имени пользователя $SUDO_USER:
   1. Выйдите из сеанса и войдите снова: правила udev и расширение применяются
      к новому сеансу.
-  2. Откройте WaySwitch из меню приложений — первый запуск проверит систему
+  2. После нового входа: systemctl --user restart wayswitch
+  3. Откройте WaySwitch из меню приложений — первый запуск проверит систему
      и включит службу. Или вручную: systemctl --user enable --now wayswitch
-  3. wayswitch doctor — подробная проверка в терминале.
+  4. wayswitch doctor — подробная проверка в терминале.
 $(if [ "$DE" = "kde" ]; then
     echo "  В KDE раскладку переключает сам KWin (org.kde.keyboard), расширение не нужно."
   elif [ "$DE" = "other" ]; then

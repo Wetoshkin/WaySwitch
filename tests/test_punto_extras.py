@@ -112,6 +112,89 @@ def test_caps_toggle_rolled_back_when_aborted():
     assert [c for c, _ in typist.taps()].count(kc.KEY_CAPSLOCK) in (0, 2)
 
 
+# --- две заглавные в другой раскладке -----------------------------------------
+
+@pytest.mark.parametrize("word,group,target_group,expected", [
+    ("GHbdtn", US, RU, "Привет"),
+    ("RFntujhbz", US, RU, "Категория"),
+    ("РУддщ", RU, US, "Hello"),
+])
+@pytest.mark.parametrize("early_switch", [False, True])
+def test_wrong_layout_two_capitals_and_exact_undo(real, word, group, target_group,
+                                                expected, early_switch):
+    km = real[0]
+    cfg = Config()
+    cfg.general.early_switch = early_switch
+    ctrl, backend, typist, corrected = make(real, group, cfg)
+    for key in keys_for_text(km, word + " ", group):
+        press(ctrl, key.code, key.shift)
+
+    assert corrected == [(word, expected, False)]
+    assert backend.current() == target_group
+    assert typed(km, typist, target_group) == expected + " "
+    assert ctrl.stats["corrections"] == 1
+    assert km.decode(ctrl._last_fix.original_keys, group) == word
+    assert km.decode(ctrl._last_fix.target_keys, target_group) == expected
+
+    typist.events.clear()
+    assert ctrl.manual_word()
+    assert corrected == [(word, expected, False), (expected, word, True)]
+    assert backend.current() == group
+    assert typed(km, typist, group) == word + " "
+    assert ctrl.stats["corrections"] == 1 and ctrl.stats["undo"] == 1
+    assert ctrl._last_fix is None
+
+
+@pytest.mark.parametrize("setting", ["auto_correct", "two_capitals_fix"])
+def test_joint_two_capitals_settings_preserve_manual_case(real, setting):
+    km = real[0]
+    cfg = Config()
+    setattr(cfg.general, setting, False)
+    ctrl, backend, typist, corrected = make(real, US, cfg)
+    for key in keys_for_text(km, "GHbdtn ", US):
+        press(ctrl, key.code, key.shift)
+    assert corrected == [] and typist.events == []
+    assert backend.current() == US
+    assert ctrl.manual_word()
+    assert corrected == [("GHbdtn", "ПРивет", True)]
+    assert typed(km, typist, RU) == "ПРивет "
+
+
+def test_joint_two_capitals_does_not_normalize_with_caps_lock(real):
+    km = real[0]
+    ctrl, backend, typist, corrected = make(real, US)
+    ctrl.set_caps(True)
+    for key in keys_for_text(km, "GHbdtn ", US):
+        press(ctrl, key.code, not key.shift if key.code != kc.KEY_SPACE else False)
+    assert corrected == [] and typist.events == []
+    assert backend.current() == US and ctrl.buffer.caps
+
+
+@pytest.mark.parametrize("protected", [False, True])
+def test_joint_two_capitals_keeps_unknown_or_protected_focus(real, protected):
+    from wayswitch.a11y import FocusSnapshot
+
+    ctrl, backend, typist, corrected = make(real, US)
+    ctrl.probe.snapshot = lambda: (
+        FocusSnapshot("kate", True, ctrl.clock()) if protected else FocusSnapshot())
+    for key in keys_for_text(real[0], "GHbdtn ", US):
+        press(ctrl, key.code, key.shift)
+    assert corrected == [] and typist.events == []
+    assert backend.current() == US
+
+
+def test_joint_two_capitals_uses_text_typist_with_original_source(real):
+    from tests.fakes import RecordingTextTypist
+
+    ctrl, backend, _typist, corrected = make(real, US)
+    ctrl.typist = RecordingTextTypist()
+    for key in keys_for_text(real[0], "GHbdtn ", US):
+        press(ctrl, key.code, key.shift)
+    assert ctrl.typist.calls == [("backspace", 7), ("type", "Привет ")]
+    assert corrected == [("GHbdtn", "Привет", False)]
+    assert backend.current() == RU
+
+
 # --- ранний триггер ----------------------------------------------------------
 
 def test_early_switch_on_fourth_letter(real):

@@ -34,8 +34,8 @@ PlasmoidItem {
         : paused ? "Слова не исправляются"
         : "Раскладка: " + layoutName
 
-    Plasmoid.icon: (running && !paused) ? "ru.siberia.WaySwitch-symbolic"
-                                        : "ru.siberia.WaySwitch-paused-symbolic"
+    Plasmoid.icon: (running && !paused) ? "io.github.Wetoshkin.WaySwitch-symbolic"
+                                        : "io.github.Wetoshkin.WaySwitch-paused-symbolic"
     Plasmoid.status: PlasmaCore.Types.ActiveStatus
     toolTipMainText: "WaySwitch"
     toolTipSubText: stateTitle + (running ? "\n" + stateText : "")
@@ -122,7 +122,7 @@ PlasmoidItem {
                 Layout.fillWidth: true
                 spacing: Kirigami.Units.largeSpacing
                 Kirigami.Icon {
-                    source: "ru.siberia.WaySwitch"
+                    source: "io.github.Wetoshkin.WaySwitch"
                     Layout.preferredWidth: Kirigami.Units.iconSizes.large
                     Layout.preferredHeight: Kirigami.Units.iconSizes.large
                 }

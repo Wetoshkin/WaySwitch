@@ -24,6 +24,7 @@ from wayswitch.backends.desktop import (
     KDE,
     OTHER,
     SWAY,
+    UMBRIEL,
     detect_desktop,
 )
 
@@ -37,6 +38,7 @@ BACKEND_ORDERS = {
     SWAY: ["sway"],
     HYPRLAND: ["hyprland"],
     COSMIC: ["cosmic"],
+    UMBRIEL: ["umbriel"],
     **{d: ["compositor", "hotkey"] for d in COMPOSITOR_DESKTOPS},
     # Cinnamon на Wayland — свой композитор (muffin), не labwc/Wayfire:
     # раскладки и сочетание — из gsettings, как в GNOME. Поддержка экспериментальная.
@@ -77,6 +79,10 @@ def choose_backend(prefer: str, typist, settle_ms: int,
                 from wayswitch.backends.cosmic import CosmicBackend
 
                 return CosmicBackend()
+            if name == "umbriel":
+                from wayswitch.backends.umbriel import UmbrielBackend
+
+                return UmbrielBackend()
             if name == "ibus":
                 from wayswitch.backends.gnome_ibus import GnomeIbusBackend
 

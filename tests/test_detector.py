@@ -119,6 +119,51 @@ def test_real_words_and_tech_tokens_are_kept(det, text, group):
     assert d.action == "keep", (text, d.reason, d.target_text)
 
 
+def test_joint_two_capitals_is_opt_in_and_preserves_hypotheses(det):
+    keys = typed("GHbdtn", US)
+    assert det.decide(keys, US, RU).reason == "camel"
+    d = det.decide(keys, US, RU, two_capitals=True)
+    assert (d.action, d.target_text, d.reason) == ("fix", "Привет", "capitals-layout")
+    assert d.a.text == "GHbdtn" and d.b.text == "ПРивет"
+
+
+@pytest.mark.parametrize("text", [
+    "NASA", "IDs", "PCs", "iPhone", "camelCase", "GhBdtn", "GHb",
+    "GHbdtn!", "GHbdtn/", "GHbdtn-", "API-rk.x", "b2b", "b2c", "PFukfdyst",
+])
+def test_joint_two_capitals_keeps_nonmatching_and_unknown_words(det, text):
+    d = det.decide(typed(text, US), US, RU, two_capitals=True)
+    assert d.action == "keep", (text, d.reason, d.target_text)
+
+
+@pytest.mark.parametrize("two_capitals", [False, True])
+def test_joint_two_capitals_preserves_existing_all_uppercase_conversion(det, two_capitals):
+    d = det.decide(typed("GHBDTN", US), US, RU, two_capitals=two_capitals)
+    assert (d.action, d.target_text, d.reason) == ("fix", "ПРИВЕТ", "dict-b")
+
+
+def test_joint_two_capitals_keeps_valid_source_word(det):
+    det.models["en"] = LanguageModel.from_words(
+        "en", EN_WORDS + [("ghbdtn", 1.0)], EN_ALPHABET)
+    d = det.decide(typed("GHbdtn", US), US, RU, two_capitals=True)
+    assert d.a.in_dict and d.b.in_dict
+    assert d.action == "keep"
+
+
+def test_joint_two_capitals_keeps_technical_token_even_with_known_target(det):
+    det.models["ru"] = LanguageModel.from_words(
+        "ru", RU_WORDS + [("реез", 1.0)], RU_ALPHABET)
+    d = det.decide(typed("HTtp", US), US, RU, two_capitals=True)
+    assert d.b.in_dict and not d.a.in_dict
+    assert (d.action, d.reason) == ("keep", "tech")
+
+
+def test_joint_two_capitals_respects_exception(det):
+    det.exceptions.add("ghbdtn")
+    d = det.decide(typed("GHbdtn", US), US, RU, two_capitals=True)
+    assert (d.action, d.reason) == ("keep", "exception")
+
+
 def test_exception_list_blocks_fix(det):
     det.exceptions.add("ghbdtn")
     assert det.decide(typed("ghbdtn", US), US, RU).action == "keep"

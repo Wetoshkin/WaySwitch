@@ -4,6 +4,8 @@
 в исключённой программе и в поле пароля.
 """
 
+import os
+import stat
 import sys
 import threading
 import time
@@ -130,7 +132,8 @@ def test_skip_reason_uses_shell_app_id_without_atspi_name():
 
 
 def test_shell_identity_does_not_claim_password_detection(monkeypatch):
-    monkeypatch.setattr(a11y, "query_shell_app_ids", lambda: ("jetbrains-idea",))
+    monkeypatch.setattr(a11y, "query_shell_context",
+                        lambda: a11y.ShellContext(("jetbrains-idea",)))
     monkeypatch.setattr(a11y, "_a11y_connection", lambda: (_ for _ in ()).throw(RuntimeError()))
     snap = a11y.query_focus()
     assert snap.app is None
@@ -138,16 +141,21 @@ def test_shell_identity_does_not_claim_password_detection(monkeypatch):
 
 
 @pytest.mark.parametrize("role,password", [(61, False), (40, True)])
-def test_old_shell_extension_preserves_atspi_focus(monkeypatch, role, password):
+@pytest.mark.parametrize("app_ids", [(), ("editor.desktop",)])
+def test_old_shell_extension_preserves_atspi_focus(monkeypatch, role, password, app_ids):
     calls = []
 
     def call_sync(_bus, _path, _iface, method, *_args):
         calls.append(method)
-        raise RuntimeError("org.freedesktop.DBus.Error.UnknownMethod: GetFocusedApp")
+        if method == "GetFocusedApp" and app_ids:
+            return SimpleNamespace(unpack=lambda: (list(app_ids),))
+        raise RuntimeError(f"org.freedesktop.DBus.Error.UnknownMethod: {method}")
 
     repository = SimpleNamespace(
         Gio=SimpleNamespace(BusType=SimpleNamespace(SESSION=0),
                             DBusCallFlags=SimpleNamespace(NONE=0),
+                            DBusError=SimpleNamespace(
+                                get_remote_error=lambda e: str(e).split(":")[0]),
                             bus_get_sync=lambda *_: SimpleNamespace(call_sync=call_sync)),
         GLib=SimpleNamespace(VariantType=lambda signature: signature))
     monkeypatch.setitem(sys.modules, "gi", SimpleNamespace(repository=repository))
@@ -156,19 +164,372 @@ def test_old_shell_extension_preserves_atspi_focus(monkeypatch, role, password):
         a11y.ROOT: {"kids": ["editor"]},
         "editor": {"name": "Editor", "kids": ["window"]},
         "window": {"state": [a11y.ACTIVE], "kids": ["field"]},
-        "field": {"state": [a11y.FOCUSED], "role": role},
+        "field": {"state": [a11y.FOCUSED, 7], "role": role,
+                  "interfaces": ("org.a11y.atspi.Text",), "caret": 0},
     })
     monkeypatch.setattr(a11y, "_a11y_connection", lambda: object())
     monkeypatch.setattr(a11y, "_DbusTree", lambda _connection: tree)
 
     snap = a11y.query_focus()
 
-    assert calls == ["GetFocusedApp"]
-    assert snap == FocusSnapshot("Editor", password, field="field")
+    assert calls == ["GetFocusedContext", "GetFocusedApp",
+                     "GetFocusedContext", "GetFocusedApp"]
+    assert snap == FocusSnapshot("Editor", password, app_ids=app_ids, field="field")
     probe = SimpleNamespace(snapshot=lambda: snap._replace(taken_at=100.0))
     assert a11y.skip_reason(probe, [], True, 100.0) == (
         "защищённый ввод" if password else None)
     assert a11y.skip_reason(probe, ["editor"], False, 100.0) == "приложение Editor"
+
+
+def shell_bus(monkeypatch, results):
+    calls = []
+
+    def call_sync(_bus, _path, _iface, method, *_args):
+        calls.append(method)
+        result = results.pop(0) if len(results) > 1 else results[0]
+        if isinstance(result, Exception):
+            raise result
+        return SimpleNamespace(unpack=lambda: result)
+
+    repository = SimpleNamespace(
+        Gio=SimpleNamespace(BusType=SimpleNamespace(SESSION=0),
+                            DBusCallFlags=SimpleNamespace(NONE=0),
+                            DBusError=SimpleNamespace(
+                                get_remote_error=lambda e: str(e).split(":")[0]),
+                            bus_get_sync=lambda *_: SimpleNamespace(call_sync=call_sync)),
+        GLib=SimpleNamespace(Variant=lambda signature, values: (signature, values),
+                             VariantType=lambda signature: signature))
+    monkeypatch.setitem(sys.modules, "gi", SimpleNamespace(repository=repository))
+    monkeypatch.setitem(sys.modules, "gi.repository", repository)
+    return calls
+
+
+@pytest.mark.parametrize("modal,ime,purpose,hints", [
+    (True, False, 0, 0), (False, True, 8, 0), (False, True, 12, 0),
+    (False, True, 0, 64), (False, True, 0, 128),
+])
+def test_shell_positive_protection_overrides_stale_safe_accessibility(
+        monkeypatch, modal, ime, purpose, hints):
+    shell_bus(monkeypatch, [(["editor.desktop"], modal, ime, purpose, hints, 123)])
+    monkeypatch.setattr(a11y, "_a11y_connection", lambda: object())
+    monkeypatch.setattr(a11y, "_DbusTree", lambda _: editable_tree())
+    snap = a11y.query_focus()
+    assert snap.password
+    assert snap.app_ids == ("editor.desktop",)
+
+
+def test_shell_modal_with_no_app_still_protects_manual_correction(monkeypatch):
+    shell_bus(monkeypatch, [([], True, False, 0, 0, 0)])
+    monkeypatch.setattr(a11y, "_a11y_connection", lambda: object())
+    monkeypatch.setattr(a11y, "_DbusTree", lambda _: DictTree({a11y.ROOT: {"kids": []}}))
+    snap = a11y.query_focus()
+    assert snap.protection(0.0) is True
+
+
+def test_stale_ime_purpose_without_current_focus_does_not_protect_normal_field(monkeypatch):
+    shell_bus(monkeypatch, [(["editor.desktop"], False, False, 8, 192, 123)])
+    tree = editable_tree()
+    tree.nodes[a11y.ROOT] = tree.nodes.pop("root")
+    monkeypatch.setattr(a11y, "_a11y_connection", lambda: object())
+    monkeypatch.setattr(a11y, "_DbusTree", lambda _: tree)
+    snap = a11y.query_focus()
+    assert snap.app == "Editor"
+    assert not snap.password
+
+
+def test_shell_context_change_during_accessibility_query_discards_old_field(monkeypatch):
+    shell_bus(monkeypatch, [(["editor.desktop"], False, True, 0, 0, 123),
+                            (["browser.desktop"], False, True, 0, 0, 456)])
+    tree = editable_tree()
+    tree.nodes[a11y.ROOT] = tree.nodes.pop("root")
+    monkeypatch.setattr(a11y, "_a11y_connection", lambda: object())
+    monkeypatch.setattr(a11y, "_DbusTree", lambda _: tree)
+    assert a11y.query_focus().app is None
+
+
+@pytest.mark.parametrize("error", ["org.freedesktop.DBus.Error.NoReply",
+                                  "org.freedesktop.DBus.Error.Timeout",
+                                  "org.freedesktop.DBus.Error.Failed"])
+@pytest.mark.parametrize("when", ["before", "after"])
+def test_transient_shell_context_error_never_downgrades_to_legacy_safe_focus(
+        monkeypatch, error, when):
+    results = [RuntimeError(error), (["editor.desktop"],),
+               RuntimeError(error), (["editor.desktop"],)]
+    if when == "after":
+        results.insert(0, (["editor.desktop"], False, False, 0, 0, 0))
+    calls = shell_bus(monkeypatch, results)
+    tree = editable_tree()
+    tree.nodes[a11y.ROOT] = tree.nodes.pop("root")
+    monkeypatch.setattr(a11y, "_a11y_connection", lambda: object())
+    monkeypatch.setattr(a11y, "_DbusTree", lambda _: tree)
+    assert a11y.query_focus().app is None
+    assert "GetFocusedApp" not in calls
+
+
+def test_trusted_shell_pid_scopes_frameless_application(monkeypatch):
+    shell_bus(monkeypatch, [(["editor.desktop"], False, True, 0, 0, 123)])
+    tree = editable_tree()
+    tree.nodes[a11y.ROOT] = tree.nodes.pop("root")
+    tree.nodes["window"]["state"] = ()
+    monkeypatch.setattr(a11y, "_a11y_connection", lambda: object())
+    monkeypatch.setattr(a11y, "_DbusTree", lambda _: tree)
+    assert a11y.query_focus() == FocusSnapshot("Editor", app_ids=("editor.desktop",),
+                                             field="field")
+
+
+def test_trusted_shell_pid_does_not_accept_other_active_application(monkeypatch):
+    shell_bus(monkeypatch, [(["other.desktop"], False, True, 0, 0, 456)])
+    tree = editable_tree()
+    tree.nodes[a11y.ROOT] = tree.nodes.pop("root")
+    monkeypatch.setattr(a11y, "_a11y_connection", lambda: object())
+    monkeypatch.setattr(a11y, "_DbusTree", lambda _: tree)
+    assert a11y.query_focus().app is None
+
+
+@pytest.fixture
+def proc_metadata(tmp_path, monkeypatch):
+    files = {}
+    roots = {}
+    closed = []
+    reads = []
+    flags = SimpleNamespace(O_RDONLY=0, O_DIRECTORY=0x10000000,
+                            O_NOFOLLOW=0x20000000, O_NONBLOCK=0x40000000, O_CLOEXEC=0)
+
+    def openat(path, requested, *, dir_fd=None):
+        if dir_fd is None:
+            assert requested & flags.O_DIRECTORY
+            assert path.startswith("/proc/") and path.endswith("/root")
+            pid = int(path.split("/")[2])
+            if pid not in files:
+                raise FileNotFoundError
+            descriptor = 100000 + len(roots)
+            roots[descriptor] = files[pid]
+            return descriptor
+        assert path == ".flatpak-info"
+        assert requested & flags.O_NOFOLLOW and requested & flags.O_NONBLOCK
+        source = roots[dir_fd]
+        if isinstance(source, Exception):
+            raise source
+        return os.open(source, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+
+    def close(descriptor):
+        if descriptor in roots:
+            closed.append(descriptor)
+        else:
+            os.close(descriptor)
+
+    def fdopen(descriptor, mode):
+        reads.append(descriptor)
+        return os.fdopen(descriptor, mode)
+
+    fake_os = SimpleNamespace(**vars(flags), open=openat, close=close,
+                              fstat=os.fstat, fdopen=fdopen)
+    monkeypatch.setattr(a11y, "os", fake_os, raising=False)
+
+    def write(pid, contents):
+        path = tmp_path / f"{pid}-{len(list(tmp_path.iterdir()))}.flatpak-info"
+        path.write_bytes(contents if isinstance(contents, bytes) else contents.encode("utf-8"))
+        files[pid] = path
+        return path
+
+    return SimpleNamespace(write=write, files=files, roots=roots, closed=closed,
+                           reads=reads, os=fake_os)
+
+
+FLATPAK_INFO = "[Application]\nname=org.example.Editor\n[Instance]\ninstance-id=123456\n"
+
+
+def proxy_focus_tree():
+    tree = editable_tree()
+    tree.nodes["app"]["pid"] = 456
+    return tree
+
+
+def test_flatpak_proxy_pid_matches_focused_instance_despite_distinct_files(proc_metadata):
+    proxy = proc_metadata.write(456, FLATPAK_INFO)
+    app = proc_metadata.write(123, FLATPAK_INFO)
+    assert proxy.stat().st_ino != app.stat().st_ino
+    assert a11y.find_focus(proxy_focus_tree(), "root", 123) == FocusSnapshot(
+        "Editor", field="field")
+    assert len(proc_metadata.closed) == 2
+
+
+@pytest.mark.parametrize("metadata", [
+    "", "[Application]\nname=org.example.Editor\n", "[Instance]\ninstance-id=123456\n",
+    "[Application]\nname=\n[Instance]\ninstance-id=123456\n",
+    "[Application]\nname=org.example.Editor\n[Instance]\ninstance-id= \n",
+    "[Application]\nname=org.example.Other\n[Instance]\ninstance-id=123456\n",
+    "[Application]\nname=org.example.Editor\n[Instance]\ninstance-id=654321\n",
+    FLATPAK_INFO + "[Application]\nname=org.example.Other\n",
+    FLATPAK_INFO + "broken ini data\n", b"\xff\xfe", FLATPAK_INFO + "#" * 65536,
+    "[DEFAULT]\nname=org.example.Editor\ninstance-id=123456\n[Application]\n[Instance]\n",
+    FLATPAK_INFO.replace("name=", "NAME="), FLATPAK_INFO + "\0",
+], ids=["empty", "no-instance", "no-app", "empty-app", "empty-instance", "other-app",
+        "other-instance", "duplicate-section", "invalid-ini", "invalid-utf8", "oversize",
+        "inherited-defaults", "wrong-key-case", "nul"])
+def test_flatpak_pid_mismatch_does_not_accept_incomplete_or_other_instance(proc_metadata, metadata):
+    proc_metadata.write(456, metadata)
+    proc_metadata.write(123, FLATPAK_INFO)
+    assert a11y.find_focus(proxy_focus_tree(), "root", 123) == FocusSnapshot()
+
+
+@pytest.mark.parametrize("failure", [FileNotFoundError(), PermissionError(), OSError("symlink")])
+def test_flatpak_metadata_open_error_does_not_accept_pid_mismatch(proc_metadata, failure):
+    proc_metadata.files[456] = failure
+    proc_metadata.write(123, FLATPAK_INFO)
+    assert a11y.find_focus(proxy_focus_tree(), "root", 123) == FocusSnapshot()
+    assert len(proc_metadata.closed) == 1
+
+
+def test_flatpak_metadata_nonregular_file_is_not_read(proc_metadata):
+    proc_metadata.write(456, FLATPAK_INFO)
+    proc_metadata.write(123, FLATPAK_INFO)
+    proc_metadata.os.fstat = lambda _fd: SimpleNamespace(st_mode=stat.S_IFIFO, st_size=0)
+    assert a11y.find_focus(proxy_focus_tree(), "root", 123) == FocusSnapshot()
+    assert not proc_metadata.reads
+
+
+def test_matching_native_pid_does_not_open_flatpak_metadata(proc_metadata):
+    tree = editable_tree()
+    assert a11y.find_focus(tree, "root", 123) == FocusSnapshot("Editor", field="field")
+    assert not proc_metadata.roots
+
+
+def test_flatpak_metadata_read_uses_the_already_opened_root(proc_metadata):
+    expected = proc_metadata.write(456, FLATPAK_INFO)
+    replacement = proc_metadata.write(789, FLATPAK_INFO.replace("123456", "654321"))
+    proc_metadata.write(123, FLATPAK_INFO)
+    openat = proc_metadata.os.open
+
+    def changed_process(path, flags, *, dir_fd=None):
+        descriptor = openat(path, flags, dir_fd=dir_fd)
+        if path == "/proc/456/root":
+            proc_metadata.files[456] = replacement
+        return descriptor
+
+    proc_metadata.os.open = changed_process
+    assert a11y.find_focus(proxy_focus_tree(), "root", 123) == FocusSnapshot(
+        "Editor", field="field")
+    assert expected in proc_metadata.roots.values()
+
+
+def test_flatpak_pid_scope_distinguishes_simultaneous_instances(proc_metadata):
+    proc_metadata.write(456, FLATPAK_INFO.replace("123456", "654321"))
+    proc_metadata.write(789, FLATPAK_INFO)
+    proc_metadata.write(123, FLATPAK_INFO)
+    tree = proxy_focus_tree()
+    tree.nodes["root"]["kids"] = ["other-app", "app"]
+    tree.nodes["other-app"] = {"name": "Other instance", "pid": 456, "kids": ["other-window"]}
+    tree.nodes["other-window"] = {"state": (1,), "kids": ["other-field"]}
+    tree.nodes["other-field"] = {"state": (12,), "role": 40}
+    tree.nodes["app"]["pid"] = 789
+    assert a11y.find_focus(tree, "root", 123) == FocusSnapshot("Editor", field="field")
+
+
+def test_real_dbus_metadata_adapter_accepts_editable_paragraph_without_reading_text(monkeypatch):
+    shell_bus(monkeypatch, [(["writer.desktop"], False, False, 0, 0, 0)])
+    tree = a11y._DbusTree(object())
+    root, app, window, field = a11y.ROOT, (":1.5", "/app"), (":1.5", "/window"), (":1.5", "/field")
+
+    def call(node, iface, method, args, signature):
+        if method == "GetChildren":
+            return ({root: [app], app: [window], window: [field], field: []}[node],)
+        if method == "GetState":
+            return ([{window: 1 << 1, field: (1 << 12) | (1 << 7)}.get(node, 0)],)
+        if method == "GetRole":
+            return (73 if node == field else 23,)
+        if method == "GetInterfaces":
+            return (["org.a11y.atspi.Text"],)
+        if method == "GetAttributes":
+            return ({"text-input-type": "text", "private-secret": "never-return-this"},)
+        if method == "GetRelationSet":
+            return ([],)
+        if method == "Get":
+            assert args in [("(ss)", (a11y.ACC, "Name")),
+                            ("(ss)", ("org.a11y.atspi.Text", "CaretOffset"))]
+            if args[1][1] == "Name":
+                assert node == app, "field/ancestor Name must never be read"
+                return ("Writer",)
+            return (0,)
+        pytest.fail(f"Unexpected content access: {iface}.{method}")
+
+    tree._call = call
+    monkeypatch.setattr(a11y, "_DbusTree", lambda _: tree)
+    monkeypatch.setattr(a11y, "_a11y_connection", lambda: object())
+    assert a11y.query_focus() == FocusSnapshot("Writer", app_ids=("writer.desktop",), field=field)
+
+
+@pytest.mark.parametrize("broken", [None, "caret", "interfaces", "attrs", "count", "link",
+                                   "range", "range-bool", "object", "ancestor-role",
+                                   "children", "pid"])
+def test_dbus_unicode_embedded_password_and_metadata_failures(monkeypatch, broken):
+    shell_bus(monkeypatch, [(["browser.desktop"], False, False, 0, 0, 777)])
+    tree = a11y._DbusTree(object())
+    root = a11y.ROOT
+    app, window, field, link, anchor = [(":1.5", f"/{name}")
+                                      for name in ("app", "window", "field", "link", "anchor")]
+
+    def call(node, iface, method, args, signature):
+        if method == "GetConnectionUnixProcessID":
+            assert node == ("org.freedesktop.DBus", "/org/freedesktop/DBus")
+            assert args == ("(s)", (":1.5",))
+            assert signature == "(u)"
+            return None if broken == "pid" else (777,)
+        if method == "GetChildren":
+            if broken == "children" and node == window:
+                return None
+            return ({root: [app], app: [window], window: [field], field: []}[node],)
+        if method == "GetState":
+            return ([{window: 1 << 1, field: (1 << 12) | (1 << 7)}.get(node, 0)],)
+        if method == "GetRole":
+            if broken == "ancestor-role" and node == window:
+                return None
+            return ({field: 85, anchor: 11}.get(node, 23),)
+        if method == "GetInterfaces":
+            return None if broken == "interfaces" else (["org.a11y.atspi.Text",
+                                                          "org.a11y.atspi.Hypertext"],)
+        if method == "GetAttributes":
+            if broken == "attrs" and node == field:
+                return None
+            return ({"text-input-type": "password" if node == anchor else "text",
+                     "private-secret": "must-be-discarded"},)
+        if method == "GetRelationSet":
+            assert signature == "(a(ua(so)))"
+            return ([],)
+        if method == "GetNLinks":
+            assert iface == "org.a11y.atspi.Hypertext" and signature == "(i)"
+            return None if broken == "count" else (1,)
+        if method in ("GetLink", "GetObject"):
+            assert args == ("(i)", (0,)) and signature == "((so))"
+            if method == "GetLink":
+                assert iface == "org.a11y.atspi.Hypertext"
+                return None if broken == "link" else (link,)
+            assert iface == "org.a11y.atspi.Hyperlink"
+            return None if broken == "object" else (anchor,)
+        if method == "Get":
+            interface, name = args[1]
+            if name == "Name":
+                assert node == app and interface == a11y.ACC
+                return ("Browser",)
+            if name == "CaretOffset":
+                assert interface == "org.a11y.atspi.Text"
+                return (-1 if broken == "caret" else 1,)
+            assert interface == "org.a11y.atspi.Hyperlink"
+            assert name in ("StartIndex", "EndIndex")
+            if broken == "range-bool":
+                return (False if name == "StartIndex" else 2,)
+            return None if broken == "range" else (1 if name == "StartIndex" else 2,)
+        pytest.fail(f"Unexpected content access: {iface}.{method}")
+
+    tree._call = call
+    monkeypatch.setattr(a11y, "_DbusTree", lambda _: tree)
+    monkeypatch.setattr(a11y, "_a11y_connection", lambda: object())
+    snap = a11y.query_focus()
+    assert snap.app_ids == ("browser.desktop",)
+    if broken is None:
+        assert snap == FocusSnapshot("Browser", True, app_ids=("browser.desktop",), field=anchor)
+    else:
+        assert snap.app is None
 
 
 def test_skip_reason_no_probe_never_blocks():
@@ -356,7 +717,10 @@ def test_probe_replaces_subscription_when_bus_reconnects(monkeypatch, focus_bus)
 
 @pytest.fixture
 def event_connections(monkeypatch):
-    connections = []
+    class Connections(list):
+        pass
+
+    connections = Connections()
     registered = set()
 
     class Connection:
@@ -400,15 +764,133 @@ def event_connections(monkeypatch):
             self.closed = True
             registered.discard(self)
 
+    class Session:
+        def __init__(self):
+            self.callbacks = {}
+            self.handlers = {}
+            self.closed = False
+            self.next_id = 0
+
+        def signal_subscribe(self, sender, iface, member, path, arg0, _flags, callback, _data):
+            from wayswitch.backends.gnome_shell import BUS_NAME, INTERFACE, OBJECT_PATH
+
+            assert (sender, iface, member, path, arg0) in [
+                (BUS_NAME, INTERFACE, "FocusedContextChanged", OBJECT_PATH, None),
+                ("org.freedesktop.DBus", "org.freedesktop.DBus", "NameOwnerChanged",
+                 "/org/freedesktop/DBus", BUS_NAME)]
+            self.next_id += 1
+            self.callbacks[self.next_id] = (member, callback)
+            return self.next_id
+
+        def signal_unsubscribe(self, subscription):
+            del self.callbacks[subscription]
+
+        def connect(self, signal, callback):
+            assert signal == "closed"
+            self.next_id += 1
+            self.handlers[self.next_id] = callback
+            return self.next_id
+
+        def disconnect(self, handler):
+            del self.handlers[handler]
+
+        def close_sync(self, _cancellable):
+            self.closed = True
+
+    connections.session = Session()
+
     repository = SimpleNamespace(
         Gio=SimpleNamespace(DBusSignalFlags=SimpleNamespace(NONE=0),
-                            DBusCallFlags=SimpleNamespace(NONE=0)),
+                            DBusCallFlags=SimpleNamespace(NONE=0),
+                            BusType=SimpleNamespace(SESSION=0),
+                            bus_get_sync=lambda *_: connections.session),
         GLib=SimpleNamespace(Variant=lambda signature, values: (signature, values),
                              VariantType=lambda signature: signature, Error=RuntimeError))
     monkeypatch.setitem(sys.modules, "gi", SimpleNamespace(repository=repository))
     monkeypatch.setitem(sys.modules, "gi.repository", repository)
     monkeypatch.setattr(a11y, "_new_a11y_connection", Connection, raising=False)
     return connections, registered
+
+
+@pytest.mark.parametrize("signal", ["FocusedContextChanged", "NameOwnerChanged"])
+def test_shell_context_event_invalidates_same_accessibility_field_without_payload(
+        event_connections, signal):
+    connections, _registered = event_connections
+    probe = a11y.AtspiProbe(clock=Clock(),
+                            query=lambda: FocusSnapshot("Browser", field=(":1.5", "/same")))
+    watch = a11y._watch_focus_events(object(), probe._invalidate)
+    probe._refresh()
+    assert probe.snapshot().app == "Browser"
+
+    class PrivatePayload:
+        def unpack(self):
+            pytest.fail("focus event payload must never be read")
+
+    matching = [callback for member, callback in connections.session.callbacks.values()
+                if member == signal]
+    for callback in matching:
+        callback(None, None, None, None, None, PrivatePayload(), None)
+    assert probe.snapshot().app is None
+    assert watch.live.is_set()
+    watch.close()
+
+
+def test_shared_session_watch_cleanup_preserves_other_probe_and_bus(event_connections):
+    connections, _registered = event_connections
+    old = a11y._watch_focus_events(object(), lambda: None)
+    new = a11y._watch_focus_events(object(), lambda: None)
+    assert len(connections.session.callbacks) == 4
+    old.close()
+    assert len(connections.session.callbacks) == 2
+    assert not connections.session.closed
+    assert new.live.is_set()
+    new.close()
+    assert not connections.session.callbacks
+    assert not connections.session.handlers
+    assert not connections.session.closed
+
+
+def test_session_bus_loss_invalidates_snapshot_and_registration(event_connections):
+    connections, _registered = event_connections
+    invalidations = []
+    watch = a11y._watch_focus_events(object(), lambda: invalidations.append(True))
+    for callback in list(connections.session.handlers.values()):
+        callback(None, None, None)
+    assert not watch.live.is_set()
+    assert invalidations
+    watch.close()
+
+
+def test_shell_event_during_query_cannot_republish_safe_focus(event_connections):
+    connections, _registered = event_connections
+
+    def query():
+        for member, callback in connections.session.callbacks.values():
+            if member == "FocusedContextChanged":
+                callback(None, None, None, None, None, object(), None)
+        return FocusSnapshot("Browser", field=(":1.5", "/same"))
+
+    probe = a11y.AtspiProbe(clock=Clock(), query=query)
+    watch = a11y._watch_focus_events(object(), probe._invalidate)
+    probe._refresh()
+    assert probe.snapshot().app is None
+    watch.close()
+
+
+def test_session_registration_failure_closes_owned_accessibility_connection(
+        monkeypatch, event_connections):
+    connections, registered = event_connections
+
+    def failed(*_args):
+        raise RuntimeError("session bus unavailable")
+
+    monkeypatch.setattr(sys.modules["gi.repository"].Gio, "bus_get_sync", failed)
+    with pytest.raises(RuntimeError, match="session bus unavailable"):
+        a11y._watch_focus_events(object(), lambda: None)
+    assert connections[0].closed
+    assert not connections[0].callbacks
+    assert not registered
+    assert not connections.session.closed
 
 
 def test_overlapping_probe_cleanup_keeps_new_registration(event_connections):
@@ -469,6 +951,8 @@ def test_registry_restart_during_registration_does_not_restore_live_flag(
         a11y._watch_focus_events(object(), lambda: None)
     assert connections[0].closed
     assert not registered
+    assert not connections.session.callbacks
+    assert not connections.session.handlers
 
 
 def test_focus_loss_and_gain_both_invalidate_without_reading_event_payload(event_connections):
@@ -660,24 +1144,329 @@ class DictTree:
 
     def __init__(self, nodes):
         self.nodes = nodes
+        self.prepared = []
+        self.reads = []
 
     def children(self, node):
         return self.nodes[node].get("kids", [])
 
     def state(self, node):
+        if self.nodes[node].get("state", ()) is None:
+            return []
         bits = 0
         for bit in self.nodes[node].get("state", ()):
             bits |= 1 << bit
         return [bits]
 
     def role(self, node):
-        return self.nodes[node].get("role")
+        return self.nodes[node].get("role", 39)
+
+    def interfaces(self, node):
+        return self.nodes[node].get("interfaces", ())
+
+    def caret(self, node):
+        return self.nodes[node].get("caret")
+
+    def input_type(self, node):
+        return self.nodes[node].get("input_type", "")
+
+    def link_count(self, node):
+        return self.nodes[node].get("link_count", len(self.nodes[node].get("links", [])))
+
+    def link(self, node, index):
+        return self.nodes[node]["links"][index]
+
+    def link_range(self, node):
+        return self.nodes[node].get("range")
+
+    def link_object(self, node):
+        return self.nodes[node].get("object")
+
+    def pid(self, node):
+        return self.nodes[node].get("pid")
+
+    def prepare(self, node):
+        self.prepared.append(node)
+        self.nodes[node].update(self.nodes[node].get("on_prepare", {}))
 
     def app_name(self, node):
         return self.nodes[node].get("name", "")
 
     def app_of(self, node):
         return self.nodes[node].get("app")
+
+
+def editable_tree(**field):
+    nodes = {"root": {"kids": ["app"]},
+             "app": {"name": "Editor", "kids": ["window"], "pid": 123},
+             "window": {"state": (1,), "kids": ["field"]},
+             "field": {"state": (12, 7), "role": 79,
+                       "interfaces": ("org.a11y.atspi.Text",), "caret": 0}}
+    nodes["field"].update(field)
+    return DictTree(nodes)
+
+
+@pytest.mark.parametrize("role", [61, 79, 73, 83, 85, 110])
+def test_editable_text_accepts_writer_and_browser_container_roles(role):
+    tree = editable_tree(role=role)
+    assert a11y.find_focus(tree, "root") == FocusSnapshot("Editor", field="field")
+
+
+def test_defunct_paragraph_cannot_confirm_cached_focus():
+    tree = editable_tree(role=73, state=(6, a11y.FOCUSED, a11y.EDITABLE))
+    assert a11y.find_focus(tree, "root") == FocusSnapshot()
+
+
+def test_cached_calc_paragraph_under_defunct_editor_does_not_hide_live_editor():
+    tree = editable_tree(role=73)
+    tree.nodes["window"]["kids"] = ["old-editor", "current-editor"]
+    tree.nodes.update({
+        "old-editor": {"state": (6,), "kids": ["old-paragraph"]},
+        "old-paragraph": {"role": 73, "state": (a11y.FOCUSED, a11y.EDITABLE),
+                          "interfaces": (a11y.TEXT,), "caret": 7},
+        "current-editor": {"kids": ["field"]},
+    })
+    assert a11y.find_focus(tree, "root") == FocusSnapshot("Editor", field="field")
+
+
+def test_parent_destroyed_during_focus_query_cannot_confirm_live_paragraph():
+    tree = editable_tree(role=73)
+    state = tree.state
+
+    def changed(node):
+        if node == "field":
+            tree.nodes["window"]["state"] = (6,)
+        return state(node)
+
+    tree.state = changed
+    assert a11y.find_focus(tree, "root") == FocusSnapshot()
+
+
+def test_defunct_active_window_does_not_hide_current_window():
+    tree = editable_tree(role=73)
+    tree.nodes["app"]["kids"] = ["old-window", "window"]
+    tree.nodes["old-window"] = {"state": (6, a11y.ACTIVE), "kids": ["old-field"]}
+    tree.nodes["old-field"] = dict(tree.nodes["field"])
+    assert a11y.find_focus(tree, "root") == FocusSnapshot("Editor", field="field")
+
+
+@pytest.mark.parametrize("field", [
+    {"state": (12,)}, {"state": (7,)}, {"interfaces": ()},
+    {"interfaces": None}, {"caret": -1}, {"caret": None},
+    {"caret": False}, {"caret": True},
+    {"role": None}, {"role": 0}, {"role": 67}, {"input_type": None},
+])
+def test_incomplete_or_readonly_text_does_not_confirm_safe_input(field):
+    assert a11y.find_focus(editable_tree(**field), "root") == FocusSnapshot()
+
+
+@pytest.mark.parametrize("role", [40, 60])
+def test_protected_role_does_not_need_editable_or_text_interface(role):
+    tree = editable_tree(role=role, state=(12,), interfaces=(), caret=None)
+    assert a11y.find_focus(tree, "root") == FocusSnapshot("Editor", True, field="field")
+
+
+@pytest.mark.parametrize("parent", [{"role": 40}, {"role": 60},
+                                  {"input_type": "password"}])
+def test_protected_ancestor_overrides_editable_child(parent):
+    tree = editable_tree()
+    tree.nodes["window"].update(parent)
+    assert a11y.find_focus(tree, "root") == FocusSnapshot("Editor", True, field="field")
+
+
+@pytest.mark.parametrize("parent", [{"role": None}, {"input_type": None}])
+def test_failed_ancestor_metadata_does_not_confirm_safe_input(parent):
+    tree = editable_tree()
+    tree.nodes["window"].update(parent)
+    assert a11y.find_focus(tree, "root") == FocusSnapshot()
+
+
+def test_password_input_type_survives_aria_role_combobox():
+    tree = editable_tree(role=11, input_type="password")
+    assert a11y.find_focus(tree, "root") == FocusSnapshot("Editor", True, field="field")
+
+
+def embedded_tree(caret=0, anchor=None):
+    tree = editable_tree(role=85, caret=caret,
+                         interfaces=("org.a11y.atspi.Text", "org.a11y.atspi.Hypertext"),
+                         links=["link"])
+    tree.nodes["link"] = {"range": (0, 1), "object": "anchor"}
+    tree.nodes["anchor"] = {"role": 40} if anchor is None else anchor
+    return tree
+
+
+@pytest.mark.parametrize("caret,start,end", [(0, 0, 1), (1, 1, 2)])
+def test_embedded_password_at_unicode_caret_is_protected(caret, start, end):
+    tree = embedded_tree(caret)
+    tree.nodes["link"]["range"] = (start, end)
+    assert a11y.find_focus(tree, "root") == FocusSnapshot("Editor", True, field="anchor")
+
+
+def test_caret_after_embedded_password_is_normal_parent_text():
+    assert a11y.find_focus(embedded_tree(caret=1), "root") == FocusSnapshot(
+        "Editor", field="field")
+
+
+def test_defunct_embedded_editor_cannot_confirm_safe_input():
+    tree = embedded_tree(anchor={"role": 79, "state": (6, a11y.EDITABLE),
+                                 "caret": 0, "interfaces": (a11y.TEXT,)})
+    assert a11y.find_focus(tree, "root") == FocusSnapshot()
+
+
+@pytest.mark.parametrize("broken", ["count", "range", "object", "cycle", "budget"])
+def test_embedded_caret_with_incomplete_metadata_is_unknown(broken):
+    tree = embedded_tree()
+    if broken == "count":
+        tree.nodes["field"]["link_count"] = None
+    elif broken == "range":
+        tree.nodes["link"]["range"] = None
+    elif broken == "object":
+        tree.nodes["link"]["object"] = None
+    elif broken == "cycle":
+        tree.nodes["link"]["object"] = "field"
+    else:
+        tree.nodes["field"]["link_count"] = 401
+    assert a11y.find_focus(tree, "root") == FocusSnapshot()
+
+
+def test_embedded_caret_follows_nested_editable_objects():
+    tree = embedded_tree(anchor={"role": 85, "state": (7,), "caret": 0,
+                                 "interfaces": ("org.a11y.atspi.Text",
+                                                "org.a11y.atspi.Hypertext"),
+                                 "links": ["nested-link"]})
+    tree.nodes["nested-link"] = {"range": (0, 1), "object": "password"}
+    tree.nodes["password"] = {"role": 11, "input_type": "password"}
+    assert a11y.find_focus(tree, "root") == FocusSnapshot("Editor", True, field="password")
+
+
+def test_embedded_objects_share_the_tree_depth_limit():
+    tree = embedded_tree()
+    tree.nodes["window"]["kids"] = ["panel1"]
+    for depth in range(1, 31):
+        tree.nodes[f"panel{depth}"] = {"kids": [f"panel{depth + 1}"]}
+    tree.nodes["panel31"] = {"kids": ["field"]}
+    assert a11y.find_focus(tree, "root") == FocusSnapshot()
+
+
+def test_embedded_links_share_the_node_budget_with_tree_traversal():
+    tree = embedded_tree()
+    tree.nodes["field"]["link_count"] = 398
+    assert a11y.find_focus(tree, "root") == FocusSnapshot()
+
+
+def test_unknown_embedded_anchor_is_not_assumed_editable():
+    tree = embedded_tree(anchor={"role": 79, "state": (7,), "caret": -1,
+                                 "interfaces": ("org.a11y.atspi.Text",)})
+    assert a11y.find_focus(tree, "root") == FocusSnapshot()
+
+
+def test_boolean_link_count_does_not_confirm_safe_input():
+    tree = embedded_tree()
+    tree.nodes["field"]["link_count"] = False
+    assert a11y.find_focus(tree, "root") == FocusSnapshot()
+
+
+def test_no_active_window_never_reuses_stale_other_application_focus():
+    tree = editable_tree()
+    tree.nodes["window"]["state"] = ()
+    assert a11y.find_focus(tree, "root") == FocusSnapshot()
+
+
+def test_chromium_frame_is_prepared_before_reading_its_children():
+    tree = editable_tree()
+    tree.nodes["window"].update(kids=[], on_prepare={"kids": ["field"]})
+    assert a11y.find_focus(tree, "root") == FocusSnapshot("Editor", field="field")
+
+
+@pytest.mark.parametrize("webrole", [79, 40])
+def test_native_browser_entry_takes_precedence_over_stale_web_focus(webrole):
+    tree = editable_tree()
+    tree.nodes["window"]["kids"] = ["web", "native-panel"]
+    tree.nodes["web"] = {"role": 95, "kids": ["stale"]}
+    tree.nodes["stale"] = {"role": webrole, "state": (12, 7), "caret": 0,
+                            "interfaces": ("org.a11y.atspi.Text",)}
+    tree.nodes["native-panel"] = {"kids": ["field"]}
+    assert a11y.find_focus(tree, "root") == FocusSnapshot("Editor", field="field")
+
+
+def test_duplicate_web_child_cannot_resume_before_native_password_search_finishes():
+    tree = editable_tree()
+    tree.nodes["window"]["kids"] = ["web", "web", "panel1"]
+    tree.nodes["web"] = {"role": 95, "kids": ["field"]}
+    tree.nodes["panel1"] = {"kids": ["panel2"]}
+    tree.nodes["panel2"] = {"kids": ["native-password"]}
+    tree.nodes["native-password"] = {"role": 40, "state": (12,)}
+    assert a11y.find_focus(tree, "root") == FocusSnapshot("Editor", True,
+                                                        field="native-password")
+
+
+def test_web_field_is_still_found_when_browser_has_no_native_focus():
+    tree = editable_tree(role=73)
+    tree.nodes["window"]["kids"] = ["web"]
+    tree.nodes["web"] = {"role": 95, "kids": ["field"]}
+    assert a11y.find_focus(tree, "root") == FocusSnapshot("Editor", field="field")
+
+
+def test_failed_native_branch_cannot_prove_stale_web_field_is_current():
+    tree = editable_tree()
+    tree.nodes["window"]["kids"] = ["web", "native-panel"]
+    tree.nodes["web"] = {"role": 95, "kids": ["field"]}
+    tree.nodes["native-panel"] = {"kids": None}
+    assert a11y.find_focus(tree, "root") == FocusSnapshot()
+
+
+@pytest.mark.parametrize("native", [
+    {"role": 40, "state": None}, {"role": None, "state": ()},
+    {"role": 79, "state": (12,), "interfaces": ("org.a11y.atspi.Text",), "caret": 0},
+    {"role": 11, "state": (12, 7), "interfaces": ("org.a11y.atspi.Text",),
+     "caret": 0, "input_type": None},
+])
+def test_unknown_or_unverified_native_focus_blocks_stale_web_field(native):
+    tree = editable_tree()
+    tree.nodes["window"]["kids"] = ["web", "native"]
+    tree.nodes["web"] = {"role": 95, "kids": ["field"]}
+    tree.nodes["native"] = native
+    assert a11y.find_focus(tree, "root") == FocusSnapshot()
+
+
+def test_focused_generic_web_host_does_not_block_verified_descendant_field():
+    tree = editable_tree()
+    tree.nodes["window"]["kids"] = ["host"]
+    tree.nodes["host"] = {"role": 39, "state": (12,), "kids": ["web"]}
+    tree.nodes["web"] = {"role": 95, "kids": ["field"]}
+    assert a11y.find_focus(tree, "root") == FocusSnapshot("Editor", field="field")
+
+
+def test_web_document_as_scope_root_is_bounded_and_reaches_its_field():
+    tree = editable_tree()
+    tree.nodes["window"]["role"] = 95
+    assert a11y.find_focus(tree, "root") == FocusSnapshot("Editor", field="field")
+
+
+def test_deferred_web_documents_share_the_first_inspection_budget():
+    tree = editable_tree()
+    documents = [f"document{i}" for i in range(a11y.MAX_NODES + 20)]
+    tree.nodes["window"]["kids"] = documents
+    tree.nodes.update((node, {"role": 95}) for node in documents)
+    reads = []
+    role = tree.role
+
+    def counted_role(node):
+        reads.append(node)
+        return role(node)
+
+    tree.role = counted_role
+    assert a11y.find_focus(tree, "root") == FocusSnapshot()
+    assert len(reads) <= a11y.MAX_NODES
+    assert len(set(reads)) <= a11y.MAX_NODES
+
+
+def test_resuming_a_web_document_does_not_spend_its_node_budget_twice(monkeypatch):
+    monkeypatch.setattr(a11y, "MAX_NODES", 5)
+    tree = editable_tree()
+    tree.nodes["window"]["kids"] = ["web"]
+    tree.nodes["web"] = {"role": 95, "kids": ["field"]}
+    assert a11y.find_focus(tree, "root") == FocusSnapshot("Editor", field="field")
 
 
 def test_find_focus_goes_straight_to_active_window():
@@ -721,7 +1510,8 @@ def test_visible_editor_branch_is_reached_before_hidden_menu_budget(role, protec
     nodes.update((menu, {}) for menu in menus)
     for depth in range(9):
         nodes[f"panel{depth}"] = {"state": (25,), "kids": [f"panel{depth + 1}"]}
-    nodes["panel9"] = {"state": (a11y.FOCUSED, 25), "role": role}
+    nodes["panel9"] = {"state": (a11y.FOCUSED, 7, 25), "role": role,
+                       "interfaces": ("org.a11y.atspi.Text",), "caret": 0}
 
     snap = a11y.find_focus(DictTree(nodes), "root")
 
@@ -747,7 +1537,8 @@ def test_visible_pane_does_not_hide_focused_sibling_with_its_children(role, prot
              "app": {"name": "Editor", "kids": ["window"]},
              "window": {"state": (a11y.ACTIVE, a11y.SHOWING), "kids": ["pane", "field"]},
              "pane": {"state": (a11y.SHOWING,), "kids": items},
-             "field": {"state": (a11y.FOCUSED, a11y.SHOWING), "role": role}}
+             "field": {"state": (a11y.FOCUSED, 7, a11y.SHOWING), "role": role,
+                       "interfaces": ("org.a11y.atspi.Text",), "caret": 0}}
     nodes.update((item, {}) for item in items)
     assert a11y.find_focus(DictTree(nodes), "root") == FocusSnapshot(
         "Editor", protected, field="field")
@@ -758,7 +1549,8 @@ def test_numeric_role_identifies_protected_input(role, protected):
     nodes = {"root": {"kids": ["app"]},
              "app": {"name": "Test App", "kids": ["window"]},
              "window": {"state": (a11y.ACTIVE,), "kids": ["entry"]},
-             "entry": {"state": (a11y.FOCUSED,), "role": role}}
+             "entry": {"state": (a11y.FOCUSED, 7), "role": role,
+                       "interfaces": ("org.a11y.atspi.Text",), "caret": 0}}
     assert a11y.find_focus(DictTree(nodes), "root")[:2] == ("Test App", protected)
 
 
@@ -771,7 +1563,8 @@ def test_browser_focused_containers_do_not_hide_deep_text_field(role, protected)
         nodes[f"node{depth}"] = {"kids": [f"node{depth + 1}"] if depth < 25 else []}
     nodes["node19"].update(state=(a11y.FOCUSED,), role=39)
     nodes["node23"].update(state=(a11y.FOCUSED,), role=95)
-    nodes["node25"].update(state=(a11y.FOCUSED,), role=role)
+    nodes["node25"].update(state=(a11y.FOCUSED, 7), role=role,
+                           interfaces=("org.a11y.atspi.Text",), caret=0)
     assert a11y.find_focus(DictTree(nodes), "root")[:2] == ("Browser", protected)
 
 

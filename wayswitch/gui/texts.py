@@ -21,13 +21,14 @@ BACKEND_HUMAN = {
     "sway": "через Sway IPC",
     "hyprland": "через Hyprland IPC",
     "cosmic": "через COSMIC",
+    "umbriel": "через Umbriel",
     "compositor": "через сочетание клавиш композитора",
 }
 
 # Варианты «Способ» в Параметрах → Система; порядок = config.BACKEND_PREFS.
 BACKEND_CHOICES = ("Автоматически", "Расширение GNOME Shell", "KDE Plasma", "IBus",
                    "Сочетание клавиш GNOME", "Sway IPC", "Hyprland IPC",
-                   "Сочетание клавиш композитора", "COSMIC")
+                   "Сочетание клавиш композитора", "COSMIC", "Umbriel IPC")
 
 SENSITIVITY_CHOICES = ("Осторожная", "Обычная", "Смелая")
 

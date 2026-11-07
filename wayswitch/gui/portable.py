@@ -6,9 +6,9 @@ import os
 
 from wayswitch.gui.terminal import manual_command
 
-FLATPAK_ID = "ru.siberia.WaySwitch.Gui"
-APPIMAGE_ID = "ru.siberia.WaySwitch.AppImage"
-NATIVE_ID = "ru.siberia.WaySwitch.Settings"
+FLATPAK_ID = "io.github.Wetoshkin.WaySwitch.Gui"
+APPIMAGE_ID = "io.github.Wetoshkin.WaySwitch.AppImage"
+NATIVE_ID = "io.github.Wetoshkin.WaySwitch.Settings"
 RELEASES_URL = "https://github.com/Wetoshkin/WaySwitch/releases"
 SETUP = (
     "Это окно настроек. Исправление и жесты выполняет отдельная служба WaySwitch "

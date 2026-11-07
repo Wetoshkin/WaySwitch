@@ -134,7 +134,7 @@ class Onboarding:
     def _welcome(self):
         from gi.repository import Gtk
 
-        icon = Gtk.Image(icon_name="ru.siberia.WaySwitch", pixel_size=128, margin_top=40)
+        icon = Gtk.Image(icon_name="io.github.Wetoshkin.WaySwitch", pixel_size=128, margin_top=40)
         title = Gtk.Label(label="Добро пожаловать в WaySwitch", wrap=True)
         title.add_css_class("title-1")
         text = Gtk.Label(label="Набрали слово не в той раскладке — WaySwitch исправит его на "

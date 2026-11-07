@@ -43,7 +43,7 @@ def setup():
     return km, Detector(km, models, sensitivity=SENSITIVITY["normal"]), held
 
 
-def _rates(km, det, held, lang):
+def _rates(km, det, held, lang, two_capitals):
     other = "en" if lang == "ru" else "ru"
     g, og = GROUP[lang], GROUP[other]
     hits = misses = false_pos = total_fp = 0
@@ -53,22 +53,23 @@ def _rates(km, det, held, lang):
         except KeyError:
             continue
         # Слово набрано в чужой раскладке: на экране мусор, должно исправиться в word.
-        d = det.decide(keys, og, g)
+        d = det.decide(keys, og, g, two_capitals=two_capitals)
         if d.action == "fix" and d.target_text == word:
             hits += 1
         else:
             misses += 1
         # Слово набрано правильно: трогать нельзя.
         total_fp += 1
-        if det.decide(keys, g, og).action == "fix":
+        if det.decide(keys, g, og, two_capitals=two_capitals).action == "fix":
             false_pos += 1
     return hits / (hits + misses), false_pos / total_fp
 
 
 @pytest.mark.parametrize("lang", ["ru", "en"])
-def test_recall_and_false_positive_rate(setup, lang):
+@pytest.mark.parametrize("two_capitals", [False, True])
+def test_recall_and_false_positive_rate(setup, lang, two_capitals):
     km, det, held = setup
-    recall, fpr = _rates(km, det, held, lang)
-    print(f"\n{lang}: recall={recall:.3f} fpr={fpr:.4f}")
+    recall, fpr = _rates(km, det, held, lang, two_capitals)
+    print(f"\n{lang} two_capitals={two_capitals}: recall={recall:.3f} fpr={fpr:.4f}")
     assert recall >= 0.95, f"{lang}: полнота {recall:.3f}"
     assert fpr <= 0.005, f"{lang}: ложные {fpr:.4f}"

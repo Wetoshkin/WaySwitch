@@ -1,3 +1,5 @@
+import pytest
+
 from wayswitch import doctor
 from wayswitch.doctor import Check, exit_code, format_report
 
@@ -9,6 +11,93 @@ def test_cosmic_backend_selected(monkeypatch):
     monkeypatch.setattr(cosmic, "CosmicBackend", lambda: "native")
     assert order_for("cosmic", "auto") == ["cosmic"]
     assert choose_backend("auto", None, 0, desktop="cosmic") == "native"
+
+
+def test_umbriel_backend_selected_without_hotkey_fallback(monkeypatch):
+    from wayswitch.backends import umbriel
+    from wayswitch.backends.base import BackendError
+    from wayswitch.backends.select import choose_backend, order_for
+
+    monkeypatch.setattr(umbriel, "UmbrielBackend", lambda: "native")
+    assert order_for("umbriel", "auto") == ["umbriel"]
+    assert choose_backend("auto", None, 0, desktop="umbriel") == "native"
+
+    def unavailable():
+        raise BackendError("no IPC")
+
+    monkeypatch.setattr(umbriel, "UmbrielBackend", unavailable)
+    with pytest.raises(BackendError, match="no IPC"):
+        choose_backend("auto", None, 0, desktop="umbriel")
+
+
+@pytest.mark.parametrize("service_active", [False, True])
+def test_umbriel_report_does_not_recommend_labwc(monkeypatch, service_active):
+    import subprocess
+
+    from wayswitch.backends import umbriel
+
+    original_run = subprocess.run
+
+    def run(command, *args, **kwargs):
+        if command == ["systemctl", "--user", "is-active", "wayswitch"]:
+            return subprocess.CompletedProcess(command, 0 if service_active else 3,
+                                               "active\n" if service_active else "inactive\n")
+        return original_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(doctor, "detect_desktop", lambda: "umbriel")
+    monkeypatch.setattr(umbriel, "find_socket", lambda: None)
+    checks = doctor.run_checks()
+    support = next(c for c in checks if c.key == "switch")
+    assert not support.ok and support.required
+    assert "UMBRIEL_SOCKET" in support.hint and "Umbriel" in support.hint
+    assert "labwc" not in format_report(checks)
+    assert not any(c.key == "layouts" for c in checks)
+    service = next(c for c in checks if c.key == "service")
+    assert service.ok is service_active
+    assert service.hint == "active." if service_active else "автозапуск Umbriel" in service.hint
+
+
+def test_nixos_dependency_report_points_to_declarative_module(monkeypatch):
+    import platform
+    import sys
+
+    monkeypatch.setattr(platform, "freedesktop_os_release", lambda: {"ID": "nixos"})
+    monkeypatch.setattr(doctor, "detect_desktop", lambda: "other")
+    monkeypatch.setitem(sys.modules, "evdev", None)
+    checks = doctor.run_checks()
+    report = format_report(checks)
+    assert "nixos-rebuild switch" in report and "docs/nixos.md" in report
+    assert "apt install" not in report and "dnf install" not in report
+    assert "pacman -S" not in report
+
+
+@pytest.mark.parametrize("path", [None, "/native-socket"])
+def test_umbriel_focus_check_blocks_before_reading_stale_background(path, monkeypatch):
+    from wayswitch import a11y
+    from wayswitch.backends import umbriel
+
+    def background():
+        raise AssertionError("must not query background AT-SPI while native guard is locked")
+
+    monkeypatch.setattr(doctor, "detect_desktop", lambda: "umbriel")
+    monkeypatch.setattr(umbriel, "find_socket", lambda: path)
+    monkeypatch.setattr(umbriel, "query_input_locked", lambda _ipc: True)
+    monkeypatch.setattr(a11y, "query_focus", background)
+    ok, detail = doctor.focus_status()
+    assert not ok and "Umbriel" in detail and "ввод заблокирован" in detail
+
+
+def test_umbriel_active_window_does_not_replace_verified_atspi_field(monkeypatch):
+    from wayswitch import a11y
+    from wayswitch.backends import umbriel
+
+    monkeypatch.setattr(doctor, "detect_desktop", lambda: "umbriel")
+    monkeypatch.setattr(umbriel, "find_socket", lambda: "/native-socket")
+    monkeypatch.setattr(umbriel, "query_input_locked", lambda _ipc: False)
+    monkeypatch.setattr(a11y, "query_focus", lambda: a11y.FocusSnapshot())
+    ok, detail = doctor.focus_status()
+    assert not ok and "автоисправление ждёт фокуса" in detail
 
 
 def test_report_and_exit_code():
@@ -28,6 +117,7 @@ def test_report_does_not_claim_ready_without_focus():
     assert "○ Активное приложение" in report
     assert "Всё готово" not in report
     assert "автоисправление не подтверждено" in report
+    assert "ручное исправление доступно" not in report
     assert exit_code(checks) == 0
 
 
@@ -63,6 +153,7 @@ def test_cosmic_report_does_not_recommend_labwc(monkeypatch):
 def test_focus_status_reports_only_application_identifiers(monkeypatch):
     from wayswitch import a11y
 
+    monkeypatch.setattr(doctor, "detect_desktop", lambda: "gnome")
     monkeypatch.setattr(a11y, "query_focus", lambda: a11y.FocusSnapshot(
         "IntelliJ IDEA", False, 100.0, ("jetbrains-idea",)))
     ok, detail = doctor.focus_status()
@@ -72,6 +163,7 @@ def test_focus_status_reports_only_application_identifiers(monkeypatch):
 def test_focus_status_explains_missing_atspi_application(monkeypatch):
     from wayswitch import a11y
 
+    monkeypatch.setattr(doctor, "detect_desktop", lambda: "gnome")
     monkeypatch.setattr(a11y, "query_focus", lambda: a11y.FocusSnapshot(
         None, False, 100.0, ("jetbrains-idea",)))
     ok, detail = doctor.focus_status()
@@ -112,7 +204,8 @@ def test_extension_state_distinguishes_cases():
     assert st(installed=True, enabled=False, running=False, version=None) == "disabled"
     assert st(installed=True, enabled=True, running=False, version=None) == "not_loaded"
     assert st(installed=True, enabled=True, running=True, version=1) == "outdated"
-    assert st(installed=True, enabled=True, running=True, version=2) == "ok"
+    assert st(installed=True, enabled=True, running=True, version=2) == "outdated"
+    assert st(installed=True, enabled=True, running=True, version=3) == "ok"
 
 
 def test_old_extension_does_not_block_onboarding():

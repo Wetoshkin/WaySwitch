@@ -7,6 +7,7 @@ libxkbcommon: /usr/share/X11/xkb/rules/evdev.xml.
 
 from __future__ import annotations
 
+import os
 import xml.etree.ElementTree as ET
 from functools import lru_cache
 from pathlib import Path
@@ -43,7 +44,9 @@ def parse_rules(xml_text: str) -> dict[str, LayoutSpec]:
 
 @lru_cache(maxsize=1)
 def _system_rules() -> dict[str, LayoutSpec]:
-    for path in RULES_PATHS:
+    root = os.environ.get("XKB_CONFIG_ROOT")
+    paths = (Path(root) / "rules/evdev.xml", *RULES_PATHS) if root else RULES_PATHS
+    for path in paths:
         try:
             return parse_rules(path.read_text(encoding="utf-8"))
         except (OSError, ET.ParseError):

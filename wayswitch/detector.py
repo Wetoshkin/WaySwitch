@@ -476,16 +476,19 @@ class Detector:
         return f"{left} {right}"
 
     def decide(self, keys, current_group: int, other_group: int,
-               context: tuple[str | None, str | None] = (None, None)) -> Decision:
+               context: tuple[str | None, str | None] = (None, None), *,
+               two_capitals: bool = False) -> Decision:
         a = self.hypothesis(keys, current_group)
         b = self.hypothesis(keys, other_group)
         sens = self.sensitivity
+        capitals = None
 
         def keep(reason: str, conf: float = 0.0) -> Decision:
             return Decision("keep", a.text, conf, reason, a, b)
 
         def fix(reason: str, conf: float) -> Decision:
-            return Decision("fix", b.core + b.tail, conf, reason, a, b)
+            return Decision("fix", capitals or b.core + b.tail, conf,
+                            "capitals-layout" if capitals else reason, a, b)
 
         if a.lang is None or b.lang is None:
             return keep("unknown-alphabet")
@@ -502,7 +505,11 @@ class Detector:
         if _mixed_alphabets(a.core):
             return keep("mixed")
         if _is_camel(a.core):
-            return keep("camel")
+            if (two_capitals and a.valid and not a.in_dict and a.text.isalpha()
+                    and a.text[:2].isupper() and a.text[2:].islower()):
+                capitals = self.two_capitals_fix(keys, other_group)
+            if capitals is None:
+                return keep("camel")
         al = a.text.lower()
         inner = _inner(a.core, LETTERS[a.lang])
         if any(m in al for m in TECH_MARKERS) or any(m in inner for m in PATH_MARKERS) \

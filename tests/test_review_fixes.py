@@ -20,7 +20,6 @@ from tests.fakes import (
 from wayswitch import keycodes as kc
 from wayswitch.a11y import FocusSnapshot
 from wayswitch.actuator import (
-    ABORTED,
     DONE,
     FAILED,
     Backspace,
@@ -81,32 +80,29 @@ def _plan():
                  Type("abc", [(kc.KEY_A, False), (kc.KEY_B, False), (kc.KEY_C, False)])])
 
 
-def test_abort_after_first_backspace_still_types_word():
-    """Прерывание посреди Backspace-ов не оставляет стёртое слово без нового."""
-    typist, backend = RecordingTypist(), FakeBackend(current=0)
-    calls = {"n": 0}
+def test_key_after_first_backspace_stops_further_changes():
+    class InterruptedTypist(RecordingTypist):
+        interrupted = False
 
-    def abort():
-        calls["n"] += 1
-        return calls["n"] > 4  # «нажали клавишу» после первого Backspace
+        def key(self, code, value):
+            super().key(code, value)
+            if code == kc.KEY_BACKSPACE and value == 0:
+                self.interrupted = True
 
-    assert execute(_plan(), typist, backend, abort=abort) == DONE
+    typist, backend = InterruptedTypist(), FakeBackend(current=0)
+    assert execute(_plan(), typist, backend, abort=lambda: typist.interrupted,
+                   restore_group=0) == FAILED
     taps = [c for c, _ in typist.taps()]
-    assert taps.count(kc.KEY_BACKSPACE) == 3
-    assert taps[-3:] == [kc.KEY_A, kc.KEY_B, kc.KEY_C]
+    assert taps == [kc.KEY_BACKSPACE]
+    assert backend.current() == 1 and backend.set_calls == [1]
     assert typist.stuck() == set()
 
 
-def test_abort_before_backspace_restores_layout():
+def test_key_after_layout_change_preserves_mode_before_backspace():
     typist, backend = RecordingTypist(), FakeBackend(current=0)
-    calls = {"n": 0}
-
-    def abort():
-        calls["n"] += 1
-        return calls["n"] == 3  # после SwitchLayout, до первого Backspace
-
-    assert execute(_plan(), typist, backend, abort=abort, restore_group=0) == ABORTED
-    assert backend.set_calls == [1, 0] and backend.current() == 0
+    assert execute(_plan(), typist, backend, abort=lambda: bool(backend.set_calls),
+                   restore_group=0) == FAILED
+    assert backend.set_calls == [1] and backend.current() == 1
     assert typist.taps() == []
 
 

@@ -100,8 +100,8 @@ input {
 # пауза (последнее слово исправляет жест — двойной Shift)
 bind = SUPER SHIFT, W, exec, wayswitch toggle
 # окно параметров — плавающее
-windowrule = float, class:^(ru\\.siberia\\.WaySwitch\\.Settings)$
-windowrule = size 640 740, class:^(ru\\.siberia\\.WaySwitch\\.Settings)$"""
+windowrule = float, class:^(io\\.github\\.Wetoshkin\\.WaySwitch\\.Settings)$
+windowrule = size 640 740, class:^(io\\.github\\.Wetoshkin\\.WaySwitch\\.Settings)$"""
 
 SWAY_SNIPPET = """\
 # две раскладки
@@ -111,4 +111,4 @@ input type:keyboard {
 # пауза (последнее слово исправляет жест — двойной Shift)
 bindsym $mod+Shift+w exec wayswitch toggle
 # окно параметров — плавающее
-for_window [app_id="ru.siberia.WaySwitch.Settings"] floating enable, resize set 640 740"""
+for_window [app_id="io.github.Wetoshkin.WaySwitch.Settings"] floating enable, resize set 640 740"""

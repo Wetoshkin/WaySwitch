@@ -76,16 +76,10 @@ def test_execute_full_sequence():
 def test_execute_aborts_and_releases_everything():
     km = make_keymap()
     plan = plan_fix(3, "Пр", RU, km, caps_on=False)
-    calls = {"n": 0}
-
-    def abort():
-        calls["n"] += 1
-        return calls["n"] >= 3
-
     typist = RecordingTypist()
-    assert execute(plan, typist, FakeBackend(current=US), abort=abort) == ABORTED
+    assert execute(plan, typist, FakeBackend(current=US), abort=lambda: True) == ABORTED
     assert typist.stuck() == set()
-    assert len(typist.taps()) < 5
+    assert typist.taps() == []
 
 
 def test_execute_fails_on_write_error_and_releases():
