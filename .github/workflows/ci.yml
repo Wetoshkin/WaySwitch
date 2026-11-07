@@ -1,7 +1,26 @@
 name: ci
 on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
+  development-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Проверка публикуемой истории
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            BASE_SHA=origin/main
+          fi
+          python -I tools/dev_workflow.py check --base "$BASE_SHA" --fallback-base origin/main
+
   test:
+    needs: development-policy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -104,6 +123,27 @@ jobs:
           name: wayswitch-flatpak
           path: build/flatpak/WaySwitch-Settings.flatpak
           if-no-files-found: error
+
+  development-gate:
+    if: always()
+    needs: [development-policy, test, deb, rpm, arch, flatpak, appimage]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Результат всех проверок и сборок
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          results = json.loads(os.environ["JOB_RESULTS"])
+          failed = [name for name, job in results.items() if job["result"] != "success"]
+          if failed:
+              print("Failed or skipped: " + ", ".join(failed))
+              sys.exit(1)
+          print("All required checks and package builds passed")
+          PY
 
   appimage:
     needs: test

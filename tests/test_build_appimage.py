@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -42,3 +43,16 @@ def test_common_licenses_have_a_verified_source():
     source = lock["common_licenses"]
     assert source["file"].startswith("base-files_")
     assert source["url"].startswith("https://") and len(source["sha256"]) == 64
+
+
+def test_ubuntu_inputs_use_a_single_immutable_snapshot():
+    lock = json.loads((ROOT / "packaging/appimage/dependencies.json").read_text())
+    snapshots = set()
+    for package in [*lock["packages"], lock["common_licenses"]]:
+        match = re.fullmatch(
+            r"https://snapshot\.ubuntu\.com/ubuntu/(\d{8}T\d{6}Z)/pool/.+\.deb",
+            package["url"],
+        )
+        assert match, package["file"]
+        snapshots.add(match[1])
+    assert len(snapshots) == 1
