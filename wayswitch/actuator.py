@@ -158,11 +158,14 @@ class _Run:
     """Общее для обоих исполнителей: точка невозврата и возврат раскладки."""
 
     def __init__(self, backend, abort: Callable[[], bool], restore_group: int | None,
-                 hold: Callable[[], bool] | None, stop: Callable[[], bool]):
+                 hold: Callable[[], bool] | None, stop: Callable[[], bool],
+                 before_write: Callable[[], bool] | None):
         self.backend = backend
         self._abort = abort
         self._stop = stop
         self._hold = hold
+        self._before_write = before_write
+        self.write_checked = before_write is None
         self._gave_up = False  # после точки невозврата ждём Shift один раз
         self.restore_group = restore_group
         self.switched = False
@@ -179,13 +182,21 @@ class _Run:
     def commit(self) -> None:
         self.committed = True
 
-    def native_aborted(self) -> bool:
+    def validate_write(self) -> bool:
+        try:
+            self.write_checked = self._before_write() is True
+        finally:
+            # Проверка может доставить физический ввод даже при отказе или ошибке.
+            interrupted = self.native_aborted(before_write=True)
+        return self.write_checked and not interrupted
+
+    def native_aborted(self, *, before_write: bool = False) -> bool:
         interrupted = self._abort()
         stopped = self._stop()
         # Допечатанные символы уже используют новую раскладку или состояние Caps Lock.
         if interrupted and (self.switched or self.caps_toggle is not None) and not stopped:
             self.committed = True
-        return (interrupted and not self.committed) or stopped
+        return (interrupted and (before_write or not self.committed)) or stopped
 
     def blocked(self) -> bool:
         """Перед стирающей или печатающей клавишей: зажат физический Shift.
@@ -227,9 +238,13 @@ def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: Fal
             key_delay: float = 0.0, sleep=time.sleep, switch_timeout: float = 0.5,
             restore_group: int | None = None,
             hold: Callable[[], bool] | None = None,
-            outcome: dict | None = None, stop: Callable[[], bool] = lambda: False) -> str:
-    """outcome (если передан) получает caps_off: Caps Lock в итоге выключен нами."""
-    run = _Run(backend, abort, restore_group, hold, stop)
+            outcome: dict | None = None, stop: Callable[[], bool] = lambda: False,
+            before_write: Callable[[], bool] | None = None) -> str:
+    """before_write проверяется один раз перед первой записью, после ожиданий.
+
+    outcome (если передан) получает caps_off: Caps Lock в итоге выключен нами.
+    """
+    run = _Run(backend, abort, restore_group, hold, stop, before_write)
     if isinstance(typist, TextTypist):
         result = _execute_text(plan, typist, run, switch_timeout)
     else:
@@ -277,6 +292,11 @@ def _execute_keys(plan: Plan, typist, run: _Run, key_delay: float, sleep,
                 for _ in range(step.count):
                     if status := interruption(check_hold=True):
                         return status
+                    if not run.write_checked:
+                        if not run.validate_write():
+                            return ABORTED
+                        if status := interruption():
+                            return status
                     run.committed = True
                     session.press(kc.KEY_BACKSPACE)
                     session.release(kc.KEY_BACKSPACE)
@@ -310,6 +330,11 @@ def _execute_keys(plan: Plan, typist, run: _Run, key_delay: float, sleep,
                         finally:
                             status = interruption()
                         if status:
+                            return status
+                    if not run.write_checked:
+                        if not run.validate_write():
+                            return ABORTED
+                        if status := interruption():
                             return status
                     run.committed = True
                     session.press(code)
@@ -366,6 +391,10 @@ def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: flo
                         return False
                 if run.native_aborted():
                     return False
+                if not run.write_checked:
+                    if (run.blocked() or run.native_aborted() or not run.validate_write()
+                            or run.native_aborted(before_write=True)):
+                        return False
                 run.commit()
                 prepared = True
                 return True
@@ -398,6 +427,9 @@ def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: flo
                 return ABORTED
             if isinstance(step, (Backspace, Type)) and (run.blocked() or run.aborted()):
                 return ABORTED
+            if isinstance(step, (Backspace, Type)) and not run.write_checked:
+                if not run.validate_write() or run.native_aborted(before_write=True):
+                    return ABORTED
             if isinstance(step, Backspace):
                 run.committed = True
                 typist.backspace(step.count)
