@@ -3,10 +3,20 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Wetoshkin/WaySwitch/releases"><img src="https://img.shields.io/github/v/release/Wetoshkin/WaySwitch?style=flat-square&color=c67139" alt="Release"></a>
-  <a href="https://github.com/Wetoshkin/WaySwitch/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Wetoshkin/WaySwitch/ci.yml?style=flat-square&label=tests" alt="Tests"></a>
   <img src="https://img.shields.io/badge/GNOME-46–51-7a8a5e?style=flat-square" alt="GNOME 46–51">
   <img src="https://img.shields.io/badge/KDE_Plasma-6-3daee9?style=flat-square" alt="KDE Plasma 6">
+  <img src="https://img.shields.io/badge/COSMIC-1.11-7a8a5e?style=flat-square" alt="COSMIC 1.11">
+  <img src="https://img.shields.io/badge/Sway-IPC-7a8a5e?style=flat-square" alt="Sway">
+  <img src="https://img.shields.io/badge/Hyprland-IPC-7a8a5e?style=flat-square" alt="Hyprland">
+  <img src="https://img.shields.io/badge/labwc-XKB-7a8a5e?style=flat-square" alt="labwc">
+  <img src="https://img.shields.io/badge/Wayfire-XKB-7a8a5e?style=flat-square" alt="Wayfire">
+  <br>
+  <img src="https://img.shields.io/badge/Xfce-Wayland-7a8a5e?style=flat-square" alt="Xfce through labwc/Wayfire">
+  <img src="https://img.shields.io/badge/MATE-Wayland-7a8a5e?style=flat-square" alt="MATE through labwc/Wayfire">
+  <img src="https://img.shields.io/badge/Budgie-Wayland-7a8a5e?style=flat-square" alt="Budgie through labwc/Wayfire">
+  <img src="https://img.shields.io/badge/LXQt-Wayland-7a8a5e?style=flat-square" alt="LXQt through labwc/Wayfire">
+  <a href="#status"><img src="https://img.shields.io/badge/Umbriel-development-c67139?style=flat-square" alt="Umbriel — development version"></a>
+  <a href="#status"><img src="https://img.shields.io/badge/NixOS-development-c67139?style=flat-square" alt="NixOS package — development version"></a>
   <img src="https://img.shields.io/badge/Wayland-✓-7a8a5e?style=flat-square" alt="Wayland">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4a4540?style=flat-square" alt="MIT"></a>
 </p>
@@ -17,14 +27,14 @@
 
 **Automatic Russian–English keyboard layout correction for Linux on Wayland.**
 
-**Version 1.1.1 — KDE input-field fixes and clearer diagnostics.**
-
 WaySwitch fixes a word typed in the wrong layout (`ghbdtn` instead of
 «привет») right away, on Space — no hotkeys, no manual layout switching. It
-works on Wayland in GNOME, COSMIC, KDE Plasma, Sway, Hyprland, Xfce, MATE, Budgie
-and LXQt, where classic tools of this kind can neither listen to the
-keyboard nor type for you. Linux Mint (Cinnamon) is not supported yet. The interface is in Russian: WaySwitch currently
-supports the Russian ↔ English pair.
+works on Wayland in GNOME, COSMIC, KDE Plasma, Sway and Hyprland. Xfce, MATE,
+Budgie and LXQt require a Wayland session on labwc or Wayfire. See the
+[compatibility table](#status) for conditions and Umbriel/NixOS support in
+development. **X11 and Cinnamon (including the default Linux Mint session)
+are unsupported.** The interface is in Russian; correction supports the
+Russian ↔ English pair.
 
 <p align="center">
   <img src=".github/assets/how-en.png" alt="Type руддщ, press Space, get hello" width="100%">
@@ -39,15 +49,15 @@ supports the Russian ↔ English pair.
 - **Manual fix.** Double Shift fixes the last word, triple Shift the whole
   phrase. You can pick a single key instead (Right Ctrl, ScrollLock, an F-key).
 - **Fix selection.** Select a phrase typed in the wrong layout, press your
-  key — done.
+  key — done (GNOME with the WaySwitch extension).
 - **By the start of a word.** If the first four letters clearly belong to
   the other layout (`ghbd` starts no English word but does start «прив…»),
   the layout is switched right away.
 - **Transliteration and numbers in words** for the selected text, on keys of
   your choice (GNOME).
 - **Undo that learns.** The same gesture right after an automatic fix
-  restores the word; undo the same word a second time and it is never
-  touched again.
+  restores the word; after two undos it is added to exceptions. The threshold
+  is configurable.
 - **Small typos** (each can be turned off in Preferences): an accidental
   Caps Lock (`пРИВЕТ` → «Привет», Caps Lock is turned off); two capitals at
   the start of a word (`ПРивет` → «Привет», Shift released too late); a
@@ -75,10 +85,13 @@ with a physical keyboard is still needed; see [Status](#status).
 
 ## Install
 
-**You need** a Wayland session (not X11) and two layouts — Russian and a
-Latin one. Supported installation targets include Ubuntu 24.04+, Debian 13+,
-Fedora 41+, openSUSE Tumbleweed, Arch and their compatible derivatives.
+**You need** a Wayland session in one of the environments above and exactly
+two layouts — Russian and English. Supported installation targets include
+Ubuntu 24.04+, Debian 13+, Fedora 41+, openSUSE Tumbleweed, Arch and their compatible derivatives.
 The installer checks the system before making changes.
+
+NixOS has a separate package and system module in development; the generic
+installer is not intended for it. See [support status](#status).
 
 1. Open a terminal (in KDE it is **Konsole**).
 2. Paste the command with <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> and press <kbd>Enter</kbd>:
@@ -114,8 +127,9 @@ reports the prerequisite if it is missing.
 ### Flatpak and AppImage
 
 Portable settings clients are available. Install and update the
-native WaySwitch service on the host to version 1.1.1 using the command above; `1.0.0`
-does not contain these fixes. The first-run window explains companion
+native WaySwitch service on the host using the command above. Use the service
+and GUI from the same [release](https://github.com/Wetoshkin/WaySwitch/releases).
+The first-run window explains companion
 installation, startup and diagnostics. Settings and pause state are shared.
 
 Download the local bundle and `SHA256SUMS` from the same release:
@@ -148,7 +162,7 @@ either portable GUI leaves the native service and shared settings in place.
 
 ### COSMIC
 
-Configure Russian and a Latin layout in COSMIC Settings. The backend reads the
+Configure Russian and English layouts in COSMIC Settings. The backend reads the
 actual keyboard map and group from the compositor and waits for switch
 acknowledgements. Tested on COSMIC 1.11 with multiple keyboards in one seat;
 multiple keyboard seats are unsupported.
@@ -166,8 +180,11 @@ because the compositor's compiled keymap does not expose original XKB options.
 |---|---|
 | <kbd>Shift</kbd> <kbd>Shift</kbd> | fix the last word; with nothing typed — just switch the layout |
 | <kbd>Shift</kbd> <kbd>Shift</kbd> <kbd>Shift</kbd> | fix the whole phrase |
-| <kbd>Shift</kbd> <kbd>Shift</kbd> right after an automatic fix | undo and remember the word |
-| your key (Preferences → Manual) | fix the selected text |
+| <kbd>Shift</kbd> <kbd>Shift</kbd> right after an automatic fix | undo; after two undos, add the word to exceptions by default |
+| your key (Preferences → Manual) | fix selection, transliterate or spell out a number (GNOME) |
+
+Press Shift twice within 0.4 seconds. Gestures are disabled while WaySwitch
+is paused or the screen is locked.
 
 ## Settings
 
@@ -177,7 +194,7 @@ from the app menu; preferences are under <kbd>☰</kbd> or
 Waybar module (`wayswitch waybar`), pausing is bound to a hotkey (`wayswitch toggle`; the last word is
 fixed with the Shift gesture), and ready-made config snippets are
 copied from Preferences → System → Panel. Sway and plain Hyprland do not
-start systemd user services: add `exec wayswitch run` (Sway) or
+start systemd user services: without uwsm, add `exec wayswitch run` (Sway) or
 `exec-once = wayswitch run` (Hyprland) to the config. On **Xfce, MATE, Budgie, LXQt**
 (labwc / Wayfire) WaySwitch reads the layouts from the compositor's XKB
 settings — see the Russian README for snippets.
@@ -207,8 +224,9 @@ correction waits for verified focus; the manual gesture remains available.
 A word was fixed by mistake — press <kbd>Shift</kbd> <kbd>Shift</kbd> right
 away. Still stuck — [open an issue](https://github.com/Wetoshkin/WaySwitch/issues/new)
 with diagnostic output (also available under About → Troubleshooting).
-Remove private information before posting: verbose and dry-run logs may
-contain typed text. See [Contributing](CONTRIBUTING.md).
+Remove private information before posting, including device names, paths
+and session details. Typed words are not logged, including in `--verbose`
+and `dry-run` modes. See [Contributing](CONTRIBUTING.md).
 
 ## FAQ
 
@@ -246,11 +264,25 @@ a udev rule and desktop integration. A Snap package is not available.
 
 ## Status
 
-WaySwitch 1.1.1. Tested on CachyOS with GNOME 51, Ubuntu with GNOME 50.1,
-Bazzite with GNOME, and COSMIC 1.11. A Plasma 6.6.6 Wayland VM was used to
-verify Kate/KWrite, normal and password fields in Qt/GTK, and protected
-Konsole behavior. Sway, Hyprland and the labwc/Wayfire desktops are covered
-by tests but not yet tried live — reports are welcome.
+Desktop support does not guarantee compatibility with every application:
+automatic correction requires accessible input fields with verified AT-SPI focus.
+
+| Environment | Integration and conditions | Validation |
+|---|---|---|
+| GNOME 46–51 | WaySwitch extension; IBus fallback | Live GNOME 50.1/51 sessions on Ubuntu, CachyOS and Bazzite |
+| KDE Plasma 6 | KWin D-Bus layouts; widget or tray icon | Plasma 6.6.6 Wayland VM: Kate/KWrite, Qt/GTK fields and Konsole |
+| COSMIC | Compositor keymap and layout; explicitly enable correction after startup and unlocking | Live COSMIC 1.11 session |
+| Sway, Hyprland | Compositor IPC; Waybar indicator | Automated tests; physical keyboard checks still needed |
+| labwc, Wayfire | XKB configuration and shortcut counter; opt-in automatic mode | Automated tests; live checks still needed |
+| Xfce, MATE, Budgie, LXQt | Wayland sessions on labwc/Wayfire only; tray icon | Same limitations as the compositor |
+| Umbriel — in development | Native IPC; not included in the published release yet | Live Ubuntu Wayland session tested in the prepared branch |
+
+**NixOS — in development.** A [package and system module](https://github.com/Wetoshkin/WaySwitch/blob/codex/feedback-by-issue/docs/nixos.md)
+are prepared in a separate branch. The Linux build was checked; a live NixOS
+graphical session has not been tested. That branch also supports additional
+layouts while leaving text outside ru/en alone; released 1.1.1 requires exactly two.
+
+X11, Cinnamon and separate RDP sessions are unsupported.
 
 With password-field protection enabled, automatic correction waits for
 verified AT-SPI focus. Use a manual gesture if the application's accessibility
@@ -263,10 +295,17 @@ an unverified prefix.
 COSMIC correction and lock-screen handling have been tested live. Explicit
 confirmation is required after service startup and unlocking, as described above.
 
+Selection correction, transliteration and numbers in words require the GNOME
+extension in the published release. On labwc/Wayfire, automatic correction
+requires explicit `backend.track_hotkey`; mouse layout switches are invisible
+to the shortcut counter. LibreOffice and some Flatpak applications still have
+known limitations: [LibreOffice and selection](https://github.com/Wetoshkin/WaySwitch/issues/18),
+[Firefox, Telegram and ONLYOFFICE on Bazzite](https://github.com/Wetoshkin/WaySwitch/issues/19).
+
 ## Development
 
 ```bash
-pip install pytest ruff
+python -m pip install pytest ruff
 python -m pytest -q
 python -m ruff check .
 ```
@@ -289,11 +328,12 @@ and the [live-session checklist](docs/testing-vm.md).
 
 ## In the media
 
-OpenNET, a well-known Russian-language portal covering Linux, Unix and
-open-source software, published an article about WaySwitch.
+Coverage of WaySwitch:
 
 - **November 2, 2026 · OpenNET** — coverage of the WaySwitch 1.0 release and
   automatic keyboard-layout correction. [Read the article and discussion (in Russian)](https://www.opennet.ru/opennews/art.shtml?num=66588).
+- **November 3, 2026 · Habr** — coverage of the WaySwitch 1.0 release as a
+  Punto Switcher alternative for Linux on Wayland. [Read the news and discussion (in Russian)](https://habr.com/ru/news/1102584/).
 
 ## License
 
