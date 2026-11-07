@@ -3,10 +3,20 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Wetoshkin/WaySwitch/releases"><img src="https://img.shields.io/github/v/release/Wetoshkin/WaySwitch?style=flat-square&color=c67139&label=%D1%80%D0%B5%D0%BB%D0%B8%D0%B7" alt="Релиз"></a>
-  <a href="https://github.com/Wetoshkin/WaySwitch/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Wetoshkin/WaySwitch/ci.yml?style=flat-square&label=%D1%82%D0%B5%D1%81%D1%82%D1%8B" alt="Тесты"></a>
   <img src="https://img.shields.io/badge/GNOME-46–51-7a8a5e?style=flat-square" alt="GNOME 46–51">
   <img src="https://img.shields.io/badge/KDE_Plasma-6-3daee9?style=flat-square" alt="KDE Plasma 6">
+  <img src="https://img.shields.io/badge/COSMIC-1.11-7a8a5e?style=flat-square" alt="COSMIC 1.11">
+  <img src="https://img.shields.io/badge/Sway-IPC-7a8a5e?style=flat-square" alt="Sway">
+  <img src="https://img.shields.io/badge/Hyprland-IPC-7a8a5e?style=flat-square" alt="Hyprland">
+  <img src="https://img.shields.io/badge/labwc-XKB-7a8a5e?style=flat-square" alt="labwc">
+  <img src="https://img.shields.io/badge/Wayfire-XKB-7a8a5e?style=flat-square" alt="Wayfire">
+  <br>
+  <img src="https://img.shields.io/badge/Xfce-Wayland-7a8a5e?style=flat-square" alt="Xfce через labwc/Wayfire">
+  <img src="https://img.shields.io/badge/MATE-Wayland-7a8a5e?style=flat-square" alt="MATE через labwc/Wayfire">
+  <img src="https://img.shields.io/badge/Budgie-Wayland-7a8a5e?style=flat-square" alt="Budgie через labwc/Wayfire">
+  <img src="https://img.shields.io/badge/LXQt-Wayland-7a8a5e?style=flat-square" alt="LXQt через labwc/Wayfire">
+  <a href="#статус-и-ограничения"><img src="https://img.shields.io/badge/Umbriel-development-c67139?style=flat-square" alt="Umbriel — в разрабатываемой версии"></a>
+  <a href="#статус-и-ограничения"><img src="https://img.shields.io/badge/NixOS-development-c67139?style=flat-square" alt="Пакет NixOS — в разрабатываемой версии"></a>
   <img src="https://img.shields.io/badge/Wayland-✓-7a8a5e?style=flat-square" alt="Wayland">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4a4540?style=flat-square" alt="MIT"></a>
 </p>
@@ -17,6 +27,7 @@
 
 <p align="center">
   <a href="#установка">Установка</a> ·
+  <a href="#статус-и-ограничения">Совместимость</a> ·
   <a href="#первые-шаги">Первые шаги</a> ·
   <a href="#жесты">Жесты</a> ·
   <a href="#настройка">Настройка</a> ·
@@ -26,14 +37,13 @@
 
 **Автоматическое исправление русско-английской раскладки для Linux на Wayland.**
 
-**Версия 1.1.1 — исправление полей ввода KDE и уточнённая диагностика.**
-
 WaySwitch чинит слово, набранное не в той раскладке (`ghbdtn` вместо
 «привет»), сразу же, на пробеле — без горячих клавиш и без переключения
 раскладки вручную. Работает под Wayland в GNOME (Ubuntu, Fedora), COSMIC, KDE Plasma,
-Sway, Hyprland, а также в Xfce, MATE, Budgie и LXQt — там, где обычные утилиты
-такого рода не могут ни слушать клавиатуру, ни печатать за пользователя.
-**Linux Mint (Cinnamon) пока не поддерживается.**
+Sway и Hyprland. Для Xfce, MATE, Budgie и LXQt нужна Wayland-сессия на
+labwc или Wayfire. Условия работы и поддержка Umbriel/NixOS в разработке —
+в [таблице совместимости](#статус-и-ограничения).
+**X11 и Cinnamon (в том числе стандартный сеанс Linux Mint) не поддерживаются.**
 
 <p align="center">
   <img src=".github/assets/how-ru.png" alt="Набираете ghbdtn, нажимаете пробел — получаете «привет»" width="100%">
@@ -108,10 +118,13 @@ Sway, Hyprland, а также в Xfce, MATE, Budgie и LXQt — там, где �
 
 ## <img src=".github/assets/sec-install.png" width="28" align="top"> Установка
 
-**Что нужно:** Ubuntu 24.04 или новее (или Kubuntu, Debian 13, Fedora 41+,
-openSUSE Tumbleweed, Arch и производные) и две раскладки — русская и
-английская. Сомневаетесь — просто запустите команду ниже: она сама проверит
-систему и скажет, если что-то не подходит.
+**Что нужно:** Wayland-сессия в одном из окружений выше, Ubuntu 24.04 или новее
+(или Kubuntu, Debian 13, Fedora 41+, openSUSE Tumbleweed, Arch и производные)
+и две раскладки — русская и английская. Сомневаетесь — просто запустите
+команду ниже: она сама проверит систему и скажет, если что-то не подходит.
+
+Для NixOS готовятся отдельные пакет и системный модуль; общий установщик
+для него не предназначен. См. [статус поддержки](#статус-и-ограничения).
 
 ### Одной командой
 
@@ -160,8 +173,9 @@ openSUSE Tumbleweed, Arch и производные) и две раскладк�
 | Arch, CachyOS, EndeavourOS, Manjaro | поставит пакет из AUR через `paru` или `yay`, если он там есть; иначе соберёт из исходников |
 | Остальные | установит из исходников через `packaging/install.sh` |
 
-Во всех случаях скрипт включает автозапуск (`systemctl --user enable
-wayswitch`), а в GNOME — расширение WaySwitch.
+Скрипт настраивает автозапуск, а в GNOME — расширение WaySwitch.
+В Sway и Hyprland без uwsm добавьте запуск в конфиг композитора —
+см. [настройку](#настройка).
 
 </details>
 
@@ -265,9 +279,10 @@ curl -fsSL https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/
 
 Доступны два переносимых формата окна настроек. Клавиатуру читает и
 исправляет текст отдельная нативная служба WaySwitch, установленная на хосте
-командой выше. Обновите её вместе с окном до версии 1.1.1: версия `1.0.0` не содержит
-новых исправлений. Мастер первого запуска объясняет установку службы,
-автозапуск и диагностику; настройки и пауза общие для обоих компонентов.
+командой выше. Используйте службу и окно из одного
+[выпуска](https://github.com/Wetoshkin/WaySwitch/releases). Мастер первого запуска
+объясняет установку службы, автозапуск и диагностику; настройки и пауза общие
+для обоих компонентов.
 
 Для локального Flatpak-пакета скачайте файл и `SHA256SUMS` из одного выпуска:
 
@@ -317,9 +332,11 @@ GNOME. Проверено в COSMIC 1.11 с несколькими клавиа�
 
 ## <img src=".github/assets/sec-start.png" width="28" align="top"> Первые шаги
 
-Откройте любое текстовое поле, переключитесь на английскую раскладку,
+Откройте обычное редактируемое поле, переключитесь на английскую раскладку,
 наберите `ghbdtn` и нажмите пробел — слово станет «привет», раскладка
 переключится на русскую. В окне WaySwitch для этого есть поле «Проверка».
+Для автоматического исправления приложение должно сообщать достоверный фокус
+через AT-SPI; терминалы по умолчанию пропускаются.
 
 При первом запуске окно проверит систему. Где всё в порядке — зелёная
 галочка, как на снимке ниже; где нет — подсказка, а часто и кнопка, которая
@@ -336,7 +353,7 @@ GNOME. Проверено в COSMIC 1.11 с несколькими клавиа�
 | <kbd>Shift</kbd> <kbd>Shift</kbd> | исправить последнее слово; если вы ещё ничего не набрали — просто переключить раскладку |
 | <kbd>Shift</kbd> <kbd>Shift</kbd> <kbd>Shift</kbd> | исправить всю фразу |
 | <kbd>Shift</kbd> <kbd>Shift</kbd> сразу после автоисправления | вернуть слово (со второго раза — запомнить его) |
-| своя клавиша (Параметры → Вручную) | исправить выделенный текст, транслитерация, число прописью |
+| своя клавиша (Параметры → Вручную) | исправить выделенный текст, транслитерация, число прописью (GNOME) |
 
 Нажатия — подряд, второе в пределах 0,4 с. Вместо двойного Shift можно
 выбрать одну клавишу. Жесты не работают, пока экран заблокирован или
@@ -348,7 +365,7 @@ WaySwitch на паузе. Посмотреть все жесты в окне �
 Всё настраивается мышью, файл конфигурации править не нужно. Изменения
 применяются сразу.
 
-**GNOME, Xfce, MATE, Budgie, LXQt, KDE.** Откройте «WaySwitch» из
+**GNOME, COSMIC, Xfce, MATE, Budgie, LXQt, KDE.** Откройте «WaySwitch» из
 меню приложений (в Xfce, LXQt и MATE он есть и в центре настроек). В окне —
 состояние, поле для проверки и последние исправления; параметры — в меню
 <kbd>☰</kbd> или <kbd>Ctrl</kbd>+<kbd>,</kbd>. Значок в панели показывает
@@ -404,8 +421,9 @@ for_window [app_id="ru.siberia.WaySwitch.Settings"] floating enable, resize set 
 ```
 
 Последнее слово исправляется жестом (двойной Shift или своя клавиша) — он
-работает везде. Отдельную горячую клавишу для `wayswitch fix` не назначайте:
-сочетания с Super и щелчки по панели сбрасывают набранное слово.
+работает во всех поддерживаемых окружениях при активной службе. Отдельную
+горячую клавишу для `wayswitch fix` не назначайте: сочетания с Super и щелчки
+по панели сбрасывают набранное слово.
 
 Sway и обычный Hyprland не запускают пользовательские службы systemd сами.
 Добавьте автозапуск в конфиг: `exec wayswitch run` (Sway) или
@@ -436,7 +454,8 @@ xkb_options = grp:alt_shift_toggle
 Композитор не сообщает, какая раскладка сейчас включена, поэтому WaySwitch
 считает нажатия сочетания. Если менять раскладку только клавиатурой, этому
 можно доверять: «Параметры → Система → Исправлять автоматически по
-счётчику». Без этого работают ручной жест и «Исправить выделенное».
+счётчику». Без этого доступен ручной жест. Работа с выделением в выпущенной
+версии требует расширения GNOME.
 
 </details>
 
@@ -474,7 +493,7 @@ settle_ms = 120               # ожидание после смены раск�
 key_delay_ms = 0              # задержка между символами, мс
 
 [backend]
-prefer = "auto"               # auto | shell | kde | sway | hyprland | compositor | ibus | hotkey
+prefer = "auto"               # auto | shell | kde | cosmic | sway | hyprland | compositor | ibus | hotkey
 track_hotkey = false          # labwc/Wayfire: автоисправление по счётчику раскладки
 ```
 
@@ -540,7 +559,8 @@ curl -fsSL https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/
 (нужна бесплатная учётная запись GitHub). Приложите отчёт: в окне WaySwitch
 меню <kbd>☰</kbd> → «О WaySwitch» → «Устранение неполадок» → кнопка
 «Скопировать», затем вставьте его в сообщение. Перед публикацией удалите
-личные сведения. Журналы `--verbose` и `dry-run` могут содержать набранный текст.
+личные сведения: имена устройств, пути и данные сеанса. Набранные слова
+не записываются в журнал, в том числе в режимах `--verbose` и `dry-run`.
 Подробнее — [как сообщить об ошибке](CONTRIBUTING.md).
 
 > [!IMPORTANT]
@@ -629,11 +649,25 @@ curl -fsSL https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/
 
 ## Статус и ограничения
 
-WaySwitch 1.1.1. Проверено на CachyOS с GNOME 51, Ubuntu с GNOME 50.1,
-Bazzite с GNOME и COSMIC 1.11. На Plasma 6.6.6 Wayland в VM проверены
-Kate/KWrite, обычные и парольные поля Qt/GTK и защищённое поведение Konsole.
-Sway, Hyprland и среды на labwc/Wayfire покрыты тестами, но живьём пока не
-проверялись — будем рады отчётам.
+Поддержка окружения не гарантирует совместимость каждого приложения:
+автоматическое исправление зависит от доступности его полей через AT-SPI.
+
+| Окружение | Интеграция и условия | Проверка |
+|---|---|---|
+| GNOME 46–51 | Расширение WaySwitch; резервный способ через IBus | Живые сеансы GNOME 50.1/51 на Ubuntu, CachyOS и Bazzite |
+| KDE Plasma 6 | Раскладки через D-Bus KWin; виджет или значок в лотке | Plasma 6.6.6 Wayland в VM: Kate/KWrite, поля Qt/GTK и Konsole |
+| COSMIC | Карта и текущая раскладка от композитора; после запуска и разблокировки нужно явно включить исправление | Живой сеанс COSMIC 1.11 |
+| Sway, Hyprland | IPC композитора; индикатор Waybar | Автотесты; проверка с физической клавиатурой ещё нужна |
+| labwc, Wayfire | XKB-конфиг и счётчик сочетания; авторежим включается отдельно | Автотесты; живая проверка ещё нужна |
+| Xfce, MATE, Budgie, LXQt | Только Wayland-сессия на labwc/Wayfire; значок в области уведомлений | Те же ограничения, что у композитора |
+| Umbriel — в разработке | Нативный IPC; ещё не входит в опубликованный выпуск | В подготовленной ветке проверен живой Wayland-сеанс Ubuntu |
+
+**NixOS — в разработке.** [Пакет и системный модуль](https://github.com/Wetoshkin/WaySwitch/blob/codex/feedback-by-issue/docs/nixos.md)
+подготовлены в отдельной ветке. Сборка на Linux проверена, живая графическая
+сессия NixOS — ещё нет. В той же ветке реализована работа с дополнительными
+раскладками без изменения текста вне пары ru/en; выпущенная 1.1.1 требует ровно две.
+
+X11, Cinnamon и отдельные RDP-сеансы не поддерживаются.
 
 - Поля с автодополнением (например, адресная строка браузера) могут вести
   себя неожиданно при перепечатке.
@@ -651,6 +685,9 @@ Sway, Hyprland и среды на labwc/Wayfire покрыты тестами, �
   активного локального пользователя. Оно также открывает мышь и тачпад
   для сброса буфера при клике и `uinput` для эмуляции ввода.
 - «Исправить выделенное» пока работает в GNOME (через расширение).
+- Совместимость LibreOffice и ряда Flatpak-приложений ещё дорабатывается:
+  [LibreOffice и выделение](https://github.com/Wetoshkin/WaySwitch/issues/18),
+  [Firefox, Telegram и ONLYOFFICE на Bazzite](https://github.com/Wetoshkin/WaySwitch/issues/19).
 - В средах на labwc/Wayfire композитор не сообщает текущую раскладку —
   автоисправление там по счётчику и по желанию.
 
@@ -670,7 +707,7 @@ Sway, Hyprland и среды на labwc/Wayfire покрыты тестами, �
 ## <img src=".github/assets/sec-dev.png" width="28" align="top"> Разработка
 
 ```bash
-pip install pytest ruff
+python -m pip install pytest ruff
 python -m pytest -q
 python -m ruff check .
 ```
@@ -700,11 +737,12 @@ evdev на уровне модуля и тестируется где угодн
 
 ## О нас пишут
 
-О WaySwitch написал OpenNET — известный русскоязычный портал о Linux,
-Unix и открытом программном обеспечении.
+Публикации о WaySwitch:
 
 - **2 ноября 2026 · OpenNET** — «Доступен WaySwitch 1.0, автоматический
   корректор ввода не в той раскладке клавиатуры». [Читать статью и обсуждение](https://www.opennet.ru/opennews/art.shtml?num=66588).
+- **3 ноября 2026 · Хабр** — «Релиз WaySwitch 1.0 — аналога Punto Switcher,
+  работающего в Linux-окружениях на базе протокола Wayland». [Читать новость и обсуждение](https://habr.com/ru/news/1102584/).
 
 ## Лицензии
 
