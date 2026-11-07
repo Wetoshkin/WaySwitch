@@ -674,7 +674,15 @@ class _DbusTree:
         if (type(start) is not int or not 0 <= start <= 0x7FFFFFFF
                 or not isinstance(text, str) or not 0 < len(text) <= 512):
             return None
-        size = len(text.encode("utf-8"))
+        application = self._call(node, ACC, "GetApplication", None, "((so))")
+        if not application or application[0][0] != node[0]:
+            return None
+        toolkit = self._property(application[0], "org.a11y.atspi.Application", "ToolkitName")
+        if not isinstance(toolkit, str) or not toolkit:
+            return None
+        # Qt resizes a QString using this length; other bridges use AT-SPI's UTF-8 bytes.
+        size = len(text.encode("utf-16-le")) // 2 if toolkit.casefold() == "qt" else len(
+            text.encode("utf-8"))
         got = self._call(node, "org.a11y.atspi.EditableText", "InsertText",
                          self._GLib.Variant("(isi)", (start, text, size)), "(b)")
         return got[0] if got else None

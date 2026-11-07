@@ -261,6 +261,97 @@ def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: Fal
     return result
 
 
+_NATIVE_FALLBACK = object()
+
+
+def _native_shape(plan: Plan):
+    """Пара «стереть+набрать» в конце плана, если её можно заменить одним span-ом."""
+    snapshot = plan.focus
+    if (plan.source_text is None or snapshot is None or not snapshot.app
+            or not snapshot.field or snapshot.password or len(plan.steps) < 2
+            or not isinstance(plan.steps[-2], Backspace)
+            or not isinstance(plan.steps[-1], Type)
+            or not all(isinstance(s, (ReleaseModifiers, SwitchLayout, ToggleCaps))
+                       for s in plan.steps[:-2])):
+        return None
+    return plan.steps[:-2], plan.steps[-2], plan.steps[-1]
+
+
+def _attempt_native(plan: Plan, typist, run: _Run, setup,
+                    precheck_hold: bool = True):
+    """Один общий native-протокол для текстовой и клавиатурной печати.
+
+    Возвращает статус попытки или _NATIVE_FALLBACK, если native-обработчик
+    неприменим и до первой подготовки ничего не изменилось. Для клавиатурного
+    транспорта precheck_hold=False: физический Shift проверяет обычный путь,
+    если native-возможность не подтвердилась.
+    """
+    replace = getattr(typist, "replace_span", None)
+    shape = _native_shape(plan)
+    if replace is None or shape is None:
+        return _NATIVE_FALLBACK
+    prefix, backspace, typed = shape
+    if len(plan.source_text) != backspace.count:
+        return ABORTED
+    if (precheck_hold and run.blocked()) or run.aborted():
+        return ABORTED
+    prepared = False
+    started = False
+
+    def begin():
+        nonlocal prepared, started
+        started = True
+        for step in prefix:
+            if run.blocked() or run.native_aborted():
+                return False
+            try:
+                applied = setup(step)
+            finally:
+                interrupted = run.native_aborted()
+            if not applied:
+                raise RuntimeError("layout not applied")
+            if interrupted:
+                return False
+        if run.blocked() or run.native_aborted():
+            return False
+        if not run.write_checked:
+            if (run.blocked() or run.native_aborted() or not run.validate_write()
+                    or run.native_aborted(before_write=True)):
+                return False
+        run.commit()
+        prepared = True
+        return True
+
+    try:
+        result = replace(plan.focus, plan.source_text, typed.text, begin,
+                         run.native_aborted)
+    except Exception as exc:  # noqa: BLE001 — ошибка native-протокола не откатывает на клавиши
+        log.error("исправление прервано ошибкой: %s", type(exc).__name__)
+        return FAILED
+    if result is None:
+        # Ни один шаг подготовки не начат — можно использовать обычный транспорт.
+        if run.committed or run.switched or run.caps_toggle is not None or started:
+            return FAILED
+        if (precheck_hold and run.blocked()) or run.aborted():
+            return ABORTED
+        return _NATIVE_FALLBACK
+    run.committed |= result.committed
+    if result.status == DONE and not prepared:
+        return FAILED
+    if result.status == DONE:
+        source = getattr(result, "source_text", None)
+        target = getattr(result, "target_text", None)
+        if source is not None or target is not None:
+            if (not isinstance(source, str) or not isinstance(target, str)
+                    or len(source) != len(plan.source_text)
+                    or source.casefold() != plan.source_text.casefold()
+                    or target.casefold() != typed.text.casefold()):
+                return FAILED
+            run.resolved_source, run.resolved_target = source, target
+    run.native_done = result.status == DONE
+    return result.status
+
+
 def _execute_keys(plan: Plan, typist, run: _Run, key_delay: float, sleep,
                   switch_timeout: float) -> str:
     session = _Session(typist, key_delay, sleep)
@@ -281,6 +372,12 @@ def _execute_keys(plan: Plan, typist, run: _Run, key_delay: float, sleep,
         return None
 
     try:
+        native_result = _attempt_native(
+            plan, typist, run,
+            lambda step: _key_setup(step, typist, session, run, switch_timeout),
+            precheck_hold=False)
+        if native_result is not _NATIVE_FALLBACK:
+            return native_result
         for step in plan.steps:
             if status := interruption():
                 return status
@@ -359,69 +456,32 @@ def _text_setup(step, typist, run: _Run, switch_timeout: float) -> bool:
     return True
 
 
+def _key_setup(step, typist, session: _Session, run: _Run,
+               switch_timeout: float) -> bool:
+    if isinstance(step, ReleaseModifiers):
+        for code in ALL_MODIFIERS:
+            typist.key(code, 0)
+        typist.syn()
+    elif isinstance(step, SwitchLayout):
+        return run.switch(step.group, switch_timeout)
+    elif isinstance(step, ToggleCaps):
+        def tap_caps():
+            session.press(kc.KEY_CAPSLOCK)
+            session.release(kc.KEY_CAPSLOCK)
+        tap_caps()
+        run.caps_toggle = tap_caps
+    return True
+
+
 def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: float) -> str:
     step = None
     try:
-        native = getattr(typist, "replace_span", None)
-        snapshot = plan.focus
-        if (native is not None and plan.source_text is not None
-                and snapshot is not None and snapshot.app and snapshot.field
-                and not snapshot.password and len(plan.steps) >= 2
-                and isinstance(plan.steps[-2], Backspace) and isinstance(plan.steps[-1], Type)
-                and all(isinstance(s, (ReleaseModifiers, SwitchLayout, ToggleCaps))
-                        for s in plan.steps[:-2])):
-            if len(plan.source_text) != plan.steps[-2].count:
-                return ABORTED
-            if run.blocked() or run.aborted():
-                return ABORTED
-            prepared = False
-
-            def begin():
-                nonlocal prepared
-                for setup in plan.steps[:-2]:
-                    if run.blocked() or run.native_aborted():
-                        return False
-                    try:
-                        applied = _text_setup(setup, typist, run, switch_timeout)
-                    finally:
-                        interrupted = run.native_aborted()
-                    if not applied:
-                        raise RuntimeError("layout not applied")
-                    if interrupted:
-                        return False
-                if run.native_aborted():
-                    return False
-                if not run.write_checked:
-                    if (run.blocked() or run.native_aborted() or not run.validate_write()
-                            or run.native_aborted(before_write=True)):
-                        return False
-                run.commit()
-                prepared = True
-                return True
-
-            # Диапазон фиксируется до смены раскладки, допечатывание не сдвигает его.
-            result = native(snapshot, plan.source_text, plan.steps[-1].text,
-                            begin, run.native_aborted)
-            if result is not None:
-                run.committed |= result.committed
-                if result.status == DONE and not prepared:
-                    return FAILED
-                if result.status == DONE:
-                    source = getattr(result, "source_text", None)
-                    target = getattr(result, "target_text", None)
-                    if source is not None or target is not None:
-                        if (not isinstance(source, str) or not isinstance(target, str)
-                                or len(source) != len(plan.source_text)
-                                or source.casefold() != plan.source_text.casefold()
-                                or target.casefold() != plan.steps[-1].text.casefold()):
-                            return FAILED
-                        run.resolved_source, run.resolved_target = source, target
-                run.native_done = result.status == DONE
-                return result.status
-            if run.committed or run.switched or run.caps_toggle is not None:
-                return FAILED
-            if run.blocked() or run.aborted():
-                return ABORTED
+        # Диапазон фиксируется до смены раскладки, допечатывание не сдвигает его.
+        native_result = _attempt_native(
+            plan, typist, run,
+            lambda step: _text_setup(step, typist, run, switch_timeout))
+        if native_result is not _NATIVE_FALLBACK:
+            return native_result
         for step in plan.steps:
             if run.aborted():
                 return ABORTED

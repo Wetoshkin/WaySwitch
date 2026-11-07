@@ -2,7 +2,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.fakes import RU, US, FakeBackend, RecordingTextTypist, keys_for_text
+from tests.fakes import (
+    RU,
+    US,
+    FakeBackend,
+    RecordingTextTypist,
+    RecordingTypist,
+    keys_for_text,
+    make_keymap,
+)
 from tests.test_focus import make_env, type_keys
 from wayswitch import keycodes as kc
 from wayswitch.a11y import FocusSnapshot
@@ -16,6 +24,7 @@ from wayswitch.actuator import (
     ToggleCaps,
     Type,
     execute,
+    plan_fix,
 )
 from wayswitch.editable import SpanResult
 
@@ -41,6 +50,148 @@ def native_plan(**overrides):
     values = {"source_text": "ghbdtn ", "focus": FOCUS}
     values.update(overrides)
     return Plan([SwitchLayout(RU), Backspace(7), Type("привет ", [])], **values)
+
+
+class NativeKeyTypist(RecordingTypist):
+    """Key-typist с необязательным native-обработчиком, без TextTypist-методов."""
+
+    def __init__(self, action=None):
+        super().__init__()
+        self.action = action
+        self.native_calls = []
+
+    def replace_span(self, focus, source, target, commit, stopped):
+        self.native_calls.append((focus, source, target))
+        if self.action is not None:
+            return self.action(commit, stopped)
+        if commit() is False:
+            return SpanResult(ABORTED)
+        return SpanResult(DONE, True)
+
+
+def key_plan(*, caps_off=False, target="привет "):
+    plan = plan_fix(len("ghbdtn "), target, RU, make_keymap(), caps_on=False,
+                    caps_off=caps_off)
+    assert plan is not None
+    plan.source_text = "ghbdtn "
+    plan.focus = FOCUS
+    return plan
+
+
+def test_key_native_without_setup_honors_held_modifier_before_commit():
+    typist = NativeKeyTypist()
+    plan = Plan([Backspace(7), Type("привет ", [])],
+                source_text="ghbdtn ", focus=FOCUS)
+    assert execute(plan, typist, FakeBackend(current=RU), hold=lambda: False) == ABORTED
+    assert typist.taps() == []
+
+
+def test_key_typist_native_span_success_uses_no_printing_keys():
+    typist, backend = NativeKeyTypist(), FakeBackend(current=US)
+    assert execute(key_plan(), typist, backend, restore_group=US) == DONE
+    assert typist.native_calls == [(FOCUS, "ghbdtn ", "привет ")]
+    assert typist.taps() == []
+    assert backend.set_calls == [RU]
+    assert typist.stuck() == set()
+
+
+def test_key_typist_unsupported_before_setup_uses_original_keys():
+    plan = key_plan()
+    typist, backend = NativeKeyTypist(lambda *_: None), FakeBackend(current=US)
+    assert execute(plan, typist, backend, restore_group=US) == DONE
+    expected = [(kc.KEY_BACKSPACE, False)] * 7 + plan.steps[-1].keys
+    assert typist.taps() == expected
+    assert backend.set_calls == [RU]
+    assert len(typist.native_calls) == 1
+
+
+@pytest.mark.parametrize("failure", ["failed", "exception", "none"])
+def test_key_typist_native_uncertainty_after_commit_never_falls_back(failure):
+    def native(commit, _stopped):
+        assert commit() is True
+        if failure == "exception":
+            raise RuntimeError("Timeout was reached")
+        return SpanResult(FAILED, True) if failure == "failed" else None
+
+    typist, backend = NativeKeyTypist(native), FakeBackend(current=US)
+    assert execute(key_plan(), typist, backend, restore_group=US) == FAILED
+    assert typist.taps() == [] and len(typist.native_calls) == 1
+    assert backend.set_calls == [RU]
+
+
+def test_key_typist_native_cancellation_before_commit_does_not_change_layout():
+    typist, backend = NativeKeyTypist(lambda *_: SpanResult(ABORTED)), FakeBackend(current=US)
+    assert execute(key_plan(), typist, backend, restore_group=US) == ABORTED
+    assert typist.taps() == [] and typist.native_calls
+    assert backend.set_calls == []
+
+
+def test_key_typist_focus_change_during_layout_prevents_native_edit():
+    changed = []
+
+    class Backend(FakeBackend):
+        def wait_applied(self, index, timeout):
+            changed.append(True)
+            return super().wait_applied(index, timeout)
+
+    typist, backend = NativeKeyTypist(), Backend(current=US)
+    assert execute(key_plan(), typist, backend, restore_group=US,
+                   stop=lambda: bool(changed)) == ABORTED
+    assert typist.taps() == [] and len(typist.native_calls) == 1
+    assert backend.set_calls == [RU]
+
+
+def test_key_typist_failed_layout_cannot_start_native_mutation():
+    typist, backend = NativeKeyTypist(), FakeBackend(current=US, fail_switch=True)
+    assert execute(key_plan(), typist, backend, restore_group=US) == FAILED
+    assert typist.taps() == [] and len(typist.native_calls) == 1
+    assert backend.set_calls == [RU, US]
+
+
+def test_key_typist_before_write_runs_after_layout_and_caps_once():
+    order = []
+    plan = key_plan(caps_off=True)
+    typist, backend = NativeKeyTypist(), FakeBackend(current=US)
+
+    def native(commit, _stopped):
+        order.append("native")
+        assert commit() is True
+        order.append("committed")
+        return SpanResult(DONE, True)
+
+    typist.action = native
+    outcome = {}
+
+    def before_write():
+        order.append("before_write")
+        assert backend.current() == RU
+        assert typist.taps() == [(kc.KEY_CAPSLOCK, False)]
+        return True
+
+    assert execute(plan, typist, backend, restore_group=US,
+                   before_write=before_write, outcome=outcome) == DONE
+    assert order == ["native", "before_write", "committed"]
+    assert typist.taps() == [(kc.KEY_CAPSLOCK, False)]
+    assert outcome["caps_off"] is True and outcome["native_span"] is True
+    assert backend.set_calls == [RU]
+
+
+def test_unsupported_key_native_preserves_original_hold_abort_sequence():
+    typist, backend = NativeKeyTypist(lambda *_: None), FakeBackend(current=US)
+    assert execute(key_plan(), typist, backend, restore_group=US,
+                   hold=lambda: False) == ABORTED
+    assert typist.taps() == [] and len(typist.native_calls) == 1
+    # Как без нативного обработчика: раскладка успела переключиться и откатилась.
+    assert backend.set_calls == [RU, US]
+
+
+def test_key_typist_without_span_metadata_keeps_plain_key_transport():
+    plan = Plan([Backspace(2), Type("ab", [(kc.KEY_A, False), (kc.KEY_B, False)])])
+    typist = NativeKeyTypist(lambda *_: pytest.fail("shape without span must not use native"))
+    assert execute(plan, typist, FakeBackend(current=US)) == DONE
+    assert typist.native_calls == []
+    assert typist.taps() == [(kc.KEY_BACKSPACE, False), (kc.KEY_BACKSPACE, False),
+                             (kc.KEY_A, False), (kc.KEY_B, False)]
 
 
 def test_native_span_reserves_source_before_layout_and_does_not_repeat_keys():
