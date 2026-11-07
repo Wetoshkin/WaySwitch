@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from wayswitch.backends.desktop import (
+    CINNAMON,
     COMPOSITOR_DESKTOPS,
     COSMIC,
     DESKTOP_NAMES,
@@ -113,7 +114,8 @@ def uinput_status() -> tuple[bool, str]:
         # getattr: на Windows (разработка, тесты) O_NONBLOCK нет.
         fd = os.open("/dev/uinput", os.O_WRONLY | getattr(os, "O_NONBLOCK", 0))
     except PermissionError:
-        return False, "нет прав на /dev/uinput"
+        return False, ("нет прав на /dev/uinput: uaccess требует активного локального сеанса; "
+                       "отдельный RDP-сеанс может не иметь доступа к устройствам")
     except OSError as e:
         return False, f"/dev/uinput не открывается ({e.strerror or e}) — модуль uinput не загружен?"
     os.close(fd)
@@ -305,16 +307,20 @@ def run_checks() -> list[Check]:
         def compositor_xkb():
             from wayswitch.backends import compositor
             specs, options, where = compositor.read_xkb()
-            if len(specs) < 2:
+            if not specs:
                 return False, "раскладки композитора не найдены"
             if not compositor.toggle_combos(options):
                 return False, f"нет сочетания переключения в xkb_options ({where})"
+            if not compositor.cycle_supported(options, len(specs)):
+                return False, ("счётчик не может подтвердить переключение при этих источниках "
+                               "и сочетаниях; служба запускается пассивно. Для 3–4 раскладок "
+                               "используйте grp:alt_shift_toggle без переназначения Shift")
             return True, f"{where}: {', '.join(s.xkb_id for s in specs)}"
         checks.append(_check("Сочетание переключения раскладки (labwc / Wayfire)",
                              compositor_xkb,
                              "задайте в ~/.config/labwc/environment: XKB_DEFAULT_LAYOUT=us,ru и "
                              "XKB_DEFAULT_OPTIONS=grp:alt_shift_toggle (или xkb_layout / "
-                             "xkb_options в [input] wayfire.ini)", key="switch"))
+                             "xkb_options в [input] wayfire.ini)", required=False, key="switch"))
 
     def modules():
         import evdev  # noqa: F401
@@ -338,17 +344,22 @@ def run_checks() -> list[Check]:
                          "pacman -S libxkbcommon"))
 
     def sources():
-        """Две раскладки: ru и латинская — по данным среды."""
+        """Наличие ru/en без ограничения на остальные источники."""
         from wayswitch.keymap import XkbKeymap
         if cosmic_map is not None:
-            alphabets = sorted(cosmic_map.alphabet(g) for g in range(cosmic_map.num_groups))
-            return alphabets == ["latin", "ru"], ", ".join(s.xkb_id for s in cosmic_map.specs)
+            ready = any(cosmic_map.opposite_group(g) is not None
+                        for g in range(cosmic_map.num_groups))
+            return ready, ", ".join(s.xkb_id for s in cosmic_map.specs)
         if desktop == UMBRIEL:
             specs = umbriel_specs
         elif desktop == KDE:
             from wayswitch.backends.kde_plasma import KdePlasmaBackend
-            specs = KdePlasmaBackend().layouts()
-        elif desktop == GNOME:
+            backend = KdePlasmaBackend()
+            try:
+                specs = backend.layouts()
+            finally:
+                backend.close()
+        elif desktop in (GNOME, CINNAMON):
             from wayswitch.backends.gnome_common import read_sources
             specs = read_sources()
         elif desktop == SWAY:
@@ -373,13 +384,18 @@ def run_checks() -> list[Check]:
             if not specs:
                 return False, "раскладки композитора не найдены"
         km = XkbKeymap.from_names(specs, [])
-        alphabets = sorted(km.alphabet(g) for g in range(km.num_groups))
-        return alphabets == ["latin", "ru"], ", ".join(s.xkb_id for s in specs)
+        ready = any(km.opposite_group(g) is not None for g in range(km.num_groups))
+        return ready, ", ".join(s.xkb_id for s in specs)
     if (desktop != COSMIC or cosmic_map is not None) \
             and (desktop != UMBRIEL or umbriel_specs is not None):
-        checks.append(_check("Две раскладки: русская и английская", sources,
-                             "оставьте в системе ровно две раскладки: русскую и английскую",
-                             key="layouts"))
+        checks.append(_check("Русская и английская раскладки", sources,
+                             "добавьте русскую и английскую раскладки; другие удалять не нужно. "
+                             "До появления пары ru/en исправления недоступны",
+                             required=False, key="layouts"))
+    from wayswitch.keymap import LAYOUT_SCOPE
+
+    checks.append(Check("Рабочие языки WaySwitch", True, LAYOUT_SCOPE,
+                        required=False, key="layout_scope"))
 
     def uinput():
         return uinput_status()

@@ -130,6 +130,8 @@ class UmbrielBackend(LayoutBackend):
     def __init__(self, *, ipc=None, watch=None, rules=None):
         self._callbacks = []
         self._expected = None
+        self._expected_events = []
+        self._switching = False
         self._unwatch = None
         self._closed = False
         self._valid = True
@@ -141,8 +143,6 @@ class UmbrielBackend(LayoutBackend):
         self._ipc = ipc
         try:
             self._names, self._current = keyboard_state(ipc.request(QUERY))
-            if len(self._names) != 2:
-                raise BackendError("Umbriel: нужны ровно две раскладки")
             self._specs = specs_from_names(self._names, rules)
             self._unwatch = (watch or _glib_watch)(ipc, self._on_event)
             if not self._valid:
@@ -177,6 +177,7 @@ class UmbrielBackend(LayoutBackend):
             return
         self._valid = False
         self._current = self._expected = None
+        self._expected_events.clear()
         if self._unwatch is not None:
             self._unwatch()
             self._unwatch = None
@@ -188,9 +189,12 @@ class UmbrielBackend(LayoutBackend):
         if names != self._names:
             self._invalidate()
             raise BackendError("Umbriel: карта раскладок изменилась")
-        if event and self._expected is not None and index != self._expected:
-            # IPC has no sequence number to distinguish an old event from a user switch.
-            self._invalidate()
+        if event and self._expected_events:
+            if index != self._expected_events.pop(0):
+                self._invalidate()
+            elif not self._expected_events and not self._switching:
+                self._expected = None
+            # Запрос уже подтвердил шаг; позднее событие не отматывает состояние назад.
             return
         external = index != self._expected
         changed = index != self._current
@@ -219,17 +223,35 @@ class UmbrielBackend(LayoutBackend):
         if not self._target(index):
             raise BackendError("Umbriel: неверный индекс раскладки")
         deadline = time.monotonic() + TIMEOUT
-        if self._refresh() == index:
+        current = self._refresh()
+        if current == index:
             return
-        self._expected = index
+        self._switching = True
         try:
-            reply = self._ipc.request(NEXT, timeout=deadline - time.monotonic())
-            if reply != {"ok": None}:
-                raise BackendError("Umbriel: действие переключения отклонено")
-            self._refresh(timeout=deadline - time.monotonic())
+            for _ in range((index - current) % len(self._names)):
+                previous = current
+                self._expected = (current + 1) % len(self._names)
+                self._expected_events.append(self._expected)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or self._ipc.request(NEXT, timeout=remaining) != {"ok": None}:
+                    raise BackendError("Umbriel: действие переключения отклонено")
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise BackendError("Umbriel: переключение не подтверждено")
+                    current = self._refresh(timeout=remaining)
+                    if current == self._expected:
+                        break
+                    if current != previous:
+                        raise BackendError("Umbriel: неожиданный переход раскладки")
+                    time.sleep(min(.01, max(0, deadline - time.monotonic())))
+            if not self._expected_events:
+                self._expected = None
         except Exception:
             self._invalidate()
             raise BackendError("Umbriel: переключение не подтверждено") from None
+        finally:
+            self._switching = False
 
     def wait_applied(self, index, timeout):
         if not self._target(index) or not self._valid or self._closed:

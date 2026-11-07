@@ -36,6 +36,7 @@ class Flash:
 def tooltip(status: dict) -> str:
     backend = BACKEND_SHORT.get(str(status.get("backend") or ""), "")
     lines = ["WaySwitch — " + ("на паузе" if status.get("paused") else
+                               "ожидание ru/en" if status.get("layout_supported") is False else
                                "исправление включено" if status.get("active")
                                else "только вручную")]
     where = "Раскладка: " + layout_human(status.get("layout"))
@@ -72,6 +73,7 @@ def status_line(status: dict | None) -> str:
         return "WaySwitch не запущен"
     total = int(status.get("corrections_total", 0) or 0) + int(status.get("manual_total", 0) or 0)
     state = "на паузе" if status.get("paused") else \
+        "ожидание ru/en" if status.get("layout_supported") is False else \
         "исправление включено" if status.get("active") else "только вручную"
     return (f"WaySwitch: {state}; раскладка {layout_human(status.get('layout'))}; "
             f"{total} {plural(total, 'исправление', 'исправления', 'исправлений')} за сеанс")
@@ -93,7 +95,7 @@ WAYBAR_CSS = """\
 #custom-wayswitch.off    { color: #ff7b63; }"""
 
 HYPRLAND_SNIPPET = """\
-# две раскладки, переключение — как вам удобно
+# рабочие языки ru/en; другие раскладки можно оставить
 input {
     kb_layout = us,ru
 }
@@ -104,7 +106,7 @@ windowrule = float, class:^(io\\.github\\.Wetoshkin\\.WaySwitch\\.Settings)$
 windowrule = size 640 740, class:^(io\\.github\\.Wetoshkin\\.WaySwitch\\.Settings)$"""
 
 SWAY_SNIPPET = """\
-# две раскладки
+# рабочие языки ru/en; другие раскладки можно оставить
 input type:keyboard {
     xkb_layout us,ru
 }

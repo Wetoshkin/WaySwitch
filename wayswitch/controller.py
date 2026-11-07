@@ -231,6 +231,7 @@ class Controller:
             "selection_supported": getattr(self.backend, "supports_selection", False) is True,
             "layout_index": self.backend.current(),
             "layout": self._layout_alphabet(),
+            "layout_supported": self._groups() is not None,
             "auto_correct": self.config.general.auto_correct,
             "corrections_total": self.stats["corrections"],
             "manual_total": self.stats["manual"],
@@ -244,7 +245,8 @@ class Controller:
         if current is None:
             return None
         try:
-            return self.keymap.alphabet(current)
+            language = self.keymap.language(current)
+            return {"ru": "ru", "en": "latin"}.get(language, "other")
         except (IndexError, ValueError):
             return None
 
@@ -514,13 +516,14 @@ class Controller:
 
     def _auto_allowed(self) -> bool:
         return (self.config.general.auto_correct and not self.paused and not self.locked
-                and getattr(self.backend, "supports_auto", False))
+                and getattr(self.backend, "supports_auto", False) and self._groups() is not None)
 
     def _groups(self) -> tuple[int, int] | None:
         current = self.backend.current()
-        if current is None or len(self.backend.layouts()) != 2:
+        other = self.keymap.opposite_group(current)
+        if other is None:
             return None
-        return current, 1 - current
+        return current, other
 
     def _context_tuple(self) -> tuple[str | None, str | None]:
         """`self.context` — deque(maxlen=2), но в начале сессии/фразы в нём
@@ -750,7 +753,8 @@ class Controller:
         # Проверяем здесь, а не только в on_key: по D-Bus (FixLastWord/FixPhrase)
         # вызовы приходят мимо клавиатурного гейта — в том числе реентрантно
         # из pump() посреди исполняющегося фикса и на экране блокировки.
-        return not (self.busy or self.paused or self.locked or self.screen_locked())
+        return (not (self.busy or self.paused or self.locked or self.screen_locked())
+                and self._groups() is not None)
 
     def manual_word(self) -> bool:
         """Исправить последнее слово (или откатить, или просто переключить раскладку).
@@ -878,7 +882,7 @@ class Controller:
     def _convert_selection(self, action: str, text: str,
                            groups: tuple[int, int]) -> tuple[str, int] | None:
         if action == "layout":
-            return convert_selection(self.keymap, text, (0, 1))
+            return convert_selection(self.keymap, text, groups)
         new_text = transliterate(text) if action == "translit" else number_words(text)
         if new_text is None:
             return None
@@ -1081,6 +1085,7 @@ class Controller:
     def _stop(self) -> bool:
         return (self._operation_invalidated or self._busy_reset
                 or self.screen_locked() or self.locked
+                or self._groups() is None
                 or not self._sync_focus())
 
     def _blocking_keys_held(self, trigger: tuple[int, int] | None) -> bool:
@@ -1125,6 +1130,8 @@ class Controller:
                    outcome: dict | None = None) -> bool:
         # Бэкенд может ошибаться насчёт текущей раскладки (IBus на GNOME 46+).
         # Проверяем ДО плана: после Backspace-ов откатывать уже нечего.
+        if self._groups() is None or self.backend.current() != group_before:
+            return False
         verify = getattr(self.backend, "verify_layout", None)
         if verify is not None and not verify():
             log.error("исправление отменено: бэкенд %s ошибается насчёт раскладки "

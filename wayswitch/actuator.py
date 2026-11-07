@@ -409,17 +409,6 @@ def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: flo
         return DONE
     except Exception as exc:  # noqa: BLE001 — GLib.Error таймаута D-Bus и прочее
         log.error("исправление прервано ошибкой: %s", type(exc).__name__)
-        timed_out = "timed out" in str(exc).lower() or "timeout" in str(exc).lower()
-        if run.committed and isinstance(step, Type) and not timed_out and not run.aborted():
-            # По таймауту не повторяем: расширение могло напечатать слово, а
-            # ответ просто не успел — повтор задвоил бы его.
-            # Слово уже стёрто: одна повторная попытка напечатать лучше, чем
-            # оставить пустое место (таймаут D-Bus бывает разовым).
-            try:
-                typist.type_text(step.text)
-                return DONE
-            except Exception as again:  # noqa: BLE001
-                log.error("повторная печать не удалась: %s", type(again).__name__)
         return FAILED
 
 
@@ -430,9 +419,14 @@ class UInputTypist:
 
     def __init__(self):
         from evdev import UInput, ecodes  # импорт здесь: модуль есть только на Linux
+        from evdev.uinput import UInputError
 
         self._ecodes = ecodes
-        self._ui = UInput({ecodes.EV_KEY: list(range(1, 128))}, name=self.NAME)
+        try:
+            self._ui = UInput({ecodes.EV_KEY: list(range(1, 128))}, name=self.NAME)
+        except UInputError as exc:
+            # Проверка доступа evdev выбрасывает Exception, а не OSError.
+            raise OSError(str(exc)) from exc
 
     def key(self, code: int, value: int) -> None:
         self._ui.write(self._ecodes.EV_KEY, code, value)

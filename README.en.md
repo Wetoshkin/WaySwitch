@@ -17,7 +17,10 @@
 
 **Automatic Russian–English keyboard layout correction for Linux on Wayland.**
 
-**Version 1.1.2 — GNOME input-field detection and Writer text correction.**
+**Preparing 1.1.2 — GNOME input-field detection and Writer text correction.**
+
+The latest published release is [1.1.1](https://github.com/Wetoshkin/WaySwitch/releases/tag/v1.1.1).
+See [project status](docs/PROGRESS.md) for completed changes, verification and remaining work.
 
 WaySwitch fixes a word typed in the wrong layout (`ghbdtn` instead of
 «привет») right away, on Space — no hotkeys, no manual layout switching. It
@@ -75,8 +78,10 @@ with a physical keyboard is still needed; see [Status](#status).
 
 ## Install
 
-**You need** a Wayland session (not X11) and two layouts — Russian and a
-Latin one. Supported installation targets include Ubuntu 24.04+, Debian 13+,
+**You need** a Wayland session (not X11). Corrections require Russian and
+English layouts. Other input sources can remain installed: WaySwitch leaves
+them alone and resumes when you return to ru/en. Without a ru/en pair the
+application starts with a warning. Supported installation targets include Ubuntu 24.04+, Debian 13+,
 Fedora 41+, openSUSE Tumbleweed, Arch and their compatible derivatives.
 The installer checks the system before making changes.
 
@@ -168,10 +173,28 @@ because the compositor's compiled keymap does not expose original XKB options.
 
 A package and system module are provided for NixOS; see the
 [setup guide](docs/nixos.md) for dependencies, device access and service startup.
-Umbriel uses native IPC and requires exactly two layouts shared by ordinary
+Umbriel uses native IPC and requires the same layout list and order on ordinary
 keyboards and `uinput`, plus a graphical session registered with logind.
 Unknown session state blocks both automatic and manual correction.
 Automatic Caps Lock deactivation is unavailable without XKB option information.
+
+With several ru/en variants, WaySwitch uses the current variant and the first
+opposite language in system order. GNOME needs the WaySwitch extension for
+additional input sources; the fallback system shortcut cannot reliably track
+three or more. labwc/Wayfire retain their counter limitation: mouse switches
+are invisible, and automatic correction requires explicit `backend.track_hotkey`.
+Additional layouts need ordinary cyclic XKB shortcuts such as
+`grp:alt_shift_toggle`; ambiguous bidirectional shortcuts leave the service passive.
+
+### Remote desktop (RDP)
+
+WaySwitch reads keyboard devices belonging to the local session. Separate RDP
+sessions are unsupported: their input may bypass these devices, and `uaccess`
+grants device access to the active local session. If `/dev/uinput` is unavailable,
+the service waits for access and continues startup automatically when it returns.
+Use `wayswitch doctor` and `journalctl --user -u wayswitch -n 30` to diagnose it.
+Missing udev rules or the `uinput` kernel module must be fixed before startup
+can continue.
 
 ## Gestures
 
@@ -274,8 +297,9 @@ undo, a password field, screen locking and VT changes. The Nix package was built
 and checked on Linux; a live NixOS graphical session has not been tested.
 
 Writer checks cover both directions, undo after continued typing, automatic
-capitalization and two consecutive words. Automatic correction in Calc remains
-limited: ambiguous focus events reset the input buffer. Chrome checks cover
+capitalization and two consecutive words. Calc verification remains
+incomplete: the last separate manual-correction run saved a duplicate word.
+The combined changes need another live check; see the project status. Chrome checks cover
 ordinary fields, editable page elements, passwords and readonly fields.
 The original eXpress message editor was tested in an isolated environment
 without sending messages; an authenticated chat has not been tested.
