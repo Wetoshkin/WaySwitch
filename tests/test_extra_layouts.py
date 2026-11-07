@@ -183,8 +183,12 @@ def test_unknown_or_unannounced_source_change_cancels_pending_correction():
         assert env.typist.events == [] and env.corrected == []
 
 
-def test_selected_text_conversion_uses_nonzero_pair():
+def test_selected_text_conversion_uses_nonzero_pair(monkeypatch):
+    from tests.test_selection import SelectionProbe, use_selection_reader
+
     env = environment()
+    env.ctrl.set_probe(SelectionProbe(env.ctrl.clock))
+    use_selection_reader(monkeypatch, "ghbdtn")
     assert env.ctrl.fix_selection("ghbdtn")
     assert env.backend.set_calls == [1]
     assert env.corrected == [("ghbdtn", "привет", True)]

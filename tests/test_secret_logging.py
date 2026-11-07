@@ -51,14 +51,20 @@ def test_manual_fix_with_unknown_focus_does_not_report_text(real, probe, action)
     elif action == "phrase":
         assert ctrl.manual_phrase()
     else:
-        assert ctrl.fix_selection("ghbdtn")
-    assert typist.taps()
+        assert not ctrl.fix_selection("ghbdtn")
+    assert bool(typist.taps()) is (action != "selection")
     assert corrected == []
 
 
 @pytest.mark.parametrize("selection", [False, True])
-def test_focus_becoming_password_during_typing_does_not_report_text(real, selection):
+def test_focus_becoming_password_during_typing_does_not_report_text(
+        real, selection, monkeypatch):
     probe = FakeProbe(lambda: 100.0, app="editor")
+    if selection:
+        snapshot = probe.snapshot
+        probe.snapshot = lambda: snapshot()._replace(field=(":test", "/field"))
+        monkeypatch.setattr(a11y, "read_selection", lambda _expected, valid, _limit:
+                            a11y.TextSelection(0, 6, "ghbdtn") if valid() else None)
 
     class FocusChangingTypist(RecordingTextTypist):
         def type_text(self, text):

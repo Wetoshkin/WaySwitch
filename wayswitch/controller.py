@@ -17,6 +17,7 @@ from wayswitch import keycodes as kc
 from wayswitch.actuator import (
     ABORTED,
     DONE,
+    FAILED,
     Plan,
     ReleaseModifiers,
     SwitchLayout,
@@ -124,6 +125,9 @@ class Controller:
         # Сведения о фокусе (приложение, поле пароля) — из at-spi, через снимок
         # в отдельном потоке: в пути ввода опрашивать доступность нельзя.
         self.probe = probe
+        # Смена источника фокуса обнуляет привязку выделения даже при возврате
+        # к тому же объекту probe (ABA): номер меняется на каждом set_probe.
+        self._probe_epoch = 0
         self._buffer_focus = None
         # Список исключённых приложений нужен на каждом слове, а читать файл
         # каждый раз незачем: кэшируем по mtime, тогда правка apps.txt всё равно
@@ -228,7 +232,9 @@ class Controller:
             "lock_confirmation_required": self.lock_confirmation_required,
             "busy": self.busy,
             "backend": getattr(self.backend, "name", "?"),
-            "selection_supported": getattr(self.backend, "supports_selection", False) is True,
+            # Наличие безопасного AT-SPI-механизма, а не старый флаг бэкенда:
+            # возможность попытки команды, не утверждение о выделении сейчас.
+            "selection_supported": self._selection_supported(),
             "layout_index": self.backend.current(),
             "layout": self._layout_alphabet(),
             "layout_supported": self._groups() is not None,
@@ -538,6 +544,7 @@ class Controller:
         исправления (через pump), ждать там секунду нельзя.
         """
         old, self.probe = self.probe, probe
+        self._probe_epoch += 1
         close = getattr(old, "close", None)
         if close is not None:
             close()
@@ -889,82 +896,171 @@ class Controller:
         target = self._group_for_text(new_text, groups)
         return (new_text, target) if target is not None else None
 
+    def _selection_supported(self) -> bool:
+        """Есть ли безопасный AT-SPI-механизм для команды над выделением."""
+        return self.probe is not None and not isinstance(self.probe, focus.NullProbe)
+
+    def _selection_snapshot_ok(self, snap, now: float) -> bool:
+        """Снимок подтверждает конкретное незащищённое поле прямо сейчас."""
+        if not isinstance(snap, focus.FocusSnapshot):
+            return False
+        if not snap.app or snap.field is None or snap.password:
+            return False
+        if type(snap.taken_at) not in (int, float) or not 0 < snap.taken_at <= now:
+            return False
+        if snap.age(now) > focus.MAX_AGE_SEC:
+            return False
+        return snap.protection(now) is False
+
+    def _selection_snapshot(self):
+        """Свежий доверенный снимок поля для чтения выделения (или None)."""
+        if not self._selection_supported():
+            return None
+        try:
+            snap = self.probe.snapshot()
+        except Exception as exc:  # noqa: BLE001 — источник фокуса не отвечает
+            log.warning("исправить выделенное: снимок фокуса недоступен (%s)",
+                        type(exc).__name__)
+            return None
+        return snap if self._selection_snapshot_ok(snap, self.clock()) else None
+
+    def _selection_valid(self, expected, probe, epoch: int) -> Callable[[], bool]:
+        """Связать чтение с захваченными probe/поколением/полем/защитой.
+
+        taken_at не сравнивается: фоновый опрос обновляет его, не меняя поле.
+        Поколение ловит смену поля и ABA; epoch — подмену самого probe.
+        """
+        def valid() -> bool:
+            if (self.probe is not probe or self._probe_epoch != epoch
+                    or self.paused or self.locked or self.screen_locked()):
+                return False
+            if self._operation_invalidated or self._abort_requested or self._busy_reset:
+                return False
+            try:
+                snap = probe.snapshot()
+            except Exception:  # noqa: BLE001 — ошибка провайдера не разрешает запись
+                return False
+            return (self._selection_snapshot_ok(snap, self.clock())
+                    and snap.generation == expected.generation
+                    and snap.app == expected.app and snap.field == expected.field
+                    and snap.password is False)
+        return valid
+
+    def _read_bound_selection(self, expected, probe, epoch: int):
+        """Ровно одно чтение текущего выделения и проверка его формы."""
+        valid = self._selection_valid(expected, probe, epoch)
+        if not valid():
+            return None
+        try:
+            selection = focus.read_selection(expected, valid, SELECTION_MAX)
+        except Exception as exc:  # noqa: BLE001 — не показывать текст в журнале
+            log.warning("исправить выделенное: чтение не удалось (%s)", type(exc).__name__)
+            return None
+        if not isinstance(selection, focus.TextSelection):
+            return None
+        start, end, text = selection
+        if (type(start) is not int or type(end) is not int
+                or not isinstance(text, str)
+                or not 0 <= start < end
+                or end - start != len(text)
+                or not text
+                or len(text) > SELECTION_MAX
+                or "\n" in text or "\r" in text):
+            log.info("исправить выделенное: некорректное или неоднострочное выделение")
+            return None
+        if not valid():
+            return None
+        return selection
+
     def transform_selection(self, action: str, text: str | None = None) -> bool:
         """Действие над выделенным текстом: «layout» — другая раскладка,
         «translit» — транслитерация, «numbers» — число прописью.
 
-        Текст берётся у бэкенда (расширение GNOME Shell читает PRIMARY —
-        выделение без Ctrl+C) и печатается поверх выделения: в любом поле ввода
-        набор заменяет выделенный текст, Backspace не нужен — значит, и стереть
-        лишнее нечем.
+        Читается текущее выделение конкретного поля через AT-SPI: PRIMARY и
+        backend.get_selection устарели и не доказывают, что выделено сейчас.
+        Текст печатается поверх выделения: Backspace и буфер обмена не нужны.
+        Явный text (совместимость) лишь сверяется с прочитанным, не заменяя его.
         """
-        if not self._manual_allowed():
+        if not self._manual_allowed() or not self._selection_supported():
             return False
-        self._sync_focus()
-        selection_focus = self._buffer_focus
-        if text is None:
-            getter = getattr(self.backend, "get_selection", None)
-            try:
-                text = getter() if getter is not None else None
-            except Exception as exc:  # noqa: BLE001 — бэкенд/расширение не ответили
-                log.warning("выделение не прочитать: %s", type(exc).__name__)
-                return False
-        if not text:
-            log.info("исправить выделенное: ничего не выделено")
+        probe, epoch = self.probe, self._probe_epoch
+        try:
+            self._sync_focus()
+        except Exception as exc:  # noqa: BLE001 — источник фокуса не разрешает чтение
+            log.warning("исправить выделенное: фокус недоступен (%s)", type(exc).__name__)
             return False
-        if "\n" in text or "\r" in text or len(text) > SELECTION_MAX:
-            # Перевод строки ушёл бы клавишей Enter — в мессенджере это
-            # «отправить» посреди текста. Длинный текст печатался бы минутами.
-            log.info("исправить выделенное: выделено больше одной строки или "
-                     "больше %d символов", SELECTION_MAX)
+        expected = self._selection_snapshot()
+        if expected is None:
+            log.info("исправить выделенное: фокус не подтверждён")
             return False
         groups = self._groups()
         if groups is None:
             return False
-        converted = self._convert_selection(action, text, groups)
-        if converted is None:
-            log.info("выделенное: нечего менять (%s)", action)
-            return False
-        new_text, target = converted
-        # Каждый символ должен быть в целевой раскладке: и uinput, и
-        # расширение GNOME печатают клавишами этой раскладки, а символ без
-        # клавиши (эмодзи, «—») пропал бы молча — выделение уже заменено.
-        keys = keys_for_typing(new_text, target, self.keymap, self.buffer.caps)
-        if keys is None:
-            log.warning("исправить выделенное: есть символы, которые не напечатать")
-            return False
-        steps: list = [ReleaseModifiers(), SwitchLayout(target)]
-        steps.append(Type(new_text, [] if isinstance(self.typist, TextTypist) else keys))
-        if self.dry_run:
-            log.info("[dry-run] выделенное → %d символов", len(new_text))
-            return False
-        if not self._sync_focus() or self._buffer_focus != selection_focus:
-            return False
         secret = self._secret_focus()
-        # busy — до ожидания: пока ждём отпускания, pump() доставляет и
-        # повторный вызов (нажали сочетание дважды), он напечатал бы ещё раз.
+        # busy — ДО чтения: реентрантный selection-запрос (из pump или самого
+        # провайдера) не должен начать ещё одно чтение.
         self.busy = True
         self._abort_requested = self._operation_invalidated = False
         self._busy_reset = False
+        self._lost_input = False
+        result = ABORTED
         try:
+            selection = self._read_bound_selection(expected, probe, epoch)
+            if selection is None:
+                log.info("исправить выделенное: выделение не прочитано")
+                return False
+            if text is not None and text != selection.text:
+                log.info("исправить выделенное: явный текст не совпадает с текущим")
+                return False
+            converted = self._convert_selection(action, selection.text, groups)
+            if converted is None:
+                log.info("выделенное: нечего менять (%s)", action)
+                return False
+            new_text, target = converted
+            # Каждый символ должен быть в целевой раскладке: и uinput, и
+            # расширение GNOME печатают клавишами этой раскладки, а символ без
+            # клавиши (эмодзи, «—») пропал бы молча — выделение уже заменено.
+            keys = keys_for_typing(new_text, target, self.keymap, self.buffer.caps)
+            if keys is None:
+                log.warning("исправить выделенное: есть символы, которые не напечатать")
+                return False
+            steps: list = [ReleaseModifiers(), SwitchLayout(target)]
+            steps.append(Type(new_text, [] if isinstance(self.typist, TextTypist) else keys))
+            if self.dry_run:
+                log.info("[dry-run] выделенное → %d символов", len(new_text))
+                return False
             # Вызов с системного сочетания (Ctrl+Alt+…) приходит, пока клавиши
             # ещё зажаты: буквы превратились бы в команды. Ждём отпускания всех.
             if not self._wait_all_released(SELECTION_RELEASE_WAIT):
                 log.info("исправить выделенное: клавиши сочетания не отпущены")
                 return False
-            # Прерывать нечего: стирающих шагов нет, а наполовину набранная
-            # фраза хуже целой.
+
+            def before_write() -> bool:
+                # Повторно читаем ТО ЖЕ выделение после ожиданий и подтверждения
+                # раскладки: старый снимок не доказывает, что границы не сдвинулись.
+                again = self._read_bound_selection(expected, probe, epoch)
+                return again is not None and again == selection
+
+            # Стирающих шагов нет: execute вызывает before_write перед первой
+            # печатаемой клавишей; отказ не оставляет ни текста, ни статистики.
             result = execute(Plan(steps), self.typist, self.backend, abort=self._abort,
                              key_delay=self.config.typing.key_delay_ms / 1000.0,
                              sleep=self.sleep, restore_group=groups[0],
-                             hold=self._wait_shift_released, stop=self._stop)
+                             hold=self._wait_shift_released, stop=self._stop,
+                             before_write=before_write)
+        except Exception as exc:  # noqa: BLE001 — не выпускать payload провайдера
+            result = FAILED
+            log.warning("исправить выделенное: ошибка (%s)", type(exc).__name__)
         finally:
+            if (self._lost_input and _word_unfinished(self._busy_keys)) or result == FAILED:
+                self._skip_word = True
+            self.buffer.reset()
+            self.context.clear()
+            self._last_fix = None
             self.busy = False
             self._lost_input = False
             self._busy_keys = []
             self._busy_reset = False
-        self.buffer.reset()
-        self.context.clear()
         if result != DONE or not self._sync_focus() or self._operation_invalidated:
             log.info("исправить выделенное: %s", result)
             self._emit_status()
@@ -975,7 +1071,7 @@ class Controller:
             self.on_fixed(True)
         if self.on_corrected and not secret and not self._secret_focus():
             # Наружу — только начало: сигнал видят все программы сеанса.
-            self.on_corrected(_clip(text), _clip(new_text), True)
+            self.on_corrected(_clip(selection.text), _clip(new_text), True)
         self._emit_status()
         return True
 
