@@ -107,6 +107,80 @@ def _edits(events, before, after, start, kind, length, count_before, count_after
     return False
 
 
+def _physical_count(stopped):
+    callback = getattr(stopped, "append_count", None)
+    try:
+        value = callback() if callable(callback) else None
+    except Exception:  # noqa: BLE001 — unknown input cannot corroborate a mutation
+        return None
+    return value if type(value) is int and 0 <= value <= 1024 else None
+
+
+def _live_focus(stopped, expected, now):
+    """Свежий снимок фокуса контроллера как доказательство того же поля.
+
+    Полный обход a11y.find_focus в горячем пути не нужен: контроллер уже
+    опрашивает фокус отдельным потоком и инвалидирует снимок событиями фокуса,
+    а _stop/_sync_focus отменяют операцию при смене поля. Здесь проверяются
+    только форма снимка, идентичность поля, версия и срок годности.
+    """
+    callback = getattr(stopped, "focus_snapshot", None)
+    try:
+        snapshot = callback() if callable(callback) else None
+    except Exception:  # noqa: BLE001 — нет доказательства — нет доступа к тексту
+        return None
+    if not isinstance(snapshot, a11y.FocusSnapshot):
+        return None
+    taken_at = snapshot.taken_at
+    if (snapshot.app != expected.app or snapshot.field != expected.field
+            or snapshot.password is not False
+            or snapshot.generation != expected.generation):
+        return None
+    if (type(taken_at) not in (int, float) or isinstance(taken_at, bool)
+            or not 0 < taken_at <= now):
+        return None
+    if snapshot.age(now) > a11y.MAX_AGE_SEC or snapshot.protection(now) is not False:
+        return None
+    return snapshot
+
+
+def _append_edits(events, start, source_size, target_size, kind, appended,
+                  anchor_count, anchor_caret, count, caret):
+    values = (start, source_size, target_size, appended, anchor_count, anchor_caret, count, caret)
+    if (not all(type(value) is int for value in values) or not events or len(events) > 64
+            or not 0 <= start < anchor_caret <= anchor_count
+            or not 0 < source_size <= MAX_SPAN or not 0 < target_size <= MAX_SPAN
+            or start + source_size != anchor_caret or not 0 <= appended <= 1024):
+        return False
+    if kind == "insert":
+        offset, size, delta = start, target_size, target_size
+        edges = (anchor_caret, anchor_caret + target_size)
+    elif kind == "delete":
+        offset, size, delta = start + target_size, source_size, target_size - source_size
+        edges = (anchor_caret + target_size, start + target_size)
+    else:
+        return False
+    if (count != anchor_count + appended + delta
+            or caret != anchor_caret + appended + delta):
+        return False
+    own = [i for i, event in enumerate(events) if event == (kind, offset, size)]
+    if len(own) != 1:
+        return False
+    observed_appends = 0
+    for i, event in enumerate(events):
+        if (not isinstance(event, tuple) or len(event) != 3
+                or type(event[1]) is not int or type(event[2]) is not int
+                or not 0 < event[2] <= MAX_SPAN):
+            return False
+        if i == own[0]:
+            continue
+        edge = edges[i > own[0]]
+        if event[0] != "insert" or not edge <= event[1] < event[1] + event[2] <= edge + appended:
+            return False
+        observed_appends += event[2]
+    return observed_appends <= appended
+
+
 def _replace(tree, focus, source, target, commit, stopped, events) -> SpanResult:
     if not _normal(focus) or not _span(source) or not _span(target):
         return SpanResult("aborted")
@@ -140,7 +214,8 @@ def _replace(tree, focus, source, target, commit, stopped, events) -> SpanResult
     return _replace_checked(tree, focus, source, target, commit, stopped, events, safe)
 
 
-def _replace_checked(tree, focus, source, target, commit, stopped, events, safe) -> SpanResult:
+def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
+                     anchor=None) -> SpanResult:
     attempted = False
     try:
         node = focus.field
@@ -155,12 +230,42 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe)
 
         if not safe():
             return SpanResult("aborted")
-        caret = tree.caret(node)
-        count = tree.character_count(node)
-        if (type(caret) is not int or type(count) is not int
-                or caret < len(source) or count < caret):
-            return SpanResult("aborted")
-        start = caret - len(source)
+        physical_base = anchor[3] if anchor is not None and len(anchor) == 4 else None
+        if anchor is None:
+            caret = tree.caret(node)
+            count = tree.character_count(node)
+            if (type(caret) is not int or type(count) is not int
+                    or caret < len(source) or count < caret):
+                return SpanResult("aborted")
+            start = caret - len(source)
+        else:
+            start, caret, count = anchor[:3]
+            if (type(start) is not int or type(caret) is not int or type(count) is not int
+                    or start < 0 or start + len(source) != caret or count < caret):
+                return SpanResult("aborted")
+        anchor_count, anchor_caret = count, caret
+
+        def confirmed(first, before, after, kind, size, initial_count):
+            if not safe():
+                return False
+            for _ in range(3):
+                n1 = _physical_count(stopped)
+                current_count, current_caret = tree.character_count(node), tree.caret(node)
+                if stopped():
+                    return False
+                n2 = _physical_count(stopped)
+                if n1 == n2:
+                    break
+            else:
+                return False
+            changes = events[first:]
+            if _edits(changes, before, after, start, kind, size, initial_count, current_count):
+                return True
+            # Lost outside-span notifications need independent kernel input and caret proof.
+            return (physical_base is not None and n2 is not None
+                    and _append_edits(changes, start, len(source), len(target), kind,
+                                      n2 - physical_base, anchor_count, anchor_caret,
+                                      current_count, current_caret))
         actual = read(start, caret)
         case_changed = actual != source
         if case_changed:
@@ -170,9 +275,17 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe)
             source, target = actual, _case_target(actual, target)
         if not _span(target) or source == target:
             return SpanResult("aborted")
-        first = len(events)
         if not safe():
             return SpanResult("aborted")
+        if anchor is None:
+            first = len(events)
+        else:
+            # Всё, что физически допечатано до этой точки, уже входит в счётчик;
+            # события после first — только наша вставка и последующее дописывание.
+            count = tree.character_count(node)
+            if type(count) is not int or count < caret:
+                return SpanResult("aborted")
+            first = len(events)
         if commit() is False:
             return SpanResult("aborted")
         attempted = True
@@ -183,10 +296,7 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe)
         combined = target + source
         if read(start, start + len(combined)) != combined:
             return SpanResult("failed", True)
-        inserted_count = tree.character_count(node)
-        if (type(inserted_count) is not int or not safe()
-                or not _edits(events[first:], source, combined, start, "insert", len(target),
-                              count, inserted_count)):
+        if not confirmed(first, source, combined, "insert", len(target), count):
             return SpanResult("failed", True)
         # No recovery writes: uncertainty must retain the original rather than erase it.
         if read(start, start + len(combined)) != combined:
@@ -199,10 +309,7 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe)
             return SpanResult("failed", True)
         if read(start, start + len(target)) != target:
             return SpanResult("failed", True)
-        final_count = tree.character_count(node)
-        if (type(final_count) is not int or not safe()
-                or not _edits(events[second:], combined, target, start, "delete", len(source),
-                              delete_count, final_count)):
+        if not confirmed(second, combined, target, "delete", len(source), delete_count):
             return SpanResult("failed", True)
         return SpanResult("done", True, source if case_changed else None,
                           target if case_changed else None)
@@ -232,24 +339,25 @@ def _kde_focus(focus, now) -> bool:
 
 
 def _kde_guard(tree, focus, context, stopped):
-    """Live-проверка KDE-фокуса; ошибки метаданных не разрешают чтение текста."""
+    """Live-проверка KDE-фокуса: снимок контроллера + метаданные узла.
+
+    Полные обходы a11y.find_focus здесь не повторяются: они занимают ~0,1 с и
+    физический ввод успевает отменить операцию до записи. Доказательство того
+    же поля даёт инвалидируемый снимок controller.probe.snapshot(), а дешёвые
+    по-узловые проверки остаются прежними.
+    """
     stable_pid = None
-    validated_focus = focus
 
     def check():
-        nonlocal stable_pid, validated_focus
+        nonlocal stable_pid
         try:
             if stopped():
                 return _ABORT
             started = time.monotonic()
-            if not _kde_focus(validated_focus, started):
+            if _live_focus(stopped, focus, started) is None:
                 return _ABORT
             current = a11y.query_shell_context()
             if current is None or current != context or current.protected():
-                return _ABORT
-            live = a11y.find_focus(tree, a11y.ROOT)
-            if (live.app != focus.app or live.field != focus.field
-                    or live.password is not False):
                 return _ABORT
             node = focus.field
             if tree.app_of(node) != focus.app:
@@ -281,8 +389,7 @@ def _kde_guard(tree, focus, context, stopped):
                 return _ABORT
             if not 0 <= time.monotonic() - started <= a11y.MAX_AGE_SEC:
                 return _ABORT
-            # Продлеваем доверие только полным живым подтверждением того же поля.
-            validated_focus = focus._replace(taken_at=started)
+            # Доверие продлевает только свежий снимок в начале следующей проверки.
             return _UNSUPPORTED if role in {61, 79} else _OK
         except Exception:  # noqa: BLE001 — unknown metadata cannot authorize a read
             return _ABORT
@@ -329,9 +436,28 @@ def try_replace_kde(focus, source, target, commit, stopped) -> SpanResult | None
             return None
         if state != _OK:
             return SpanResult("aborted")
+        caret = tree.caret(focus.field)
+        count = tree.character_count(focus.field)
+        if (type(caret) is not int or type(count) is not int
+                or caret < len(source) or count < caret):
+            return SpanResult("aborted")
+        start = caret - len(source)
+        physical_base = _physical_count(stopped)
+        prepare = getattr(stopped, "prepare", None)
+        if callable(prepare) and prepare() is not True:
+            return SpanResult("aborted")
+        reserve = getattr(stopped, "reserve_anchor", None)
+        if callable(reserve) and reserve() is False:
+            return SpanResult("aborted")
+        if physical_base is not None:
+            # Печатные нажатия между baseline и подтверждением раскладки набраны
+            # бы в старой раскладке — append-доказательство не вправе их принять.
+            if stopped() or _physical_count(stopped) != physical_base:
+                return SpanResult("aborted")
         with _text_changes(connection, focus.field) as events:
-            return _replace_checked(tree, focus, source, target, begin, stopped, events,
-                                    lambda: check() == _OK)
+            return _replace_checked(
+                tree, focus, source, target, begin, stopped, events,
+                lambda: check() == _OK, anchor=(start, caret, count, physical_base))
     except Exception:  # noqa: BLE001 — metadata and transport errors must not expose text
         return SpanResult("failed", attempted)
     finally:

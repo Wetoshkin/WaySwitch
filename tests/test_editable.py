@@ -808,14 +808,200 @@ def kde_native(monkeypatch):
     monkeypatch.setattr(a11y, "_DbusTree", lambda _conn: tree)
     monkeypatch.setattr(editable, "_text_changes", changes)
     committed = []
-    return SimpleNamespace(tree=tree, events=events, context=context, focus=focus,
-                           connection=connection, committed=committed,
-                           commit=lambda: committed.append(True), stopped=lambda: False)
+    native = SimpleNamespace(tree=tree, events=events, context=context, focus=focus,
+                             connection=connection, committed=committed, frozen=None,
+                             commit=lambda: committed.append(True))
+    # Снимок контроллера: свежий на каждый вызов, пока опрос не остановлен.
+    native.focus_snapshot = lambda: (native.frozen if native.frozen is not None
+                                     else native.focus._replace(
+                                         taken_at=time.monotonic()))
+    native.stopped = KdeStop(native.focus_snapshot)
+    return native
 
 
 def kde_replace(native, source=SOURCE, target=TARGET):
     return editable.try_replace_kde(native.focus, source, target, native.commit,
                                     native.stopped)
+
+
+class KdeStop:
+    """Подставной стоп-колбэк KDE-native: снимок фокуса, якорь и счётчик ввода."""
+
+    def __init__(self, live_snapshot):
+        self._live_snapshot = live_snapshot
+        self.aborted = False
+        self.anchor = False
+        self.prepare_result = True
+        self.on_prepare = lambda: None
+        self.append = lambda: None
+
+    def __call__(self, *, before_write=False):
+        return self.aborted and (before_write or not self.anchor)
+
+    def prepare(self):
+        self.on_prepare()
+        return self.prepare_result
+
+    def reserve_anchor(self):
+        self.anchor = True
+        return True
+
+    def append_count(self):
+        return self.append()
+
+    def focus_snapshot(self):
+        return self._live_snapshot()
+
+
+@pytest.mark.parametrize("failure", [None, "no-counter", "wrong-counter", "wrong-caret",
+                                    "missing-own-event", "inside-event"])
+def test_kde_missing_append_event_requires_independent_physical_proof(kde_native, failure):
+    physical = KdeStop(kde_native.focus_snapshot)
+    count = [0]
+    physical.append = lambda: None if failure == "no-counter" else count[0]
+    kde_native.stopped = physical
+
+    def append_silently(letter):
+        tree = kde_native.tree
+        pos = tree.position
+        tree.text = tree.text[:pos] + letter + tree.text[pos:]
+        tree.position += 1
+        count[0] += 1
+
+    def after_insert():
+        append_silently("X")
+        if failure == "wrong-counter":
+            count[0] += 1
+        elif failure == "wrong-caret":
+            kde_native.tree.position -= 1
+        elif failure == "missing-own-event":
+            kde_native.events.clear()
+        elif failure == "inside-event":
+            kde_native.events.append(("insert", 0, 1))
+
+    kde_native.tree.after_insert = after_insert
+    kde_native.tree.after_delete = lambda: append_silently("Y")
+    result = kde_replace(kde_native)
+    if failure is None:
+        assert result == editable.SpanResult("done", True)
+        assert kde_native.tree.text == "Test " + TARGET + "XY"
+    else:
+        assert result == editable.SpanResult("failed", True)
+        assert all(operation[0] != "delete" for operation in kde_native.tree.writes)
+        assert SOURCE in kde_native.tree.text
+
+
+def test_kde_append_during_recheck_after_anchor_is_preserved(kde_native):
+    physical = KdeStop(kde_native.focus_snapshot)
+    provider = kde_native.focus_snapshot
+    scans = []
+
+    def append_on_second_scan():
+        scans.append(True)
+        live = provider()
+        if len(scans) == 2:
+            kde_native.tree.append("X")
+            physical.aborted = True
+        return live
+
+    physical._live_snapshot = append_on_second_scan
+    assert editable.try_replace_kde(
+        kde_native.focus, SOURCE, TARGET, kde_native.commit, physical
+    ) == editable.SpanResult("done", True)
+    assert kde_native.tree.text == "Test " + TARGET + "X"
+    assert kde_native.tree.writes == [("insert", 5, TARGET), ("delete", 12, 19)]
+    assert kde_native.committed == [True]
+
+
+def test_kde_unrecorded_append_before_insert_still_balances_counts(kde_native, monkeypatch):
+    kde_native.tree.text = "Test ghbd"
+    kde_native.tree.position = len(kde_native.tree.text)
+
+    @contextmanager
+    def changes(_connection, _field):
+        # Печать пришла до регистрации TextChanged: в события её нет.
+        kde_native.tree.append("ет ")
+        kde_native.events.clear()
+        yield kde_native.events
+
+    monkeypatch.setattr(editable, "_text_changes", changes)
+    assert kde_replace(kde_native, "ghbd", "прив") == editable.SpanResult("done", True)
+    assert kde_native.tree.text == "Test привет "
+    assert kde_native.tree.writes == [("insert", 5, "прив"), ("delete", 9, 13)]
+
+
+def test_kde_pre_anchor_append_cancels_before_reads_or_writes(kde_native):
+    physical = KdeStop(kde_native.focus_snapshot)
+    provider = kde_native.focus_snapshot
+
+    def append_before_anchor():
+        live = provider()
+        kde_native.tree.append("X")
+        physical.aborted = True
+        return live
+
+    physical._live_snapshot = append_before_anchor
+    assert editable.try_replace_kde(
+        kde_native.focus, SOURCE, TARGET, kde_native.commit, physical
+    ) == editable.SpanResult("aborted")
+    assert not physical.anchor
+    assert kde_native.tree.reads == kde_native.tree.writes == []
+    assert not kde_native.committed
+
+
+def test_kde_live_snapshot_replaces_full_focus_scans(kde_native, monkeypatch):
+    scans = []
+
+    def forbidden(*_args):
+        scans.append(True)
+        raise AssertionError("a11y.find_focus остаётся вне горячего пути")
+
+    monkeypatch.setattr(a11y, "find_focus", forbidden)
+    assert kde_replace(kde_native) == editable.SpanResult("done", True)
+    assert scans == []
+    assert kde_native.tree.text == "Test " + TARGET
+
+
+@pytest.mark.parametrize("proof", [
+    lambda now: None,
+    lambda now: a11y.FocusSnapshot(),
+    lambda now: a11y.FocusSnapshot(None, False, now, (), FIELD),
+    lambda now: a11y.FocusSnapshot("soffice.bin", False, now - a11y.MAX_AGE_SEC - .1,
+                                   (), FIELD),
+    lambda now: a11y.FocusSnapshot("other.bin", False, now, (), FIELD),
+    lambda now: a11y.FocusSnapshot("soffice.bin", False, now, (), (":1.2", "/other")),
+    lambda now: a11y.FocusSnapshot("soffice.bin", True, now, (), FIELD),
+    lambda now: a11y.FocusSnapshot("soffice.bin", False, now, (), FIELD, generation=7),
+])
+def test_kde_live_focus_proof_must_be_same_fresh_unprotected_field(kde_native, proof):
+    kde_native.stopped = KdeStop(lambda: proof(time.monotonic()))
+    assert kde_replace(kde_native) == editable.SpanResult("aborted")
+    assert kde_native.tree.reads == kde_native.tree.writes == kde_native.committed == []
+
+
+def test_kde_physical_press_between_anchor_and_prepare_aborts(kde_native):
+    physical = KdeStop(kde_native.focus_snapshot)
+    count = [0]
+    physical.append = lambda: count[0]
+
+    def press_during_prepare():
+        # Нажатие до подтверждения раскладки набралось бы в старой раскладке.
+        count[0] += 1
+
+    physical.on_prepare = press_during_prepare
+    kde_native.stopped = physical
+    assert kde_replace(kde_native) == editable.SpanResult("aborted")
+    assert kde_native.tree.text == "Test " + SOURCE
+    assert kde_native.tree.reads == kde_native.tree.writes == kde_native.committed == []
+
+
+def test_kde_physical_press_during_prepare_refuses_anchor(kde_native):
+    physical = KdeStop(kde_native.focus_snapshot)
+    physical.prepare_result = False
+    kde_native.stopped = physical
+    assert kde_replace(kde_native) == editable.SpanResult("aborted")
+    assert not physical.anchor
+    assert kde_native.tree.reads == kde_native.tree.writes == kde_native.committed == []
 
 
 def test_kde_native_paragraph_success(kde_native):
@@ -843,7 +1029,12 @@ def test_kde_long_edit_uses_fresh_live_focus_proofs(kde_native, monkeypatch):
 def test_kde_gap_between_live_proofs_retains_original(kde_native, monkeypatch):
     clock = [kde_native.focus.taken_at]
     monkeypatch.setattr(editable.time, "monotonic", lambda: clock[0])
-    kde_native.tree.after_insert = lambda: clock.__setitem__(0, clock[0] + a11y.MAX_AGE_SEC + .1)
+
+    def stop_refreshing():
+        clock[0] += a11y.MAX_AGE_SEC + .1
+        kde_native.frozen = kde_native.focus  # опрос фокуса перестал обновлять снимок
+
+    kde_native.tree.after_insert = stop_refreshing
     assert kde_replace(kde_native) == editable.SpanResult("failed", True)
     assert kde_native.tree.text == "Test " + TARGET + SOURCE
     assert kde_native.tree.writes == [("insert", 5, TARGET)]
@@ -998,9 +1189,8 @@ def test_gnome_entry_still_requires_writer_app_id_for_kde_style_focus(monkeypatc
 
 
 @pytest.mark.parametrize("role", [0, 40, 60, 67, 999])
-def test_kde_role_changed_after_live_focus_never_enables_key_fallback(
-        kde_native, monkeypatch, role):
-    monkeypatch.setattr(a11y, "find_focus", lambda *_args: kde_native.focus)
+def test_kde_role_changed_after_live_focus_never_enables_key_fallback(kde_native, role):
+    # Снимок фокуса контроллера подтверждает поле, но роль узла уже не та.
     kde_native.tree.field_role = role
     assert kde_replace(kde_native) == editable.SpanResult("aborted")
     assert kde_native.tree.reads == kde_native.tree.writes == kde_native.committed == []

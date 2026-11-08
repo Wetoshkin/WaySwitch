@@ -159,12 +159,15 @@ class _Run:
 
     def __init__(self, backend, abort: Callable[[], bool], restore_group: int | None,
                  hold: Callable[[], bool] | None, stop: Callable[[], bool],
-                 before_write: Callable[[], bool] | None):
+                 before_write: Callable[[], bool] | None, native_append=None,
+                 native_focus=None):
         self.backend = backend
         self._abort = abort
         self._stop = stop
         self._hold = hold
         self._before_write = before_write
+        self.native_append = native_append
+        self.native_focus = native_focus
         self.write_checked = before_write is None
         self._gave_up = False  # после точки невозврата ждём Shift один раз
         self.restore_group = restore_group
@@ -190,12 +193,17 @@ class _Run:
             interrupted = self.native_aborted(before_write=True)
         return self.write_checked and not interrupted
 
-    def native_aborted(self, *, before_write: bool = False) -> bool:
+    def native_aborted(self, *, before_write: bool = False,
+                       anchor_reserved: bool = False) -> bool:
         interrupted = self._abort()
         stopped = self._stop()
         # Допечатанные символы уже используют новую раскладку или состояние Caps Lock.
         if interrupted and (self.switched or self.caps_toggle is not None) and not stopped:
             self.committed = True
+        if interrupted and anchor_reserved and not before_write and not stopped:
+            # После проверенного якоря обычная печать идёт за диапазоном, а не в нём.
+            # Опасные клавиши выставляют _stop; неизвестный ввод до якоря сюда не доходит.
+            return False
         return (interrupted and (before_write or not self.committed)) or stopped
 
     def blocked(self) -> bool:
@@ -234,17 +242,56 @@ class _Run:
                 log.warning("не удалось вернуть раскладку: %s", type(exc).__name__)
 
 
+class _NativeStop:
+    """Стоп-проверка native-протокола; якорь разрешает только дописывание после него."""
+
+    def __init__(self, run: _Run, prepare=None):
+        self._run = run
+        self._prepare = prepare
+        self.anchor_reserved = False
+
+    def __call__(self, *, before_write: bool = False) -> bool:
+        return self._run.native_aborted(before_write=before_write,
+                                        anchor_reserved=self.anchor_reserved)
+
+    def prepare(self) -> bool:
+        """Заранее применить раскладку/Caps до резервирования якоря."""
+        return True if self._prepare is None else self._prepare(strict=True)
+
+    def append_count(self):
+        return None if self._run.native_append is None else self._run.native_append()
+
+    def focus_snapshot(self):
+        """Живой снимок фокуса от контроллера; None — доказательств нет."""
+        if self._run.native_focus is None:
+            return None
+        try:
+            return self._run.native_focus()
+        except Exception:  # noqa: BLE001 — неизвестный снимок не доказывает фокус
+            return None
+
+    def reserve_anchor(self) -> bool:
+        # Якорь нельзя разрешать раньше раскладки/Caps: иначе физическая клавиша
+        # попадёт в поле в старом режиме, а replay прочитает её в новом.
+        if not self.prepare():
+            return False
+        self.anchor_reserved = True
+        return True
+
+
 def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: False,
             key_delay: float = 0.0, sleep=time.sleep, switch_timeout: float = 0.5,
             restore_group: int | None = None,
             hold: Callable[[], bool] | None = None,
             outcome: dict | None = None, stop: Callable[[], bool] = lambda: False,
-            before_write: Callable[[], bool] | None = None) -> str:
+            before_write: Callable[[], bool] | None = None, native_append=None,
+            native_focus=None) -> str:
     """before_write проверяется один раз перед первой записью, после ожиданий.
 
     outcome (если передан) получает caps_off: Caps Lock в итоге выключен нами.
     """
-    run = _Run(backend, abort, restore_group, hold, stop, before_write)
+    run = _Run(backend, abort, restore_group, hold, stop, before_write, native_append,
+               native_focus)
     if isinstance(typist, TextTypist):
         result = _execute_text(plan, typist, run, switch_timeout)
     else:
@@ -295,27 +342,38 @@ def _attempt_native(plan: Plan, typist, run: _Run, setup,
         return ABORTED
     if (precheck_hold and run.blocked()) or run.aborted():
         return ABORTED
+    setup_done = False
     prepared = False
     started = False
 
-    def begin():
-        nonlocal prepared, started
+    def prepare(*, strict=False):
+        nonlocal setup_done, started
+        if setup_done:
+            return True
         started = True
         for step in prefix:
-            if run.blocked() or run.native_aborted():
+            if run.blocked() or stop(before_write=strict):
                 return False
             try:
                 applied = setup(step)
             finally:
-                interrupted = run.native_aborted()
+                interrupted = stop(before_write=strict)
             if not applied:
                 raise RuntimeError("layout not applied")
             if interrupted:
                 return False
-        if run.blocked() or run.native_aborted():
+        setup_done = True
+        return True
+
+    stop = _NativeStop(run, prepare)
+
+    def begin():
+        nonlocal prepared, started
+        started = True
+        if not prepare() or run.blocked() or stop():
             return False
         if not run.write_checked:
-            if (run.blocked() or run.native_aborted() or not run.validate_write()
+            if (run.blocked() or stop() or not run.validate_write()
                     or run.native_aborted(before_write=True)):
                 return False
         run.commit()
@@ -323,14 +381,14 @@ def _attempt_native(plan: Plan, typist, run: _Run, setup,
         return True
 
     try:
-        result = replace(plan.focus, plan.source_text, typed.text, begin,
-                         run.native_aborted)
+        result = replace(plan.focus, plan.source_text, typed.text, begin, stop)
     except Exception as exc:  # noqa: BLE001 — ошибка native-протокола не откатывает на клавиши
         log.error("исправление прервано ошибкой: %s", type(exc).__name__)
         return FAILED
     if result is None:
         # Ни один шаг подготовки не начат — можно использовать обычный транспорт.
-        if run.committed or run.switched or run.caps_toggle is not None or started:
+        if (run.committed or run.switched or run.caps_toggle is not None
+                or started or stop.anchor_reserved):
             return FAILED
         if (precheck_hold and run.blocked()) or run.aborted():
             return ABORTED

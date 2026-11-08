@@ -1264,6 +1264,45 @@ class Controller:
                 or self._groups() is None
                 or not self._sync_focus())
 
+    def _native_append_count(self) -> int | None:
+        if not self.busy or self._busy_reset or self._operation_invalidated:
+            return None
+        count = 0
+        for code, value, _device in self._busy_keys:
+            if value not in (0, 1):
+                return None
+            if code in kc.SHIFT_KEYS:
+                continue
+            if not (code in kc.WORD_EXTRA_KEYS or code == kc.KEY_SPACE
+                    or self.keymap.is_letter_key(code)):
+                return None
+            count += value
+        return count
+
+    def _native_focus_snapshot(self):
+        """Живой снимок фокуса для KDE-нативной замены; None — нет доверия.
+
+        Полный обход a11y.find_focus в горячем пути не нужен: опрос фокуса уже
+        идёт отдельным потоком и инвалидируется событиями смены фокуса, а
+        _stop/_sync_focus отменяют операцию при смене поля. Здесь проверяется
+        только то, что снимок свежий, принадлежит тому же полю и вне пароля.
+        """
+        if (not self.busy or self._busy_reset or self._operation_invalidated
+                or self.probe is None or isinstance(self.probe, focus.NullProbe)):
+            return None
+        snap = self.probe.snapshot()
+        if not isinstance(snap, focus.FocusSnapshot):
+            return None
+        now = self.clock()
+        taken_at = snap.taken_at
+        if (snap.app is None or snap.field is None or snap.password is not False
+                or type(taken_at) not in (int, float) or isinstance(taken_at, bool)
+                or not 0 < taken_at <= now
+                or snap.age(now) > focus.MAX_AGE_SEC
+                or snap.protection(now) is not False):
+            return None
+        return snap
+
     def _blocking_keys_held(self, trigger: tuple[int, int] | None) -> bool:
         """Есть ли физически зажатые клавиши, мешающие печати.
 
@@ -1345,7 +1384,9 @@ class Controller:
                                  key_delay=self.config.typing.key_delay_ms / 1000.0,
                                  sleep=self.sleep,
                                  restore_group=group_before if switch else None,
-                                 hold=self._wait_shift_released, outcome=outcome, stop=self._stop)
+                                 hold=self._wait_shift_released, outcome=outcome, stop=self._stop,
+                                 native_append=self._native_append_count,
+                                 native_focus=self._native_focus_snapshot)
         except Exception as exc:  # noqa: BLE001 — execute сам ловит, это страховка
             log.error("исправление %s: ошибка %s", reason, type(exc).__name__)
             result = "failed"
