@@ -681,6 +681,7 @@ def test_focus_scope_rejects_boolean_pid_equal_to_one():
     (SOURCE, "GHBDTN ", TARGET, "ПРИВЕТ "),
     ("GHBDTN ", SOURCE, "ПРИВЕТ ", TARGET),
     ("ghbdtn vbh ", "Ghbdtn vbh ", "привет мир ", "Привет мир "),
+    ("привет ", "Привет ", "GHbdtn ", "GHbdtn "),
 ])
 def test_case_equivalent_displayed_source_preserves_actual_case(
         native, source, actual, target, resolved):

@@ -75,7 +75,9 @@ def _case_target(source, target):
     if source.islower():
         return target.lower()
     if source == source.capitalize():
-        return target.capitalize()
+        # Редактор изменил только первый символ (автозаглавная): собственные
+        # заглавные target значимы, например при отмене `GHbdtn`.
+        return target[:1].upper() + target[1:]
     return None
 
 
