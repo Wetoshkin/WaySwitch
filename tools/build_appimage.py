@@ -9,6 +9,8 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
+import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -18,20 +20,42 @@ FLATPAK_ID = "io.github.Wetoshkin.WaySwitch.Gui"
 APPIMAGE_ID = "io.github.Wetoshkin.WaySwitch.AppImage"
 
 
-def fetch_verified(url: str, target: Path, sha256: str) -> None:
+# GitHub Releases иногда отвечает 5xx/таймаутом при загрузке runtime.
+# Повторяем только временные сетевые ошибки; хэш проверяется после каждой попытки.
+TRANSIENT_HTTP = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+
+def fetch_verified(url: str, target: Path, sha256: str, *, opener=urllib.request.urlopen,
+                   sleep=time.sleep, attempts: int = 6, base_delay: float = 1.5) -> None:
     if target.exists():
         with target.open("rb") as stream:
             if hashlib.file_digest(stream, "sha256").hexdigest() == sha256:
                 return
     target.unlink(missing_ok=True)
     partial = target.with_suffix(".partial")
+    last_error: Exception | None = None
     try:
-        with urllib.request.urlopen(url, timeout=120) as source, partial.open("wb") as dest:
-            shutil.copyfileobj(source, dest)
-        with partial.open("rb") as stream:
-            if hashlib.file_digest(stream, "sha256").hexdigest() != sha256:
-                raise ValueError(f"SHA256 mismatch: {url}")
-        partial.replace(target)
+        for attempt in range(attempts):
+            partial.unlink(missing_ok=True)
+            try:
+                with opener(url, timeout=120) as source, partial.open("wb") as dest:
+                    shutil.copyfileobj(source, dest)
+            except urllib.error.HTTPError as exc:
+                if exc.code not in TRANSIENT_HTTP:
+                    raise
+                last_error = exc
+            except (urllib.error.URLError, TimeoutError) as exc:
+                last_error = exc
+            else:
+                with partial.open("rb") as stream:
+                    if hashlib.file_digest(stream, "sha256").hexdigest() != sha256:
+                        raise ValueError(f"SHA256 mismatch: {url}")
+                partial.replace(target)
+                return
+            if attempt + 1 < attempts:
+                sleep(base_delay * (2 ** attempt))
+        assert last_error is not None
+        raise last_error
     finally:
         partial.unlink(missing_ok=True)
 
