@@ -932,6 +932,23 @@ def test_first_auto_fix_after_idle_waits_for_fresh_focus(env):
     assert env["corrected"] == [("ghbdtn", "привет", False)]
 
 
+def test_first_word_waits_for_focus_after_young_empty_editor_snapshot(env):
+    class EmptyEditorProbe(IdleProbe):
+        def snapshot(self):
+            snap = super().snapshot()
+            return snap if self.fresh else snap._replace(taken_at=self.clock())
+
+    probe = EmptyEditorProbe(env["clock"])
+    probe.go_idle()
+    ctrl = env["ctrl"]
+    ctrl.set_probe(probe)
+    ctrl.sleep = lambda _delay: probe.wake()
+    type_text(env, "g")
+    probe.wake()
+    type_text(env, "hbdtn ")
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+
+
 def test_click_during_idle_wake_drops_trigger_key_instead_of_misplacing_it(env):
     probe = idle_env(env)
     clicks = []

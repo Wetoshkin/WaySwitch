@@ -388,8 +388,9 @@ class Controller:
             # Фокус и так свежий и доверенный: заново будить нечего.
             self._focus_wake_attempted = False
             return "skip", None
-        if snap.app is not None or snap.age(now) <= focus.MAX_AGE_SEC:
+        if snap.app is not None:
             return "skip", None
+        recent_unknown = snap.age(now) <= focus.MAX_AGE_SEC
         if self._focus_wake_attempted:
             return "skip", None
         self._focus_wake_attempted = True
@@ -412,6 +413,8 @@ class Controller:
             return "woke", fresh
         if why == "cancelled":
             return "cancelled", None
+        if recent_unknown:
+            return "skip", None  # позднюю привязку по-прежнему разрешает только native-проверка
         return "rejected", None
 
     def _rebind_focus_after_wake(self, snap) -> bool:

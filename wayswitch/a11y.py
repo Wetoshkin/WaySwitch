@@ -188,7 +188,8 @@ class AtspiProbe:
         # погас бы по простою посреди набора.
         self._last_activity = self._clock()
         alive = self._thread is not None and self._thread.is_alive()
-        if alive and self.snapshot().age(self._clock()) < POKE_FRESH_SEC:
+        snap = self.snapshot()
+        if alive and snap.app and snap.age(self._clock()) < POKE_FRESH_SEC:
             return
         self._ensure_thread()
         self._wake.set()

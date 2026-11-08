@@ -560,6 +560,16 @@ def test_probe_updates_snapshot_from_query():
         probe.close()
 
 
+@pytest.mark.parametrize("app,expected", [(None, True), ("Editor", False)])
+def test_poke_retries_young_unknown_focus_without_repolling_known_field(app, expected):
+    clock = Clock()
+    probe = a11y.AtspiProbe(clock=clock, query=lambda: None)
+    probe._snap = FocusSnapshot(app, taken_at=clock())
+    probe._thread = SimpleNamespace(is_alive=lambda: True)
+    probe.poke()
+    assert probe._wake.is_set() is expected
+
+
 def test_probe_survives_failing_query():
     def query():
         raise RuntimeError("at-spi недоступен")
