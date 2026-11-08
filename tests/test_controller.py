@@ -1125,7 +1125,8 @@ class TwoFieldsProbe(SafeProbe):
 
     def snapshot(self):
         field = (":1.1", "/field-b") if self.second else (":1.1", "/field-a")
-        return FocusSnapshot("editor", False, self.clock(), field=field, generation=2)
+        return FocusSnapshot("soffice.bin", False, self.clock(), field=field, generation=2,
+                             window="Book — LibreOffice Calc")
 
     def poke(self):
         pass
@@ -1260,3 +1261,60 @@ def test_boundary_triggered_abort_does_not_skip_next_confirmed_word(env):
     type_text(env, "ghbdtn ")  # подтверждённое поле: обычная клавиатурная замена
     assert env["corrected"] == [("ghbdtn", "привет", False)]
     assert env["typist"].taps()
+
+@pytest.mark.parametrize("action", ["word", "phrase"])
+def test_aborted_provisional_buffer_cannot_be_retyped(env, action):
+    probe = AppearingProbe(env["clock"])
+    env["ctrl"].set_probe(probe)
+    type_text(env, "g")
+    probe.visible = True
+    type_text(env, "hbdtn ")
+    (env["ctrl"].manual_word if action == "word" else env["ctrl"].manual_phrase)()
+    assert not env["typist"].taps()
+    assert not env["corrected"]
+
+
+@pytest.mark.parametrize("event", ["pause", "click", "layout"])
+def test_verified_focus_wait_honors_cancellation(env, event):
+    probe = LateFieldProbe(env["clock"])
+    native = NativeTypist()
+    ctrl = env["ctrl"]
+    ctrl.set_probe(probe)
+    ctrl.typist = native
+
+    def pump():
+        if not probe.confirmed:
+            probe.show()
+            if event == "pause":
+                ctrl.pause()
+            elif event == "click":
+                ctrl.on_click()
+            else:
+                ctrl.on_layout_changed(0, True)
+
+    ctrl.pump = pump
+    type_text(env, "g")
+    probe.bump()
+    type_text(env, "hbdtn ")
+    assert not native.native
+    assert not native.taps()
+    assert not env["corrected"]
+
+
+def test_partial_word_never_crosses_writer_windows(env):
+    class WindowsProbe(TwoFieldsProbe):
+        def snapshot(self):
+            snap = super().snapshot()
+            return snap._replace(
+                app="soffice.bin",
+                window=("B" if self.second else "A") + " — LibreOffice Writer")
+
+    probe = WindowsProbe(env["clock"])
+    native = NativeTypist()
+    env["ctrl"].set_probe(probe)
+    env["ctrl"].typist = native
+    type_text(env, "g")
+    probe.second = True
+    type_text(env, "hbdtn ")
+    assert not native.native
+    assert not env["corrected"]
