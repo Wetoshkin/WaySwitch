@@ -91,7 +91,7 @@ def wrap(face: Face, text: str, size: float, max_width: float) -> list[str]:
 
 def icon() -> str:
     """Значок приложения без XML-шапки — внутрь баннера."""
-    svg = (ROOT / "packaging" / "icons" / "ru.siberia.WaySwitch.svg").read_text(encoding="utf-8")
+    svg = (ROOT / "packaging" / "icons" / "io.github.Wetoshkin.WaySwitch.svg").read_text(encoding="utf-8")
     svg = re.sub(r"<!--.*?-->", "", svg, flags=re.S)
     inner = re.search(r"<svg[^>]*>(.*)</svg>", svg, re.S).group(1)
     s = 184 / 128

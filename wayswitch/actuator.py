@@ -5,11 +5,11 @@
 
 * на любом выходе из execute все клавиши, нажатые виртуальным устройством,
   отпущены;
-* первый Backspace — точка невозврата. До него прерывание (физическое
-  нажатие, пауза) отменяет исправление и возвращает прежнюю раскладку; после
-  него план доводится до конца, иначе человек остался бы со стёртым словом и
-  без нового. Нажатая в это время клавиша всё равно попадёт в поле — после
-  исправленного слова;
+* KeyTypist останавливается при наблюдаемом прерывании. После записи или
+  использования нового режима физическим вводом результат — FAILED: часть
+  слова могла измениться, восстанавливать прежний буфер и перепечатывать нельзя;
+* проверка перед записью не атомарна: физическая клавиша может попасть между
+  проверкой и записью. Это ограничение не устраняется задержкой;
 * любая ошибка бэкенда или печати — FAILED, а не исключение наружу.
 """
 
@@ -19,10 +19,13 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from wayswitch import keycodes as kc
 from wayswitch.keymap import Keymap
+
+if TYPE_CHECKING:
+    from wayswitch.a11y import FocusSnapshot
 
 DONE, ABORTED, FAILED = "done", "aborted", "failed"
 ALL_MODIFIERS = (kc.KEY_LEFTSHIFT, kc.KEY_RIGHTSHIFT, kc.KEY_LEFTCTRL, kc.KEY_RIGHTCTRL,
@@ -58,6 +61,8 @@ class Type:
 @dataclass
 class Plan:
     steps: list = field(default_factory=list)
+    source_text: str | None = None
+    focus: FocusSnapshot | None = None
 
 
 class KeyTypist(Protocol):
@@ -153,20 +158,54 @@ class _Run:
     """Общее для обоих исполнителей: точка невозврата и возврат раскладки."""
 
     def __init__(self, backend, abort: Callable[[], bool], restore_group: int | None,
-                 hold: Callable[[], bool] | None, stop: Callable[[], bool]):
+                 hold: Callable[[], bool] | None, stop: Callable[[], bool],
+                 before_write: Callable[[], bool] | None, native_append=None,
+                 native_focus=None):
         self.backend = backend
         self._abort = abort
         self._stop = stop
         self._hold = hold
+        self._before_write = before_write
+        self.native_append = native_append
+        self.native_focus = native_focus
+        self.write_checked = before_write is None
         self._gave_up = False  # после точки невозврата ждём Shift один раз
         self.restore_group = restore_group
         self.switched = False
         self.caps_toggle: Callable[[], None] | None = None  # чем вернуть Caps Lock
-        self.committed = False  # первый Backspace ушёл — назад дороги нет
+        self.committed = False  # текст или новый режим уже использован, откат небезопасен
+        self.native_done = False
+        self.fast_switch = False  # native-запись не печатает клавишами: клиентский settle не нужен
+        self.resolved_source: str | None = None
+        self.resolved_target: str | None = None
 
     def aborted(self) -> bool:
         # _abort прокручивает GLib: и после первого Backspace нужны события lock/layout.
         return (self._abort() and not self.committed) or self._stop()
+
+    def commit(self) -> None:
+        self.committed = True
+
+    def validate_write(self) -> bool:
+        try:
+            self.write_checked = self._before_write() is True
+        finally:
+            # Проверка может доставить физический ввод даже при отказе или ошибке.
+            interrupted = self.native_aborted(before_write=True)
+        return self.write_checked and not interrupted
+
+    def native_aborted(self, *, before_write: bool = False,
+                       anchor_reserved: bool = False) -> bool:
+        interrupted = self._abort()
+        stopped = self._stop()
+        # Допечатанные символы уже используют новую раскладку или состояние Caps Lock.
+        if interrupted and (self.switched or self.caps_toggle is not None) and not stopped:
+            self.committed = True
+        if interrupted and anchor_reserved and not before_write and not stopped:
+            # После проверенного якоря обычная печать идёт за диапазоном, а не в нём.
+            # Опасные клавиши выставляют _stop; неизвестный ввод до якоря сюда не доходит.
+            return False
+        return (interrupted and (before_write or not self.committed)) or stopped
 
     def blocked(self) -> bool:
         """Перед стирающей или печатающей клавишей: зажат физический Shift.
@@ -187,6 +226,10 @@ class _Run:
     def switch(self, group: int, timeout: float) -> bool:
         self.switched = True
         self.backend.set(group)
+        if self.fast_switch:
+            # Синтетических клавиш не будет (запись через AT-SPI), а KDE-settle
+            # нужен только им: физическую печать он не защищает.
+            return True
         return bool(self.backend.wait_applied(group, timeout))
 
     def rollback(self) -> None:
@@ -204,13 +247,60 @@ class _Run:
                 log.warning("не удалось вернуть раскладку: %s", type(exc).__name__)
 
 
+class _NativeStop:
+    """Стоп-проверка native-протокола; якорь разрешает только дописывание после него."""
+
+    def __init__(self, run: _Run, prepare=None):
+        self._run = run
+        self._prepare = prepare
+        self.anchor_reserved = False
+
+    def __call__(self, *, before_write: bool = False) -> bool:
+        return self._run.native_aborted(before_write=before_write,
+                                        anchor_reserved=self.anchor_reserved)
+
+    def prepare(self) -> bool:
+        """Заранее применить раскладку/Caps до резервирования якоря."""
+        return True if self._prepare is None else self._prepare(strict=True)
+
+    def append_count(self):
+        return None if self._run.native_append is None else self._run.native_append()
+
+    def focus_snapshot(self):
+        """Живой снимок фокуса от контроллера; None — доказательств нет."""
+        if self._run.native_focus is None:
+            return None
+        try:
+            return self._run.native_focus()
+        except Exception:  # noqa: BLE001 — неизвестный снимок не доказывает фокус
+            return None
+
+    def use_fast_switch(self) -> None:
+        """Native-запись не шлёт клавиши: не ждать клиентский settle после раскладки."""
+        self._run.fast_switch = True
+
+    def reserve_anchor(self) -> bool:
+        # Якорь нельзя разрешать раньше раскладки/Caps: иначе физическая клавиша
+        # попадёт в поле в старом режиме, а replay прочитает её в новом.
+        if not self.prepare():
+            return False
+        self.anchor_reserved = True
+        return True
+
+
 def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: False,
             key_delay: float = 0.0, sleep=time.sleep, switch_timeout: float = 0.5,
             restore_group: int | None = None,
             hold: Callable[[], bool] | None = None,
-            outcome: dict | None = None, stop: Callable[[], bool] = lambda: False) -> str:
-    """outcome (если передан) получает caps_off: Caps Lock в итоге выключен нами."""
-    run = _Run(backend, abort, restore_group, hold, stop)
+            outcome: dict | None = None, stop: Callable[[], bool] = lambda: False,
+            before_write: Callable[[], bool] | None = None, native_append=None,
+            native_focus=None) -> str:
+    """before_write проверяется один раз перед первой записью, после ожиданий.
+
+    outcome (если передан) получает caps_off: Caps Lock в итоге выключен нами.
+    """
+    run = _Run(backend, abort, restore_group, hold, stop, before_write, native_append,
+               native_focus)
     if isinstance(typist, TextTypist):
         result = _execute_text(plan, typist, run, switch_timeout)
     else:
@@ -219,55 +309,203 @@ def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: Fal
         run.rollback()
     if outcome is not None:
         outcome["caps_off"] = run.caps_toggle is not None
+        if run.native_done:
+            outcome["native_span"] = True
+            if run.resolved_source is not None:
+                outcome["source_text"] = run.resolved_source
+                outcome["target_text"] = run.resolved_target
     return result
+
+
+_NATIVE_FALLBACK = object()
+
+
+def _native_shape(plan: Plan):
+    """Пара «стереть+набрать» в конце плана, если её можно заменить одним span-ом."""
+    snapshot = plan.focus
+    if (plan.source_text is None or snapshot is None or not snapshot.app
+            or not snapshot.field or snapshot.password or len(plan.steps) < 2
+            or not isinstance(plan.steps[-2], Backspace)
+            or not isinstance(plan.steps[-1], Type)
+            or not all(isinstance(s, (ReleaseModifiers, SwitchLayout, ToggleCaps))
+                       for s in plan.steps[:-2])):
+        return None
+    return plan.steps[:-2], plan.steps[-2], plan.steps[-1]
+
+
+def _attempt_native(plan: Plan, typist, run: _Run, setup,
+                    precheck_hold: bool = True):
+    """Один общий native-протокол для текстовой и клавиатурной печати.
+
+    Возвращает статус попытки или _NATIVE_FALLBACK, если native-обработчик
+    неприменим и до первой подготовки ничего не изменилось. Для клавиатурного
+    транспорта precheck_hold=False: физический Shift проверяет обычный путь,
+    если native-возможность не подтвердилась.
+    """
+    replace = getattr(typist, "replace_span", None)
+    shape = _native_shape(plan)
+    if replace is None or shape is None:
+        return _NATIVE_FALLBACK
+    prefix, backspace, typed = shape
+    if len(plan.source_text) != backspace.count:
+        return ABORTED
+    if (precheck_hold and run.blocked()) or run.aborted():
+        return ABORTED
+    setup_done = False
+    prepared = False
+    started = False
+
+    def prepare(*, strict=False):
+        nonlocal setup_done, started
+        if setup_done:
+            return True
+        started = True
+        for step in prefix:
+            if run.blocked() or stop(before_write=strict):
+                return False
+            try:
+                applied = setup(step)
+            finally:
+                interrupted = stop(before_write=strict)
+            if not applied:
+                raise RuntimeError("layout not applied")
+            if interrupted:
+                return False
+        setup_done = True
+        return True
+
+    stop = _NativeStop(run, prepare)
+
+    def begin():
+        nonlocal prepared, started
+        started = True
+        if not prepare() or run.blocked() or stop():
+            return False
+        if not run.write_checked:
+            if (run.blocked() or stop() or not run.validate_write()
+                    or run.native_aborted(before_write=True)):
+                return False
+        run.commit()
+        prepared = True
+        return True
+
+    try:
+        result = replace(plan.focus, plan.source_text, typed.text, begin, stop)
+    except Exception as exc:  # noqa: BLE001 — ошибка native-протокола не откатывает на клавиши
+        log.error("исправление прервано ошибкой: %s", type(exc).__name__)
+        return FAILED
+    if result is None:
+        # Ни один шаг подготовки не начат — можно использовать обычный транспорт.
+        if (run.committed or run.switched or run.caps_toggle is not None
+                or started or stop.anchor_reserved):
+            return FAILED
+        if (precheck_hold and run.blocked()) or run.aborted():
+            return ABORTED
+        return _NATIVE_FALLBACK
+    run.committed |= result.committed
+    if result.status == DONE and not prepared:
+        return FAILED
+    if result.status == DONE:
+        source = getattr(result, "source_text", None)
+        target = getattr(result, "target_text", None)
+        if source is not None or target is not None:
+            if (not isinstance(source, str) or not isinstance(target, str)
+                    or len(source) != len(plan.source_text)
+                    or source.casefold() != plan.source_text.casefold()
+                    or target.casefold() != typed.text.casefold()):
+                return FAILED
+            run.resolved_source, run.resolved_target = source, target
+    run.native_done = result.status == DONE
+    return result.status
 
 
 def _execute_keys(plan: Plan, typist, run: _Run, key_delay: float, sleep,
                   switch_timeout: float) -> str:
     session = _Session(typist, key_delay, sleep)
+
+    def interruption(check_hold: bool = False) -> str | None:
+        blocked = False
+        try:
+            blocked = check_hold and run._hold is not None and run._hold() is not True
+        finally:
+            interrupted = run._abort()
+            stopped = run._stop()
+            # Физический ввод уже использовал новый режим, возвращать его нельзя.
+            if interrupted and (run.switched or run.caps_toggle is not None
+                                or set(session.pressed) & (kc.SHIFT_KEYS | {kc.KEY_CAPSLOCK})):
+                run.commit()
+        if blocked or interrupted or stopped:
+            return FAILED if run.committed else ABORTED
+        return None
+
     try:
+        native_result = _attempt_native(
+            plan, typist, run,
+            lambda step: _key_setup(step, typist, session, run, switch_timeout),
+            precheck_hold=False)
+        if native_result is not _NATIVE_FALLBACK:
+            return native_result
         for step in plan.steps:
-            if run.aborted():
-                return ABORTED
+            if status := interruption():
+                return status
             if isinstance(step, ReleaseModifiers):
                 for code in ALL_MODIFIERS:
                     typist.key(code, 0)
                 typist.syn()
             elif isinstance(step, Backspace):
                 for _ in range(step.count):
-                    # blocked() — первым: пока ждём Shift, pump() мог принести
-                    # нажатие, и aborted() должен его увидеть.
-                    if run.blocked() or run.aborted():
-                        return ABORTED
+                    if status := interruption(check_hold=True):
+                        return status
+                    if not run.write_checked:
+                        if not run.validate_write():
+                            return ABORTED
+                        if status := interruption():
+                            return status
                     run.committed = True
                     session.press(kc.KEY_BACKSPACE)
                     session.release(kc.KEY_BACKSPACE)
             elif isinstance(step, SwitchLayout):
-                if not run.switch(step.group, switch_timeout):
+                try:
+                    applied = run.switch(step.group, switch_timeout)
+                finally:
+                    status = interruption()
+                if status:
+                    return status
+                if not applied:
                     return FAILED
             elif isinstance(step, ToggleCaps):
                 def tap_caps(s=session):
                     s.press(kc.KEY_CAPSLOCK)
                     s.release(kc.KEY_CAPSLOCK)
-                tap_caps()
-                run.caps_toggle = tap_caps
+                try:
+                    tap_caps()
+                    run.caps_toggle = tap_caps
+                finally:
+                    status = interruption()
+                if status:
+                    return status
             elif isinstance(step, Type):
                 for code, shift in step.keys:
-                    if run.blocked() or run.aborted():
-                        return ABORTED
-                    # Первая напечатанная буква меняет экран, как и Backspace
-                    # (у «Исправить выделенное» Backspace нет вовсе): дальше
-                    # фразу не обрываем.
+                    if status := interruption(check_hold=True):
+                        return status
                     if shift:
-                        session.press(kc.KEY_LEFTSHIFT)
-                        if run.aborted():
+                        try:
+                            session.press(kc.KEY_LEFTSHIFT)
+                        finally:
+                            status = interruption()
+                        if status:
+                            return status
+                    if not run.write_checked:
+                        if not run.validate_write():
                             return ABORTED
+                        if status := interruption():
+                            return status
                     run.committed = True
                     session.press(code)
                     session.release(code)
                     if shift:
                         session.release(kc.KEY_LEFTSHIFT)
-        return DONE
+        return interruption() or DONE
     except Exception as exc:  # noqa: BLE001 — OSError uinput, BackendError, GLib.Error
         log.error("исправление прервано ошибкой: %s", type(exc).__name__)
         return FAILED
@@ -275,43 +513,61 @@ def _execute_keys(plan: Plan, typist, run: _Run, key_delay: float, sleep,
         session.release_all()
 
 
+def _text_setup(step, typist, run: _Run, switch_timeout: float) -> bool:
+    if isinstance(step, SwitchLayout):
+        return run.switch(step.group, switch_timeout)
+    if isinstance(step, ToggleCaps):
+        toggle = getattr(typist, "toggle_caps", None)
+        if toggle is not None and toggle() is not False:
+            run.caps_toggle = toggle
+    return True
+
+
+def _key_setup(step, typist, session: _Session, run: _Run,
+               switch_timeout: float) -> bool:
+    if isinstance(step, ReleaseModifiers):
+        for code in ALL_MODIFIERS:
+            typist.key(code, 0)
+        typist.syn()
+    elif isinstance(step, SwitchLayout):
+        return run.switch(step.group, switch_timeout)
+    elif isinstance(step, ToggleCaps):
+        def tap_caps():
+            session.press(kc.KEY_CAPSLOCK)
+            session.release(kc.KEY_CAPSLOCK)
+        tap_caps()
+        run.caps_toggle = tap_caps
+    return True
+
+
 def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: float) -> str:
     step = None
     try:
+        # Диапазон фиксируется до смены раскладки, допечатывание не сдвигает его.
+        native_result = _attempt_native(
+            plan, typist, run,
+            lambda step: _text_setup(step, typist, run, switch_timeout))
+        if native_result is not _NATIVE_FALLBACK:
+            return native_result
         for step in plan.steps:
             if run.aborted():
                 return ABORTED
             if isinstance(step, (Backspace, Type)) and (run.blocked() or run.aborted()):
                 return ABORTED
+            if isinstance(step, (Backspace, Type)) and not run.write_checked:
+                if not run.validate_write() or run.native_aborted(before_write=True):
+                    return ABORTED
             if isinstance(step, Backspace):
                 run.committed = True
                 typist.backspace(step.count)
-            elif isinstance(step, SwitchLayout):
-                if not run.switch(step.group, switch_timeout):
-                    return FAILED
-            elif isinstance(step, ToggleCaps):
-                # Печать текстом от Caps Lock не зависит; выключаем, если
-                # исполнитель умеет (у расширения GNOME — через uinput).
-                toggle = getattr(typist, "toggle_caps", None)
-                if toggle is not None and toggle() is not False:
-                    run.caps_toggle = toggle
             elif isinstance(step, Type):
                 run.committed = True
                 typist.type_text(step.text)
+            elif not _text_setup(step, typist, run, switch_timeout):
+                return FAILED
         return DONE
     except Exception as exc:  # noqa: BLE001 — GLib.Error таймаута D-Bus и прочее
         log.error("исправление прервано ошибкой: %s", type(exc).__name__)
-        timed_out = "timed out" in str(exc).lower() or "timeout" in str(exc).lower()
-        if run.committed and isinstance(step, Type) and not timed_out and not run.aborted():
-            # По таймауту не повторяем: расширение могло напечатать слово, а
-            # ответ просто не успел — повтор задвоил бы его.
-            # Слово уже стёрто: одна повторная попытка напечатать лучше, чем
-            # оставить пустое место (таймаут D-Bus бывает разовым).
-            try:
-                typist.type_text(step.text)
-                return DONE
-            except Exception as again:  # noqa: BLE001
-                log.error("повторная печать не удалась: %s", type(again).__name__)
         return FAILED
 
 
@@ -322,9 +578,14 @@ class UInputTypist:
 
     def __init__(self):
         from evdev import UInput, ecodes  # импорт здесь: модуль есть только на Linux
+        from evdev.uinput import UInputError
 
         self._ecodes = ecodes
-        self._ui = UInput({ecodes.EV_KEY: list(range(1, 128))}, name=self.NAME)
+        try:
+            self._ui = UInput({ecodes.EV_KEY: list(range(1, 128))}, name=self.NAME)
+        except UInputError as exc:
+            # Проверка доступа evdev выбрасывает Exception, а не OSError.
+            raise OSError(str(exc)) from exc
 
     def key(self, code: int, value: int) -> None:
         self._ui.write(self._ecodes.EV_KEY, code, value)

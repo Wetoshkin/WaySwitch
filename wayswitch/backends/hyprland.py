@@ -142,8 +142,8 @@ class HyprlandBackend(LayoutBackend):
         except (OSError, ValueError, AttributeError) as e:
             raise BackendError(f"Hyprland не отвечает: {e}") from None
         self._specs = xkbnames.parse_layout_list(_clean(layout), _clean(variant))
-        if len(self._specs) < 2:
-            raise BackendError("в Hyprland меньше двух раскладок (input:kb_layout)")
+        if not self._specs:
+            raise BackendError("в Hyprland не найдены раскладки (input:kb_layout)")
         self._options = [o for o in _clean(options).split(",") if o]
         self._expected: int | None = None
         self._callbacks: list[Callable[[int, bool], None]] = []
@@ -211,9 +211,9 @@ class HyprlandBackend(LayoutBackend):
         # Раскладка в Hyprland у каждой клавиатуры своя: принимаем событие от
         # любой настоящей — человек мог переключить на внешней клавиатуре.
         index = self._index_of_desc(parsed[1])
-        if index is None or index == self._current and self._expected is None:
+        if index == self._current and self._expected is None:
             return
-        external = index != self._expected
+        external = index is None or index != self._expected
         self._expected = None
         self._current = index
         for cb in self._callbacks:

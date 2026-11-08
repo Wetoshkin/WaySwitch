@@ -1,12 +1,10 @@
 // Расширение WaySwitch: отдаёт демону индекс текущей раскладки, переключает её
-// синхронно, печатает keysym-ы через виртуальное устройство Clutter и отдаёт
-// выделенный текст для «Исправить выделенное». Keysym печатается, только
-// если он есть в текущей раскладке (mutter ищет keycode в активной группе),
-// поэтому демон сначала переключает раскладку и проверяет, что каждый символ
-// в ней есть.
+// синхронно, печатает через очередь ввода GNOME и отдаёт выделенный текст.
+// Без IME-фокуса используются keysym-ы виртуального устройства Clutter:
+// демон сначала переключает раскладку и проверяет наличие каждого символа.
 //
 // Печатать, стирать и читать выделение может только сам демон WaySwitch
-// (владелец имени ru.siberia.WaySwitch на сессионной шине): иначе любое
+// (владелец имени io.github.Wetoshkin.WaySwitch на сессионной шине): иначе любое
 // приложение с доступом к шине, в том числе из песочницы Flatpak, могло бы
 // печатать в чужие окна. Текст, который печатается, в журнал не пишется.
 
@@ -16,33 +14,43 @@ import Clutter from 'gi://Clutter';
 import St from 'gi://St';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Keyboard from 'resource:///org/gnome/shell/ui/status/keyboard.js';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
-const BUS_NAME = 'ru.siberia.WaySwitch.Shell';
-const OBJECT_PATH = '/ru/siberia/WaySwitch/Shell';
-const DAEMON_NAME = 'ru.siberia.WaySwitch';
+const BUS_NAME = 'io.github.Wetoshkin.WaySwitch.Shell';
+const OBJECT_PATH = '/io/github/Wetoshkin/WaySwitch/Shell';
+const DAEMON_NAME = 'io.github.Wetoshkin.WaySwitch';
 // Ограничения на один вызов: исправление слова — десятки символов, выделенный
 // фрагмент — до нескольких тысяч.
 const MAX_TEXT = 4000;
 const MAX_BACKSPACE = 512;
 const IFACE_XML = `
 <node>
-  <interface name="ru.siberia.WaySwitch.Shell">
+  <interface name="io.github.Wetoshkin.WaySwitch.Shell">
     <method name="GetLayout">
       <arg type="u" name="index" direction="out"/>
       <arg type="s" name="id" direction="out"/>
     </method>
     <method name="GetFocusedApp"><arg type="as" name="ids" direction="out"/></method>
+    <method name="GetFocusedContext">
+      <arg type="as" name="ids" direction="out"/>
+      <arg type="b" name="modal" direction="out"/>
+      <arg type="b" name="ime_focus" direction="out"/>
+      <arg type="u" name="purpose" direction="out"/>
+      <arg type="u" name="hints" direction="out"/>
+      <arg type="u" name="pid" direction="out"/>
+    </method>
     <method name="SetLayout"><arg type="u" name="index" direction="in"/></method>
     <method name="TypeText"><arg type="s" name="text" direction="in"/></method>
     <method name="Backspace"><arg type="u" name="count" direction="in"/></method>
     <method name="GetSelection"><arg type="s" name="text" direction="out"/></method>
     <method name="GetVersion"><arg type="u" name="version" direction="out"/></method>
     <signal name="LayoutChanged"><arg type="u" name="index"/></signal>
+    <signal name="FocusedContextChanged"/>
   </interface>
 </node>`;
 // Версия протокола: демон сверяет её и просит перелогиниться, если Shell
 // держит старую копию расширения (на Wayland оно перезагружается только так).
-const PROTOCOL_VERSION = 2;
+const PROTOCOL_VERSION = 3;
 
 // GNOME 51 убрал Clutter.get_default_backend() — берём бэкенд у контекста
 // сцены (get_backend() есть с GNOME 48), а старый путь оставляем для 46–47.
@@ -76,9 +84,13 @@ export default class WaySwitchExtension extends Extension {
             if (src)
                 this._dbus.emit_signal('LayoutChanged', new GLib.Variant('(u)', [src.index]));
         });
+        this._watchFocusedContext();
     }
 
     disable() {
+        for (const [object, id] of this._focusSignals ?? [])
+            object.disconnect(id);
+        this._focusSignals = [];
         if (this._changedId) {
             this._ism.disconnect(this._changedId);
             this._changedId = null;
@@ -104,6 +116,11 @@ export default class WaySwitchExtension extends Extension {
     // Методы с суффиксом Async получают invocation: по нему видно, кто зовёт.
 
     _allowed(invocation) {
+        if (Main.modalCount > 0) {
+            invocation.return_dbus_error('org.freedesktop.DBus.Error.AccessDenied',
+                'исправление недоступно в системном диалоге');
+            return false;
+        }
         // watch_name отвечает асинхронно: демон мог занять имя и сразу
         // позвать нас, а _daemon ещё не заполнен — спрашиваем шину сами.
         // Пока демон не запущен, имя может занять любой процесс без песочницы,
@@ -145,6 +162,35 @@ export default class WaySwitchExtension extends Extension {
             window.get_sandboxed_app_id()].filter(Boolean))];
     }
 
+    GetFocusedContext() {
+        const im = Main.inputMethod;
+        const hasFocus = Boolean(im?.currentFocus);
+        const purpose = hasFocus ? im.content_purpose : 0;
+        const hints = hasFocus ? im.content_hints : 0;
+        const validIME = hasFocus && Number.isInteger(purpose) && Number.isInteger(hints) &&
+            purpose >= 0 && purpose <= 0xFFFFFFFF && hints >= 0 && hints <= 0xFFFFFFFF;
+        const pid = global.display.focus_window?.get_pid?.() ?? 0;
+        const validPid = Number.isInteger(pid) && pid > 0 && pid <= 0xFFFFFFFF;
+        return [this.GetFocusedApp(), Main.modalCount > 0, validIME,
+            validIME ? purpose : 0, validIME ? hints : 0, validPid ? pid : 0];
+    }
+
+    _watchFocusedContext() {
+        this._focusSignals = [];
+        for (const [object, signal] of [
+            [global.display, 'notify::focus-window'],
+            [global.stage, 'notify::key-focus'],
+            [Main.inputMethod, 'notify::content-purpose'],
+            [Main.inputMethod, 'notify::content-hints'],
+        ]) {
+            if (object) {
+                const id = object.connect(signal, () =>
+                    this._dbus?.emit_signal('FocusedContextChanged', null));
+                this._focusSignals.push([object, id]);
+            }
+        }
+    }
+
     SetLayoutAsync([index], invocation) {
         if (!this._allowed(invocation))
             return;
@@ -166,6 +212,11 @@ export default class WaySwitchExtension extends Extension {
                 `не больше ${MAX_TEXT} символов за раз`);
             return;
         }
+        if (Main.inputMethod?.currentFocus) {
+            Main.inputMethod.commit(text);
+            invocation.return_value(null);
+            return;
+        }
         for (const ch of text) {
             const keyval = Clutter.unicode_to_keysym(ch.codePointAt(0));
             this._tap(keyval);
@@ -177,8 +228,17 @@ export default class WaySwitchExtension extends Extension {
         if (!this._allowed(invocation))
             return;
         const n = Math.min(count, MAX_BACKSPACE);
-        for (let i = 0; i < n; i++)
-            this._tap(Clutter.KEY_BackSpace);
+        const im = Main.inputMethod;
+        for (let i = 0; i < n; i++) {
+            if (im?.currentFocus) {
+                // Одна IM-очередь с commit(): асинхронный IBus не меняет порядок.
+                const time = GLib.get_monotonic_time();
+                im.forward_key(Clutter.KEY_BackSpace, 22, 0, time, true);
+                im.forward_key(Clutter.KEY_BackSpace, 22, 0, time, false);
+            } else {
+                this._tap(Clutter.KEY_BackSpace);
+            }
+        }
         invocation.return_value(null);
     }
 

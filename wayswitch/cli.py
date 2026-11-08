@@ -54,6 +54,44 @@ def call_daemon(method: str):
     return reply.unpack() if reply is not None else None
 
 
+_UNCONFIRMED_HINT = ("Проверьте результат: нужно выделение в одну строку "
+                     "в обычном редактируемом поле.")
+
+_SELECTION_COMMANDS = {
+    "fix-selection": ("FixSelection", "исправлено",
+                      "Не удалось подтвердить исправление выделенного текста. "
+                      + _UNCONFIRMED_HINT),
+    "translit": ("TranslitSelection", "готово",
+                 "Не удалось подтвердить транслитерацию выделенного текста. "
+                 + _UNCONFIRMED_HINT),
+    "number-words": ("NumberWordsSelection", "готово",
+                     "Не удалось подтвердить запись числа прописью. "
+                     + _UNCONFIRMED_HINT),
+}
+
+_SELECTION_UNAVAILABLE = ("Исправление выделенного недоступно для текущей службы. "
+                          "Проверьте поддержку среды и обновите службу WaySwitch.")
+
+
+def _single(reply):
+    """Единственный элемент ответа D-Bus; None для пустого или неожиданного ответа."""
+    return reply[0] if isinstance(reply, tuple) and len(reply) == 1 else None
+
+
+def _selection(command: str) -> int:
+    status = _single(call_daemon("GetStatus"))
+    if not isinstance(status, dict) or status.get("selection_supported") is not True:
+        print(_SELECTION_UNAVAILABLE)
+        return 1
+    method, done, unconfirmed = _SELECTION_COMMANDS[command]
+    if _single(call_daemon(method)) is True:
+        print(done)
+        return 0
+    # bool не говорит, изменился ли текст: подтвердить успех нельзя, но и обратное не факт.
+    print(unconfirmed)
+    return 1
+
+
 def _waybar() -> int:
     """Поток JSON для Waybar: строка на каждое изменение состояния.
 
@@ -172,6 +210,8 @@ def main(argv: list[str] | None = None) -> int:
 
         return gui_main()
     try:
+        if ns.command in _SELECTION_COMMANDS:
+            return _selection(ns.command)
         if ns.command == "pause":
             call_daemon("Pause")
             print("пауза")
@@ -185,15 +225,6 @@ def main(argv: list[str] | None = None) -> int:
         elif ns.command == "fix":
             (ok,) = call_daemon("FixLastWord")
             print("исправлено" if ok else "нечего исправлять")
-        elif ns.command == "fix-selection":
-            (ok,) = call_daemon("FixSelection")
-            print("исправлено" if ok else "нечего исправлять: выделите текст")
-        elif ns.command == "translit":
-            (ok,) = call_daemon("TranslitSelection")
-            print("готово" if ok else "нечего менять: выделите текст")
-        elif ns.command == "number-words":
-            (ok,) = call_daemon("NumberWordsSelection")
-            print("готово" if ok else "нечего менять: выделите число")
         elif ns.command == "status":
             (status,) = call_daemon("GetStatus")
             if ns.json:

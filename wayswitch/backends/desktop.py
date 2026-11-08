@@ -19,6 +19,7 @@ KDE = "kde"
 SWAY = "sway"
 HYPRLAND = "hyprland"
 COSMIC = "cosmic"
+UMBRIEL = "umbriel"
 XFCE = "xfce"
 MATE = "mate"
 CINNAMON = "cinnamon"
@@ -27,7 +28,7 @@ LXQT = "lxqt"
 OTHER = "other"
 
 DESKTOP_NAMES = {GNOME: "GNOME", KDE: "KDE Plasma", SWAY: "Sway", HYPRLAND: "Hyprland",
-                 COSMIC: "COSMIC",
+                 COSMIC: "COSMIC", UMBRIEL: "Umbriel",
                  XFCE: "Xfce", MATE: "MATE", CINNAMON: "Cinnamon", BUDGIE: "Budgie",
                  LXQT: "LXQt", OTHER: "другая среда"}
 
@@ -57,7 +58,7 @@ def _session_env(runner=None) -> dict[str, str]:
         name, sep, value = line.partition("=")
         if sep and name in ("XDG_CURRENT_DESKTOP", "XDG_SESSION_TYPE", "WAYLAND_DISPLAY",
                             "DISPLAY", "XAUTHORITY", "SWAYSOCK",
-                            "HYPRLAND_INSTANCE_SIGNATURE"):
+                            "HYPRLAND_INSTANCE_SIGNATURE", "UMBRIEL_SOCKET"):
             env[name] = value
     return env
 
@@ -72,6 +73,8 @@ def detect_desktop(env: Mapping[str, str] | None = None) -> str:
     raw = (source.get("XDG_CURRENT_DESKTOP") or "").lower()
     if "kde" in raw or "plasma" in raw:
         return KDE
+    if "umbriel" in raw:
+        return UMBRIEL
     if "hyprland" in raw:
         return HYPRLAND
     if "sway" in raw:
@@ -89,6 +92,8 @@ def detect_desktop(env: Mapping[str, str] | None = None) -> str:
     # пережить перелогин и хранить SWAYSOCK от прошлого сеанса Sway.
     if not raw and source.get("HYPRLAND_INSTANCE_SIGNATURE"):
         return HYPRLAND
+    if not raw and source.get("UMBRIEL_SOCKET"):
+        return UMBRIEL
     if not raw and source.get("SWAYSOCK"):
         return SWAY
     return OTHER

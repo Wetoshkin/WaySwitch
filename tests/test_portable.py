@@ -17,18 +17,18 @@ def test_package_mode_is_explicit(monkeypatch):
     monkeypatch.delenv("FLATPAK_ID", raising=False)
     monkeypatch.delenv("WAYSWITCH_PACKAGE", raising=False)
     assert portable.package_kind() is None
-    assert portable.application_id() == "ru.siberia.WaySwitch.Settings"
-    monkeypatch.setenv("FLATPAK_ID", "ru.siberia.WaySwitch.Gui")
+    assert portable.application_id() == "io.github.Wetoshkin.WaySwitch.Settings"
+    monkeypatch.setenv("FLATPAK_ID", "io.github.Wetoshkin.WaySwitch.Gui")
     assert portable.package_kind() == "flatpak"
-    assert portable.application_id() == "ru.siberia.WaySwitch.Gui"
+    assert portable.application_id() == "io.github.Wetoshkin.WaySwitch.Gui"
     monkeypatch.delenv("FLATPAK_ID")
     monkeypatch.setenv("WAYSWITCH_PACKAGE", "appimage")
     assert portable.package_kind() == "appimage"
-    assert portable.application_id() == "ru.siberia.WaySwitch.AppImage"
+    assert portable.application_id() == "io.github.Wetoshkin.WaySwitch.AppImage"
 
 
 def test_diagnostics_reports_connection_not_sandbox_devices(monkeypatch):
-    monkeypatch.setenv("FLATPAK_ID", "ru.siberia.WaySwitch.Gui")
+    monkeypatch.setenv("FLATPAK_ID", "io.github.Wetoshkin.WaySwitch.Gui")
     missing = portable.connection_report(None)
     running = portable.connection_report({"backend": "shell", "paused": True})
     assert "systemctl --user enable --now wayswitch.service" in missing
@@ -38,13 +38,13 @@ def test_diagnostics_reports_connection_not_sandbox_devices(monkeypatch):
 
 
 def test_lifecycle_instructions_keep_native_companion_separate(monkeypatch):
-    monkeypatch.setenv("FLATPAK_ID", "ru.siberia.WaySwitch.Gui")
-    assert "flatpak update ru.siberia.WaySwitch.Gui" in portable.instructions("update")
+    monkeypatch.setenv("FLATPAK_ID", "io.github.Wetoshkin.WaySwitch.Gui")
+    assert "flatpak update io.github.Wetoshkin.WaySwitch.Gui" in portable.instructions("update")
     assert "flatpak install --user --or-update ./WaySwitch-Settings.flatpak" in \
         portable.instructions("update")
     assert "SHA256SUMS" in portable.instructions("update")
     remove = portable.instructions("remove")
-    assert "flatpak uninstall ru.siberia.WaySwitch.Gui" in remove
+    assert "flatpak uninstall io.github.Wetoshkin.WaySwitch.Gui" in remove
     assert "--uninstall" in remove and "get.sh" in remove
     monkeypatch.delenv("FLATPAK_ID")
     monkeypatch.setenv("WAYSWITCH_PACKAGE", "appimage")
@@ -54,10 +54,10 @@ def test_lifecycle_instructions_keep_native_companion_separate(monkeypatch):
 
 def test_flatpak_permissions_only_allow_client_contract():
     root = Path(__file__).resolve().parents[1]
-    manifest = json.loads((root / "packaging/flatpak/ru.siberia.WaySwitch.Gui.json")
+    manifest = json.loads((root / "packaging/flatpak/io.github.Wetoshkin.WaySwitch.Gui.json")
                           .read_text(encoding="utf-8"))
     args = manifest["finish-args"]
-    assert "--talk-name=ru.siberia.WaySwitch" in args
+    assert "--talk-name=io.github.Wetoshkin.WaySwitch" in args
     assert "--filesystem=xdg-config/wayswitch:create" in args
     assert not any("device=" in a or "flatpak" in a or "filesystem=host" in a
                    or "filesystem=home" in a for a in args)
@@ -66,8 +66,8 @@ def test_flatpak_permissions_only_allow_client_contract():
 def test_flatpak_tray_owns_only_application_namespace(monkeypatch):
     from wayswitch.gui.tray import notifier_name
 
-    monkeypatch.setenv("FLATPAK_ID", "ru.siberia.WaySwitch.Gui")
-    assert notifier_name(123) == "ru.siberia.WaySwitch.Gui.Tray"
+    monkeypatch.setenv("FLATPAK_ID", "io.github.Wetoshkin.WaySwitch.Gui")
+    assert notifier_name(123) == "io.github.Wetoshkin.WaySwitch.Gui.Tray"
     monkeypatch.delenv("FLATPAK_ID")
     assert notifier_name(123) == "org.kde.StatusNotifierItem-123-1"
 
@@ -105,7 +105,7 @@ def test_flatpak_bundle_declares_official_runtime_source():
 
 def test_shared_portable_metadata_does_not_claim_sandbox_confinement():
     root = Path(__file__).resolve().parents[1]
-    meta = (root / "packaging/flatpak/ru.siberia.WaySwitch.Gui.metainfo.xml").read_text()
+    meta = (root / "packaging/flatpak/io.github.Wetoshkin.WaySwitch.Gui.metainfo.xml").read_text()
     assert "this sandbox" not in meta
 
 

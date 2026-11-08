@@ -2,8 +2,8 @@
 
 Пока экран заблокирован, исправлять нельзя: evdev продолжает получать
 нажатия, и пароль, набранный в экране блокировки (например, русское слово
-латиницей), демон «исправил» бы прямо в поле пароля. Источников три,
-блокировкой считается любой из них:
+латиницей), демон «исправил» бы прямо в поле пароля. Блокировкой считается
+любой из источников:
 
 - служба хранителя экрана: org.gnome.ScreenSaver (GNOME) и
   org.freedesktop.ScreenSaver (KDE и другие) — сигнал ActiveChanged;
@@ -11,6 +11,8 @@
 - процесс экрана блокировки: swaylock, hyprlock, gtklock, waylock и
   kscreenlocker_greet. Нужен для Sway, Hyprland, labwc и Wayfire — их
   экраны блокировки logind не сообщают.
+- дополнительный гейт бэкенда: без активного обычного окна и свежего
+  подтверждения своей активной незаблокированной сессии ввод запрещён.
 
 Своя сессия logind ищется не по PID: служба systemd --user живёт вне
 сессии, и GetSessionByPID для неё не находит ничего.
@@ -63,7 +65,7 @@ def process_names(proc: str = "/proc", uid: int | None = None) -> list[str]:
 
 class SessionGuard:
     def __init__(self, on_locked: Callable[[bool], None], on_sleep: Callable[[bool], None],
-                 *, cosmic: bool = False):
+                 *, cosmic: bool = False, input_guard: Callable[[], bool] | None = None):
         self.on_locked = on_locked
         self.on_sleep = on_sleep
         self.locked = False
@@ -72,6 +74,10 @@ class SessionGuard:
         self._locker = False
         self._proxies = []
         self._cosmic = cosmic
+        self._input_guard = input_guard
+        self._native_locked = False
+        self._native_session_owner = None
+        self._native_session_lost = False
         self._marker: Path | None = None
         self._marker_locked = False
         self._awaiting_marker = False
@@ -99,18 +105,29 @@ class SessionGuard:
                                              "org.freedesktop.login1.Manager", None)
             manager.connect("g-signal", self._on_manager_signal)
             self._proxies.append(manager)
-            path = self._find_session(system, manager, display_only=self._cosmic)
+            path = self._find_session(system, manager,
+                                      display_only=self._cosmic or self._input_guard is not None)
             self._session = Gio.DBusProxy.new_sync(system, Gio.DBusProxyFlags.NONE, None,
                                                    "org.freedesktop.login1", path,
                                                    "org.freedesktop.login1.Session", None)
             self._session.connect("g-properties-changed", self._on_session_props)
+            if self._input_guard is not None:
+                owner = self._session.get_name_owner()
+                if type(owner) is not str or not owner:
+                    raise RuntimeError("владелец графического сеанса недоступен")
+                self._native_session_owner = owner
+                self._session.connect("notify::g-name-owner", self._lost_native_session)
             if self._cosmic:
                 self._session.connect("g-signal", self._on_cosmic_signal)
                 self._session.connect("notify::g-name-owner", self._lost_cosmic_session)
                 self._set_cosmic_session(self._session.get_cached_property("Id").unpack())
             self._read_session()
         except Exception as e:  # noqa: BLE001
-            log.warning("logind недоступен, охрана без него: %s", e)
+            if self._input_guard is not None:
+                self._native_session_lost = True
+                log.warning("logind недоступен, ввод заблокирован до перезапуска службы")
+            else:
+                log.warning("logind недоступен, охрана без него: %s", e)
         GLib.timeout_add(POLL_MS, self._poll_lockers)
         self._poll_lockers()
         self._update()
@@ -147,7 +164,18 @@ class SessionGuard:
             self._marker = Path(runtime) / f"cosmic-greeter-{session_id}.lock"
 
     def input_locked(self) -> bool:
-        """cosmic-greeter ставит этот файл до блокировки, но не меняет LockedHint."""
+        """Дополнительная проверка перед вводом, не зависящая от доставки D-Bus."""
+        if self._input_guard is not None:
+            previous = self._native_locked, self._logind_locked
+            try:
+                locked = self._input_guard() is not False
+            except Exception:  # noqa: BLE001 — неизвестное состояние запрещает ввод
+                locked = True
+            self._native_locked = locked
+            if not locked:
+                self._logind_locked = self._native_session_locked()
+            if previous != (self._native_locked, self._logind_locked):
+                self._update()
         if self._cosmic:
             locked = True
             if self._marker is not None and self._greeter_ready:
@@ -165,7 +193,41 @@ class SessionGuard:
                 self._update()
         return self.locked
 
+    def _native_session_locked(self) -> bool:
+        if self._native_session_owner is None or self._native_session_lost:
+            return True
+        try:
+            from gi.repository import GLib
+
+            if self._session.get_name_owner() != self._native_session_owner:
+                self._native_session_lost = True
+                return True
+            props = self._session.call_sync(
+                "org.freedesktop.DBus.Properties.GetAll",
+                GLib.Variant("(s)", ("org.freedesktop.login1.Session",)),
+                0, 50, None).unpack()[0]
+            if (self._native_session_lost
+                    or self._session.get_name_owner() != self._native_session_owner):
+                self._native_session_lost = True
+                return True
+            return (type(props) is not dict or props.get("Active") is not True
+                    or props.get("LockedHint") is not False)
+        except Exception:  # noqa: BLE001 — ошибка одного запроса не разрешает ввод
+            return True
+
+    def _lost_native_session(self, *_args) -> None:
+        try:
+            same_owner = self._session.get_name_owner() == self._native_session_owner
+        except Exception:  # noqa: BLE001
+            same_owner = False
+        if not same_owner:
+            self._native_session_lost = self._logind_locked = True
+            self._update()
+
     def _read_session(self) -> None:
+        if self._input_guard is not None:
+            self._logind_locked = self._native_session_locked()
+            return
         locked = self._session.get_cached_property("LockedHint")
         active = self._session.get_cached_property("Active")
         self._logind_locked = (bool(locked and locked.unpack())
@@ -210,7 +272,7 @@ class SessionGuard:
 
     def _update(self) -> None:
         locked = (any(self._screensaver.values()) or self._logind_locked
-                  or self._locker or self._marker_locked)
+                  or self._locker or self._marker_locked or self._native_locked)
         if locked != self.locked:
             self.locked = locked
             log.info("сессия %s", "заблокирована" if locked else "активна")

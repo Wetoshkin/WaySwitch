@@ -24,8 +24,6 @@ class HotkeyBackend(LayoutBackend):
         self._settle = max(settle_ms, 100) / 1000.0
         self._specs = specs if specs is not None else gnome_common.read_sources()
         self._combos = combos if combos is not None else gnome_common.read_switch_bindings()
-        if not self._combos:
-            raise BackendError("системный хоткей смены раскладки не задан")
         self._current = 0  # при входе GNOME включает первый источник
         self._callbacks: list[Callable[[int, bool], None]] = []
         self._held: set[int] = set()
@@ -37,7 +35,8 @@ class HotkeyBackend(LayoutBackend):
         return gnome_common.read_xkb_options()
 
     def current(self) -> int | None:
-        return self._current
+        # GNOME с 3+ источниками переключает MRU, а не фиксированный порядок списка.
+        return self._current if self._combos and len(self._specs) <= 2 else None
 
     def _advance(self, external: bool) -> None:
         self._current = (self._current + 1) % len(self._specs)
@@ -60,6 +59,8 @@ class HotkeyBackend(LayoutBackend):
             self._held.discard(code)
 
     def set(self, index: int) -> None:
+        if type(index) is not int or not 0 <= index < len(self._specs) or self.current() is None:
+            raise BackendError("нельзя подтвердить текущую раскладку для системного хоткея")
         combo = self._combos[0]  # прямой хоткей — им же переключает set()
         while self._current != index:
             for code in combo:
@@ -73,7 +74,7 @@ class HotkeyBackend(LayoutBackend):
             time.sleep(self._settle)
 
     def wait_applied(self, index: int, timeout: float) -> bool:
-        return self._current == index
+        return self.current() is not None and self.current() == index
 
     def on_change(self, cb: Callable[[int, bool], None]) -> None:
         self._callbacks.append(cb)

@@ -58,6 +58,9 @@ _SIDE_AGNOSTIC = {"grp:alt_shift_toggle", "grp:ctrl_shift_toggle", "grp:ctrl_alt
                   "grp:ctrl_shift_toggle_bidir"}
 _LEFT = {kc.KEY_RIGHTALT: kc.KEY_LEFTALT, kc.KEY_RIGHTSHIFT: kc.KEY_LEFTSHIFT,
          kc.KEY_RIGHTCTRL: kc.KEY_LEFTCTRL, kc.KEY_RIGHTMETA: kc.KEY_LEFTMETA}
+_FORWARD = set(TOGGLES) - {"grp:alt_shift_toggle_bidir", "grp:ctrl_shift_toggle_bidir",
+                          "grp:shifts_toggle", "grp:alts_toggle", "grp:ctrls_toggle",
+                          "grp:lshift_toggle", "grp:rshift_toggle"}
 
 
 def state_path(env=None) -> Path:
@@ -68,6 +71,13 @@ def state_path(env=None) -> Path:
 
 def toggle_combos(options: list[str]) -> list[list[int]]:
     return [TOGGLES[o] for o in options if o in TOGGLES]
+
+
+def cycle_supported(options: list[str], count: int) -> bool:
+    if not toggle_combos(options):
+        return False
+    group_options = {o for o in options if o.startswith("grp:")}
+    return count <= 2 or count <= 4 and bool(group_options) and group_options <= _FORWARD
 
 
 def _config_home(env) -> Path:
@@ -114,7 +124,7 @@ def read_xkb(env=None) -> tuple[list[LayoutSpec], list[str], str]:
                ("Wayfire", read_wayfire(home / "wayfire.ini"))]
     for where, values in sources:
         layout = values.get("XKB_DEFAULT_LAYOUT", "")
-        if "," in layout:
+        if layout.strip():
             specs = xkbnames.parse_layout_list(layout, values.get("XKB_DEFAULT_VARIANT", ""))
             options = [o.strip() for o in values.get("XKB_DEFAULT_OPTIONS", "").split(",")
                        if o.strip()]
@@ -129,13 +139,10 @@ class CompositorBackend(HotkeyBackend):
 
     def __init__(self, typist, settle_ms: int = 120, track: bool = False, env=None):
         specs, options, where = read_xkb(env)
-        if len(specs) < 2:
+        if not specs:
             raise BackendError("раскладки не найдены: задайте XKB_DEFAULT_LAYOUT=us,ru "
                                "в ~/.config/labwc/environment или xkb_layout в wayfire.ini")
         combos = toggle_combos(options)
-        if not combos:
-            raise BackendError("в xkb_options нет сочетания переключения раскладки "
-                               "(например, grp:alt_shift_toggle)")
         super().__init__(typist, settle_ms, combos=combos, specs=specs)
         self._options = options
         self.source = where
@@ -151,7 +158,10 @@ class CompositorBackend(HotkeyBackend):
             pass
         # Счётчик раскладки ненадёжен (смена мышью ему не видна) — доверять ли
         # ему автоисправление, решает человек.
-        self.supports_auto = bool(track)
+        self.supports_auto = bool(track) and self.current() is not None
+
+    def current(self) -> int | None:
+        return self._current if cycle_supported(self._options, len(self._specs)) else None
 
     def xkb_options(self) -> list[str]:
         return list(self._options)
@@ -166,7 +176,9 @@ class CompositorBackend(HotkeyBackend):
             self._held.add(code)
             held = self._norm(self._held)
             for combo in self._combos:
-                if self._norm([code]) <= self._norm(combo) and held == self._norm(combo):
+                order_ok = (set(combo) <= kc.MODIFIER_KEYS
+                            or self._norm([code]) == self._norm([combo[-1]]))
+                if order_ok and held == self._norm(combo):
                     self._advance(external=True)
                     break
         elif value == 0:

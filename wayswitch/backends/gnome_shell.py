@@ -9,9 +9,9 @@ from wayswitch.backends import gnome_common
 from wayswitch.backends.base import BackendError, LayoutBackend
 from wayswitch.keymap import LayoutSpec
 
-BUS_NAME = "ru.siberia.WaySwitch.Shell"
-OBJECT_PATH = "/ru/siberia/WaySwitch/Shell"
-INTERFACE = "ru.siberia.WaySwitch.Shell"
+BUS_NAME = "io.github.Wetoshkin.WaySwitch.Shell"
+OBJECT_PATH = "/io/github/Wetoshkin/WaySwitch/Shell"
+INTERFACE = "io.github.Wetoshkin.WaySwitch.Shell"
 
 
 def shell_extension_present() -> bool:
@@ -42,6 +42,7 @@ def extension_version() -> int | None:
 class GnomeShellBackend(LayoutBackend):
     name = "shell"
     supports_auto = True
+    supports_selection = True
 
     def __init__(self, settle_ms: int = 30):
         from gi.repository import Gio, GLib
@@ -174,6 +175,11 @@ class ShellTypist:
 
     def backspace(self, count: int) -> None:
         self._backend.backspace(count)
+
+    def replace_span(self, focus, source: str, target: str, commit, stopped):
+        from wayswitch.editable import try_replace
+
+        return try_replace(focus, source, target, commit, stopped)
 
     def type_text(self, text: str) -> None:
         self._backend.type_text(text)

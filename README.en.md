@@ -27,6 +27,11 @@
 
 **Automatic Russian–English keyboard layout correction for Linux on Wayland.**
 
+**Preparing 1.1.2 — GNOME input-field detection and Writer text correction.**
+
+The latest published release is [1.1.1](https://github.com/Wetoshkin/WaySwitch/releases/tag/v1.1.1).
+See [project status](docs/PROGRESS.md) for completed changes, verification and remaining work.
+
 WaySwitch fixes a word typed in the wrong layout (`ghbdtn` instead of
 «привет») right away, on Space — no hotkeys, no manual layout switching. It
 works on Wayland in GNOME, COSMIC, KDE Plasma, Sway and Hyprland. Xfce, MATE,
@@ -85,13 +90,15 @@ with a physical keyboard is still needed; see [Status](#status).
 
 ## Install
 
-**You need** a Wayland session in one of the environments above and exactly
-two layouts — Russian and English. Supported installation targets include
-Ubuntu 24.04+, Debian 13+, Fedora 41+, openSUSE Tumbleweed, Arch and their compatible derivatives.
+**You need** a Wayland session (not X11). Corrections require Russian and
+English layouts. Other input sources can remain installed: WaySwitch leaves
+them alone and resumes when you return to ru/en. Without a ru/en pair the
+application starts with a warning. Supported installation targets include Ubuntu 24.04+, Debian 13+,
+Fedora 41+, openSUSE Tumbleweed, Arch and their compatible derivatives.
 The installer checks the system before making changes.
 
-NixOS has a separate package and system module in development; the generic
-installer is not intended for it. See [support status](#status).
+**NixOS:** use the separate [package and system module guide](docs/nixos.md).
+The command below is for other distributions.
 
 1. Open a terminal (in KDE it is **Konsole**).
 2. Paste the command with <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> and press <kbd>Enter</kbd>:
@@ -115,9 +122,10 @@ installer is not intended for it. See [support status](#status).
 | Silverblue, Kinoite, Bazzite | layers the `.rpm` with `rpm-ostree` (reboot afterwards) |
 | openSUSE Tumbleweed, Slowroll | installs the `.rpm` with `zypper` |
 | Arch, CachyOS, EndeavourOS, Manjaro | AUR package via `paru`/`yay` once it is published, otherwise from source |
+| NixOS | use the [package and system module](docs/nixos.md), without the generic installer |
 | others | from source via `packaging/install.sh` |
 
-Uninstall: the same command with `| sh -s -- --uninstall`.
+For script installations, uninstall with the same command and `| sh -s -- --uninstall`.
 
 Before installing a `.deb` or `.rpm`, the script verifies its SHA256 and size
 against the selected GitHub release metadata. Missing checksums or failed
@@ -137,13 +145,13 @@ Download the local bundle and `SHA256SUMS` from the same release:
 ```bash
 grep -E '^[[:xdigit:]]{64}  WaySwitch-Settings\.flatpak$' SHA256SUMS | sha256sum -c - && \
 flatpak install --user --or-update ./WaySwitch-Settings.flatpak
-flatpak run ru.siberia.WaySwitch.Gui
+flatpak run io.github.Wetoshkin.WaySwitch.Gui
 ```
 
 The bundle offers the official repository for GNOME Runtime 50. To update a local
 bundle, download the replacement, verify it against the release's `SHA256SUMS`,
 then run `flatpak install --user --or-update ./WaySwitch-Settings.flatpak`.
-Remove the GUI with `flatpak uninstall --user ru.siberia.WaySwitch.Gui`.
+Remove the GUI with `flatpak uninstall --user io.github.Wetoshkin.WaySwitch.Gui`.
 The application has not been published on Flathub. `flatpak update` works for
 a configured application repository, rather than a standalone bundle file.
 
@@ -174,6 +182,33 @@ correction never resumes automatically. Unknown protection state keeps it off;
 `wayswitch doctor` explains recovery. Automatic Caps Lock deactivation is disabled
 because the compositor's compiled keymap does not expose original XKB options.
 
+### NixOS and Umbriel
+
+A package and system module are provided for NixOS; see the
+[setup guide](docs/nixos.md) for dependencies, device access and service startup.
+Umbriel uses native IPC and requires the same layout list and order on ordinary
+keyboards and `uinput`, plus a graphical session registered with logind.
+Unknown session state blocks both automatic and manual correction.
+Automatic Caps Lock deactivation is unavailable without XKB option information.
+
+With several ru/en variants, WaySwitch uses the current variant and the first
+opposite language in system order. GNOME needs the WaySwitch extension for
+additional input sources; the fallback system shortcut cannot reliably track
+three or more. labwc/Wayfire retain their counter limitation: mouse switches
+are invisible, and automatic correction requires explicit `backend.track_hotkey`.
+Additional layouts need ordinary cyclic XKB shortcuts such as
+`grp:alt_shift_toggle`; ambiguous bidirectional shortcuts leave the service passive.
+
+### Remote desktop (RDP)
+
+WaySwitch reads keyboard devices belonging to the local session. Separate RDP
+sessions are unsupported: their input may bypass these devices, and `uaccess`
+grants device access to the active local session. If `/dev/uinput` is unavailable,
+the service waits for access and continues startup automatically when it returns.
+Use `wayswitch doctor` and `journalctl --user -u wayswitch -n 30` to diagnose it.
+Missing udev rules or the `uinput` kernel module must be fixed before startup
+can continue.
+
 ## Gestures
 
 | Gesture | Action |
@@ -200,6 +235,10 @@ start systemd user services: without uwsm, add `exec wayswitch run` (Sway) or
 settings — see the Russian README for snippets.
 
 ## Updating
+
+The GitHub namespace changes the extension, application and portable package IDs.
+See the [migration guide](docs/identifiers.md) for Flatpak, GNOME and the KDE widget.
+WaySwitch settings are preserved.
 
 Once a day WaySwitch asks GitHub whether a new version is out; if so, the
 window shows a bar with an **Update** button (also in the notification, the
@@ -283,6 +322,33 @@ graphical session has not been tested. That branch also supports additional
 layouts while leaving text outside ru/en alone; released 1.1.1 requires exactly two.
 
 X11, Cinnamon and separate RDP sessions are unsupported.
+
+Application checks below refer to GNOME unless stated otherwise.
+Writer on KDE is still being investigated.
+
+Umbriel was tested in a native Ubuntu Wayland session, including ordinary input,
+undo, a password field, screen locking and VT changes. The Nix package was built
+and checked on Linux; a live NixOS graphical session has not been tested.
+
+Writer checks cover both directions, undo after continued typing, automatic
+capitalization and two consecutive words. Calc verification remains
+incomplete: the last separate manual-correction run saved a duplicate word.
+The combined changes need another live check; see the project status. Chrome checks cover
+ordinary fields, editable page elements, passwords and readonly fields.
+The original eXpress message editor was tested in an isolated environment
+without sending messages; an authenticated chat has not been tested.
+
+Firefox Flatpak checks on Bazzite cover input, textarea, contenteditable and the
+address bar. Telegram was checked in an ordinary field before login; its
+authenticated message editor remains untested. ONLYOFFICE Desktop Editors 10.0.0
+(Flatpak on Bazzite) did not expose an AT-SPI field tree on the tested setup;
+automatic correction was not confirmed. In a separate control using the official
+DEB on Ubuntu, the AT-SPI connection worked, but the document and Find controls
+did not expose editable fields even with screen-reader support enabled.
+
+When retyping uses virtual key presses, observed physical input stops further
+changes and can leave a partial correction. A physical key can still arrive
+between a check and the next virtual key.
 
 With password-field protection enabled, automatic correction waits for
 verified AT-SPI focus. Use a manual gesture if the application's accessibility

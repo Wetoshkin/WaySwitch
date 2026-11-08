@@ -34,6 +34,7 @@ done
 chmod 755 "$DEST/usr/bin/wayswitch" "$DEST/usr/bin/wayswitch-gui"
 
 install -Dm644 "$ROOT/packaging/60-wayswitch.rules" "$DEST/usr/lib/udev/rules.d/60-wayswitch.rules"
+install -Dm644 "$ROOT/packaging/migrate.py" "$DEST/usr/share/wayswitch/migrate.py"
 install -d "$DEST/usr/lib/modules-load.d"
 echo "uinput" > "$DEST/usr/lib/modules-load.d/wayswitch.conf"
 
@@ -41,21 +42,21 @@ install -d "$DEST/usr/lib/systemd/user"
 sed 's#ExecStart=/usr/local/bin/wayswitch run#ExecStart=/usr/bin/wayswitch run#' \
     "$ROOT/packaging/wayswitch.service" > "$DEST/usr/lib/systemd/user/wayswitch.service"
 
-install -d "$DEST/usr/share/gnome-shell/extensions/wayswitch@siberia.ru"
-cp -r "$ROOT"/extension/wayswitch@siberia.ru/. "$DEST/usr/share/gnome-shell/extensions/wayswitch@siberia.ru/"
+install -d "$DEST/usr/share/gnome-shell/extensions/wayswitch@wetoshkin.github.io"
+cp -r "$ROOT"/extension/wayswitch@wetoshkin.github.io/. "$DEST/usr/share/gnome-shell/extensions/wayswitch@wetoshkin.github.io/"
 
 install -Dm644 "$ROOT/packaging/wayswitch-session.desktop"     "$DEST/etc/xdg/autostart/wayswitch-session.desktop"
 
 # Виджет для системного лотка KDE Plasma 6.
 install -d "$DEST/usr/share/plasma/plasmoids"
-cp -r "$ROOT/packaging/kde/ru.siberia.wayswitch" "$DEST/usr/share/plasma/plasmoids/"
+cp -r "$ROOT/packaging/kde/io.github.Wetoshkin.wayswitch" "$DEST/usr/share/plasma/plasmoids/"
 
-install -Dm644 "$ROOT/packaging/ru.siberia.WaySwitch.Settings.desktop" \
-    "$DEST/usr/share/applications/ru.siberia.WaySwitch.Settings.desktop"
-install -Dm644 "$ROOT/packaging/icons/ru.siberia.WaySwitch.svg" \
-    "$DEST/usr/share/icons/hicolor/scalable/apps/ru.siberia.WaySwitch.svg"
+install -Dm644 "$ROOT/packaging/io.github.Wetoshkin.WaySwitch.Settings.desktop" \
+    "$DEST/usr/share/applications/io.github.Wetoshkin.WaySwitch.Settings.desktop"
+install -Dm644 "$ROOT/packaging/icons/io.github.Wetoshkin.WaySwitch.svg" \
+    "$DEST/usr/share/icons/hicolor/scalable/apps/io.github.Wetoshkin.WaySwitch.svg"
 install -d "$DEST/usr/share/icons/hicolor/symbolic/apps"
-install -m644 "$ROOT"/packaging/icons/ru.siberia.WaySwitch-*symbolic.svg \
+install -m644 "$ROOT"/packaging/icons/io.github.Wetoshkin.WaySwitch-*symbolic.svg \
     "$DEST/usr/share/icons/hicolor/symbolic/apps/"
 
 install -Dm644 "$ROOT/README.md" "$DEST/usr/share/doc/wayswitch/README.md"

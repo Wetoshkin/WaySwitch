@@ -380,7 +380,7 @@ def about_dialog(parent, update=None):
     from gi.repository import Adw, Gtk
 
     about = Adw.AboutDialog(
-        application_name="WaySwitch", application_icon="ru.siberia.WaySwitch",
+        application_name="WaySwitch", application_icon="io.github.Wetoshkin.WaySwitch",
         developer_name="Wetoshkin", version=__version__, website=REPO_URL,
         issue_url=f"{REPO_URL}/issues", license_type=Gtk.License.MIT_X11,
         copyright="© 2026 Илья Ветошкин",

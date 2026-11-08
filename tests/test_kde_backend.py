@@ -93,9 +93,17 @@ def test_backend_wait_detects_failed_switch(no_variant):
     assert backend.wait_applied(1, 1.0) is False
 
 
-def test_backend_refuses_when_one_layout(no_variant):
-    with pytest.raises(BackendError):
-        make_backend(FakeKwin(layouts=("us",)), [])
+def test_backend_allows_passive_start_with_one_layout(no_variant):
+    backend = make_backend(FakeKwin(layouts=("us",)), [])
+    assert backend.current() == 0 and len(backend.layouts()) == 1
+
+
+def test_backend_extra_layout_keeps_native_target_index(no_variant):
+    fake = FakeKwin(layouts=("de", "fr", "ru", "us"), current=3)
+    backend = make_backend(fake, [])
+    assert backend.current() == 3
+    backend.set(2)
+    assert backend.wait_applied(2, 1) and fake.current == 2
 
 
 def test_backend_set_reports_kwin_refusal(no_variant):

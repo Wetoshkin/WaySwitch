@@ -104,6 +104,7 @@ VIRTUAL = "WaySwitch Virtual Keyboard"
 
 def main_keyboard(inputs: list[dict], identifier: str | None = None) -> dict | None:
     """Клавиатура, за которой следим: заданная или первая настоящая с ≥2 раскладками."""
+    fallback = None
     for dev in inputs or []:
         if dev.get("type") != "keyboard" or dev.get("name") == VIRTUAL:
             continue
@@ -111,7 +112,9 @@ def main_keyboard(inputs: list[dict], identifier: str | None = None) -> dict | N
             continue
         if len(dev.get("xkb_layout_names") or []) >= 2:
             return dev
-    return None
+        if dev.get("xkb_layout_names") and fallback is None:
+            fallback = dev
+    return fallback
 
 
 def keyboard_state(inputs: list[dict], identifier: str | None = None
@@ -127,9 +130,7 @@ def specs_from_names(names: list[str], rules=None) -> list[LayoutSpec]:
     specs = []
     for name in names:
         spec = xkbnames.spec_for_description(name, rules)
-        if spec is None:
-            raise BackendError(f"раскладка «{name}» не найдена в базе XKB")
-        specs.append(spec)
+        specs.append(spec if spec is not None else LayoutSpec(name, kind="unknown"))
     return specs
 
 
@@ -153,8 +154,8 @@ class SwayBackend(LayoutBackend):
         main = main_keyboard(inputs)
         self._kbd = main.get("identifier") if main else None
         names, index = keyboard_state(inputs, self._kbd)
-        if len(names) < 2:
-            raise BackendError("в sway у клавиатуры меньше двух раскладок (xkb_layout)")
+        if not names:
+            raise BackendError("в sway у клавиатуры не найдены раскладки (xkb_layout)")
         self._specs = specs_from_names(names, rules)
         self._current = index
         self._expected: int | None = None

@@ -18,7 +18,7 @@ from wayswitch.gui.daemon_proxy import DaemonProxy
 from wayswitch.gui.dialogs import REPO_URL  # noqa: F401 — реэкспорт для тестов
 from wayswitch.gui.tray import StatusNotifier
 
-# Своё имя, отдельное от демона (ru.siberia.WaySwitch): с общим GApplication
+# Своё имя, отдельное от демона (io.github.Wetoshkin.WaySwitch): с общим GApplication
 # пытается зарегистрироваться на уже занятом имени, не находит там org.gtk.Actions
 # и падает с «Failed to register», не показав окна. С отдельным именем окно
 # открывается, а демон остаётся доступен через DaemonProxy.
@@ -63,6 +63,22 @@ def _open_uri(uri: str) -> None:
     Gio.AppInfo.launch_default_for_uri(uri, None)
 
 
+def notify_selection_result(send_notification, result) -> None:
+    """Одно уведомление, если исправление выделенного не подтвердилось.
+
+    (True,) — молчим; (False,), None и неожиданный ответ — показываем ровно
+    одно сообщение. gi импортируется здесь же: модули gui должны грузиться без GTK.
+    """
+    feedback = texts.selection_feedback(result)
+    if feedback is None:
+        return
+    from gi.repository import Gio
+
+    note = Gio.Notification.new(feedback.title)
+    note.set_body(feedback.body)
+    send_notification("selection-failed", note)
+
+
 def main(argv: list[str] | None = None) -> int:
     import gi
 
@@ -72,6 +88,8 @@ def main(argv: list[str] | None = None) -> int:
 
     argv = sys.argv[1:] if argv is None else argv
     tray_only = parse_gui_args(argv)
+    if portable.package_kind() is None:
+        autostart.migrate_tray()
 
     class App(Adw.Application):
         def __init__(self):
@@ -88,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
             self.tray = StatusNotifier({
                 "auto": self._toggle_auto,
                 "pause": self._toggle_pause,
-                "fix_selection": lambda: self.proxy.call("FixSelection"),
+                "fix_selection": self._fix_selection,
                 "update": self.run_update,
                 "settings": self.show_window,
                 "quit": self._ask_quit,
@@ -234,6 +252,10 @@ def main(argv: list[str] | None = None) -> int:
             self.history.add(original, fixed, manual)
             if self._main is not None:
                 self._main.on_corrected(original, fixed, manual)
+
+        def _fix_selection(self):
+            notify_selection_result(self.send_notification,
+                                    self.proxy.call("FixSelection"))
 
         def _toggle_pause(self):
             st = self.proxy.status or {}

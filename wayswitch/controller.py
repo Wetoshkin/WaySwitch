@@ -17,6 +17,7 @@ from wayswitch import keycodes as kc
 from wayswitch.actuator import (
     ABORTED,
     DONE,
+    FAILED,
     Plan,
     ReleaseModifiers,
     SwitchLayout,
@@ -39,13 +40,16 @@ log = logging.getLogger("wayswitch")
 _UNSET = object()  # «кэш ещё не заполнялся»: None значило бы «файла нет»
 RELEASE_WAIT = 0.3  # сколько ждать отпускания физических клавиш перед печатью
 SELECTION_RELEASE_WAIT = 2.0  # «Исправить выделенное» с сочетания: ждать отпускания
+SELECTION_FOCUS_WAIT = 2.0  # после простоя ждём первый асинхронный снимок фокуса
+# Готовый снимок фокуса после простоя опроса (тот же дедлайн, что у
+# selection-команды): ждём не дольше, чем фоновый опрос успевает ответить.
 SELECTION_MAX = 300  # больше — это уже не опечатка во фразе
 
 
 def _word_unfinished(events: list[tuple[int, int, int]]) -> bool:
     """Последнее нажатие во время исправления — буква (слово ещё не закончено)."""
     for code, value, _dev in reversed(events):
-        if value != 1 or code in kc.MODIFIER_KEYS or code in kc.LOCK_KEYS:
+        if value not in (1, 2) or code in kc.MODIFIER_KEYS or code in kc.LOCK_KEYS:
             continue
         return code != kc.KEY_SPACE and code not in kc.RESET_KEYS
     return False
@@ -78,6 +82,9 @@ class LastFix:
     # Исправлено ранним триггером по началу слова: после него человек
     # допечатывает слово, и ручной переворот всего слова — это отмена.
     early: bool = False
+    # Фактический исходный текст после разрешения регистра/раскладки: по нему
+    # откат восстанавливает и собственные заглавные (например, `GHbdtn`).
+    original_text: str | None = None
     # Для раннего триггера — всё слово (буквы в исходной раскладке), когда
     # его дописали: по нему потом сбрасывается счётчик отмен.
     word: str = ""
@@ -124,7 +131,22 @@ class Controller:
         # Сведения о фокусе (приложение, поле пароля) — из at-spi, через снимок
         # в отдельном потоке: в пути ввода опрашивать доступность нельзя.
         self.probe = probe
+        # Смена источника фокуса обнуляет привязку выделения даже при возврате
+        # к тому же объекту probe (ABA): номер меняется на каждом set_probe.
+        self._probe_epoch = 0
         self._buffer_focus = None
+        # Ожидание снимка после простоя: реентрантные клавиши из pump() копим
+        # до конца текущей, иначе они обгонят ещё не учтённую клавишу.
+        self._focus_waiting = False
+        self._focus_wait_cancel = False
+        # Клик/фикс во время ожидания меняет контекст: клавиша-триггер уже
+        # относится к прежнему месту и не должна попасть в новый буфер.
+        self._focus_wait_boundary = False
+        self._focus_wait_queue: list[tuple[int, int, int]] = []
+        self._key_depth = 0
+        # Одна попытка пробуждения на эпизод простоя: у совсем упавшего
+        # провайдера не должно быть дедлайна на каждую следующую клавишу.
+        self._focus_wake_attempted = False
         # Список исключённых приложений нужен на каждом слове, а читать файл
         # каждый раз незачем: кэшируем по mtime, тогда правка apps.txt всё равно
         # подхватывается без перезапуска демона.
@@ -228,8 +250,12 @@ class Controller:
             "lock_confirmation_required": self.lock_confirmation_required,
             "busy": self.busy,
             "backend": getattr(self.backend, "name", "?"),
+            # Наличие безопасного AT-SPI-механизма, а не старый флаг бэкенда:
+            # возможность попытки команды, не утверждение о выделении сейчас.
+            "selection_supported": self._selection_supported(),
             "layout_index": self.backend.current(),
             "layout": self._layout_alphabet(),
+            "layout_supported": self._groups() is not None,
             "auto_correct": self.config.general.auto_correct,
             "corrections_total": self.stats["corrections"],
             "manual_total": self.stats["manual"],
@@ -243,7 +269,8 @@ class Controller:
         if current is None:
             return None
         try:
-            return self.keymap.alphabet(current)
+            language = self.keymap.language(current)
+            return {"ru": "ru", "en": "latin"}.get(language, "other")
         except (IndexError, ValueError):
             return None
 
@@ -302,6 +329,104 @@ class Controller:
     # --- входящие события -------------------------------------------------------
 
     def on_key(self, code: int, value: int, device_id: int) -> None:
+        """Точка входа клавиатуры: во время ожидания фокуса события копим.
+
+        pump() внутри ожидания прокручивает главный цикл, и нажатия приходят
+        реентрантно. Обработать их сразу нельзя (предыдущая клавиша ещё не
+        учтена в буфере), а терять нельзя — откладываем до конца текущей.
+        """
+        if self._focus_waiting:
+            self._focus_wait_queue.append((code, value, device_id))
+            if value != 0:
+                self._focus_wait_cancel = True
+            return
+        self._key_depth += 1
+        try:
+            self._on_key(code, value, device_id)
+        finally:
+            self._key_depth -= 1
+            if self._key_depth == 0:
+                self._replay_focus_queue()
+
+    def _replay_focus_queue(self) -> None:
+        """Дослать отложенные за время ожидания клавиши в исходном порядке."""
+        while self._focus_wait_queue:
+            events, self._focus_wait_queue = self._focus_wait_queue, []
+            for code, value, device_id in events:
+                self.on_key(code, value, device_id)
+
+    def _focus_wait_cancelled(self, probe, epoch: int) -> bool:
+        """Ожидание снимка отменяется, как только меняется его источник или режим."""
+        return (self.probe is not probe or self._probe_epoch != epoch
+                or self.paused or self.locked or self.screen_locked()
+                or self._focus_wait_cancel)
+
+    def _wake_focus_after_idle(self):
+        """Разбудить уснувший опрос и ограниченно дождаться свежего фокуса.
+
+        AtspiProbe после IDLE_STOP_SEC очищает снимок и завершает поток: первая
+        клавиша после простоя должна сама разбудить его и подождать ответ, иначе
+        слово начнётся по пустому снимку, а пришедший посреди слова снимок того
+        же поля будет принят за смену поля. Возвращает («woke» | «skip» |
+        «cancelled» | «rejected», снимок). Дедлайн — общий с selection-командой.
+        """
+        if self.probe is None or isinstance(self.probe, focus.NullProbe):
+            return "skip", None
+        try:
+            snap = self.probe.snapshot()
+        except Exception as exc:  # noqa: BLE001 — не показывать payload провайдера
+            log.warning("снимок фокуса недоступен (%s)", type(exc).__name__)
+            return "rejected", None
+        now = self.clock()
+        if snap.protection(now) is False:
+            # Фокус и так свежий и доверенный: заново будить нечего.
+            self._focus_wake_attempted = False
+            return "skip", None
+        if snap.app is not None or snap.age(now) <= focus.MAX_AGE_SEC:
+            return "skip", None
+        if self._focus_wake_attempted:
+            return "skip", None
+        self._focus_wake_attempted = True
+        probe, epoch = self.probe, self._probe_epoch
+        self._focus_wait_cancel = False
+        self._focus_wait_boundary = False
+        self._focus_waiting = True
+        try:
+            fresh, why = self._wake_focus(
+                probe, epoch,
+                accept=lambda s, at: None if s.protection(at) is True
+                else s.protection(at) is False,
+                cancelled=lambda: self._focus_wait_cancelled(probe, epoch))
+        finally:
+            self._focus_waiting = False
+            if self._key_depth == 0:
+                self._replay_focus_queue()
+        if fresh is not None:
+            self._focus_wake_attempted = False
+            return "woke", fresh
+        if why == "cancelled":
+            return "cancelled", None
+        return "rejected", None
+
+    def _rebind_focus_after_wake(self, snap) -> bool:
+        """Свежий снимок после пробуждения — новый исходный, а не смена поля.
+
+        Поколение выросло из-за перезапуска потока опроса, но поле (или
+        приложение) то же — буфер последнего слова ещё действителен. Если же
+        подтверждено другое поле, идём обычной проверкой: она сбросит буфер.
+        """
+        old = self._buffer_focus
+        if old is not None:
+            old_probe, _, old_field, old_app, old_protection = old
+            if (old_protection is not None
+                    and (old_probe is not self.probe
+                         or (old_field, old_app) != (snap.field, snap.app))):
+                return self._sync_focus()
+        self._buffer_focus = (self.probe, snap.generation, snap.field, snap.app,
+                              snap.protection(self.clock()))
+        return True
+
+    def _on_key(self, code: int, value: int, device_id: int) -> None:
         if self.screen_locked() or self.lock_confirmation_required:
             if value == 0:
                 self.buffer.note_release(code, device_id)
@@ -315,7 +440,26 @@ class Controller:
                 and not (self.busy or self.paused or self.locked):
             # Будим опрос фокуса с первой буквы: после простоя поток спит, и
             # к пробелу снимок поля пароля должен быть уже свежим.
-            self.probe.poke()
+            try:
+                self.probe.poke()
+            except Exception as exc:  # noqa: BLE001 — провайдер не должен ронять ввод
+                log.warning("опрос фокуса не разбужен (%s)", type(exc).__name__)
+        if value == 1 and not (self.busy or self.paused or self.locked):
+            # Первая клавиша после простоя: без ожидания снимок пуст, и слово
+            # начнётся по неизвестному фокусу. Ждём ограниченно; при неудаче
+            # защиту не ослабляем — слово просто не исправится.
+            why, snap = self._wake_focus_after_idle()
+            if self._focus_wait_boundary:
+                # Клик/фикс во время ожидания: физически клавиша набрана до
+                # смены места, в новый буфер её не переносим (лучше не
+                # исправить, чем стереть чужой символ).
+                self._focus_wait_boundary = False
+                self._skip_word = True
+                return
+            if why == "woke":
+                self._rebind_focus_after_wake(snap)
+            elif why == "rejected":
+                self._skip_word = True
         if not (self.paused or self.locked):
             self._sync_focus()
         # Жест прокручиваем всегда, в том числе во время фикса: иначе третий
@@ -332,6 +476,13 @@ class Controller:
             # учесть. Shift-тап не прерывает: он короткий и сам по себе ничего
             # не печатает, а тройной Shift во время фикса второго — штатный жест.
             self._busy_keys.append((code, value, device_id))
+            commands_held = any(c in kc.COMMAND_MODIFIERS
+                                for _, c in self.buffer.held_physical())
+            if value in (1, 2) and (
+                    code in (kc.EDIT_KEYS | kc.RESET_KEYS | kc.COMMAND_MODIFIERS)
+                    and code not in self._gesture_keys
+                    or commands_held and code not in kc.COMMAND_MODIFIERS):
+                self._busy_reset = True
             if value == 1:
                 self.buffer.note_press(code, device_id)
                 if code not in self._gesture_keys:
@@ -439,6 +590,8 @@ class Controller:
             self.manual_phrase()
 
     def on_click(self) -> None:
+        if self._focus_waiting:
+            self._focus_wait_boundary = True
         if self.busy:
             self._abort_requested = True  # клик — физический ввод, как и нажатие клавиши
             self._busy_reset = True
@@ -506,13 +659,14 @@ class Controller:
 
     def _auto_allowed(self) -> bool:
         return (self.config.general.auto_correct and not self.paused and not self.locked
-                and getattr(self.backend, "supports_auto", False))
+                and getattr(self.backend, "supports_auto", False) and self._groups() is not None)
 
     def _groups(self) -> tuple[int, int] | None:
         current = self.backend.current()
-        if current is None or len(self.backend.layouts()) != 2:
+        other = self.keymap.opposite_group(current)
+        if other is None:
             return None
-        return current, 1 - current
+        return current, other
 
     def _context_tuple(self) -> tuple[str | None, str | None]:
         """`self.context` — deque(maxlen=2), но в начале сессии/фразы в нём
@@ -527,12 +681,18 @@ class Controller:
         исправления (через pump), ждать там секунду нельзя.
         """
         old, self.probe = self.probe, probe
+        self._probe_epoch += 1
         close = getattr(old, "close", None)
         if close is not None:
             close()
 
-    def _sync_focus(self) -> bool:
-        """Один буфер принадлежит одному полю, включая ожидание и исполнение фикса."""
+    def _sync_focus(self, *, initial_binding: bool = False) -> bool:
+        """Один буфер принадлежит одному полю, включая ожидание и исполнение фикса.
+
+        initial_binding — только для первой привязки явной selection-команды:
+        busy там уже зарезервирован до poke/pump, и переход unknown→fresh не
+        должен считаться прерыванием. Остальные вызовы сохраняют инвалидацию.
+        """
         snap = self.probe.snapshot() if self.probe is not None else focus.FocusSnapshot()
         protection = snap.protection(self.clock())
         scope = (self.probe, snap.generation, snap.field, snap.app, protection)
@@ -553,7 +713,7 @@ class Controller:
         self._hold_keys = None
         self._last_fix = None
         self._pending_gesture = None
-        if self.busy:
+        if self.busy and not initial_binding:
             self._operation_invalidated = self._busy_reset = True
         return False
 
@@ -606,12 +766,7 @@ class Controller:
                 return True
         return False
 
-    def _on_word(self, keys: list[KeyPress], device_id: int, code: int) -> None:
-        held, self._hold_keys = self._hold_keys, None
-        if held is not None and list(keys) == held:
-            # То самое слово, которое вернули жестом: не исправлять снова.
-            self.context.append(None)
-            return
+    def _remember_fix_word(self, keys: list[KeyPress]) -> None:
         last = self._last_fix
         if last is not None:
             def letters(source) -> str:
@@ -626,6 +781,14 @@ class Controller:
                 # Начато следующее слово, а исправление не отменили — значит,
                 # оно было верным: счётчик отмен для слова начинаем заново.
                 self._undo_counts.pop(last.word or letters(last.original_keys), None)
+
+    def _on_word(self, keys: list[KeyPress], device_id: int, code: int) -> None:
+        held, self._hold_keys = self._hold_keys, None
+        if held is not None and list(keys) == held:
+            # То самое слово, которое вернули жестом: не исправлять снова.
+            self.context.append(None)
+            return
+        self._remember_fix_word(keys)
         groups = self._groups()
         if groups is None:
             return
@@ -691,7 +854,9 @@ class Controller:
                                reason="capitals", group_before=current, switch=False,
                                trigger=(device_id, code))
             return
-        decision = self.detector.decide(keys, current, other, self._context_tuple())
+        decision = self.detector.decide(
+            keys, current, other, self._context_tuple(),
+            two_capitals=self.config.general.two_capitals_fix and not self.buffer.caps)
         log.debug("решение: %s (%s)", decision.action, decision.reason)
         if decision.action == "fix":
             lang = decision.b.lang
@@ -737,13 +902,30 @@ class Controller:
         # Проверяем здесь, а не только в on_key: по D-Bus (FixLastWord/FixPhrase)
         # вызовы приходят мимо клавиатурного гейта — в том числе реентрантно
         # из pump() посреди исполняющегося фикса и на экране блокировки.
-        return not (self.busy or self.paused or self.locked or self.screen_locked())
+        return (not (self.busy or self.paused or self.locked or self.screen_locked())
+                and not self._focus_waiting
+                and self._groups() is not None)
+
+    def _ready_for_manual_focus(self) -> bool:
+        """Ручной жест после простоя: дождаться свежего фокуса или отказать.
+
+        Без свежего снимка не трогаем текст: слово могло быть набрано в другом
+        поле, а пауза/блокировка/смена probe во время ожидания — отказ.
+        """
+        why, snap = self._wake_focus_after_idle()
+        if why in ("cancelled", "rejected"):
+            return False
+        if why == "woke":
+            return self._rebind_focus_after_wake(snap)
+        return True
 
     def manual_word(self) -> bool:
         """Исправить последнее слово (или откатить, или просто переключить раскладку).
 
         True — исправление запланировано/выполнено, False — нечего делать."""
-        if not self._manual_allowed() or not self._sync_focus() or self._skip_word:
+        if not self._manual_allowed() or not self._ready_for_manual_focus():
+            return False
+        if not self._sync_focus() or self._skip_word:
             return False
         groups = self._groups()
         if groups is None:
@@ -771,7 +953,8 @@ class Controller:
         secret = self._secret_focus()
         undo_keys = self._undo_span(last)
         if undo_keys is not None:
-            original = self.keymap.decode(last.original_keys, last.group_before)
+            original = (last.original_text if last.original_text is not None
+                        else self.keymap.decode(last.original_keys, last.group_before))
 
             def done(ok: bool, secret: bool) -> None:
                 if not ok:
@@ -865,89 +1048,264 @@ class Controller:
     def _convert_selection(self, action: str, text: str,
                            groups: tuple[int, int]) -> tuple[str, int] | None:
         if action == "layout":
-            return convert_selection(self.keymap, text, (0, 1))
+            return convert_selection(self.keymap, text, groups)
         new_text = transliterate(text) if action == "translit" else number_words(text)
         if new_text is None:
             return None
         target = self._group_for_text(new_text, groups)
         return (new_text, target) if target is not None else None
 
+    def _selection_supported(self) -> bool:
+        """Есть ли безопасный AT-SPI-механизм для команды над выделением."""
+        return self.probe is not None and not isinstance(self.probe, focus.NullProbe)
+
+    def _selection_snapshot_ok(self, snap, now: float) -> bool:
+        """Снимок подтверждает конкретное незащищённое поле прямо сейчас."""
+        if not isinstance(snap, focus.FocusSnapshot):
+            return False
+        if not snap.app or snap.field is None or snap.password:
+            return False
+        if type(snap.taken_at) not in (int, float) or not 0 < snap.taken_at <= now:
+            return False
+        if snap.age(now) > focus.MAX_AGE_SEC:
+            return False
+        return snap.protection(now) is False
+
+    def _selection_snapshot(self):
+        """Свежий доверенный снимок поля для чтения выделения (или None)."""
+        if not self._selection_supported():
+            return None
+        try:
+            snap = self.probe.snapshot()
+        except Exception as exc:  # noqa: BLE001 — источник фокуса не отвечает
+            log.warning("исправить выделенное: снимок фокуса недоступен (%s)",
+                        type(exc).__name__)
+            return None
+        return snap if self._selection_snapshot_ok(snap, self.clock()) else None
+
+    def _selection_valid(self, expected, probe, epoch: int) -> Callable[[], bool]:
+        """Связать чтение с захваченными probe/поколением/полем/защитой.
+
+        taken_at не сравнивается: фоновый опрос обновляет его, не меняя поле.
+        Поколение ловит смену поля и ABA; epoch — подмену самого probe.
+        """
+        def valid() -> bool:
+            if (self.probe is not probe or self._probe_epoch != epoch
+                    or self.paused or self.locked or self.screen_locked()):
+                return False
+            if self._operation_invalidated or self._abort_requested or self._busy_reset:
+                return False
+            try:
+                snap = probe.snapshot()
+            except Exception:  # noqa: BLE001 — ошибка провайдера не разрешает запись
+                return False
+            return (self._selection_snapshot_ok(snap, self.clock())
+                    and snap.generation == expected.generation
+                    and snap.app == expected.app and snap.field == expected.field
+                    and snap.password is False)
+        return valid
+
+    def _read_bound_selection(self, expected, probe, epoch: int):
+        """Ровно одно чтение текущего выделения и проверка его формы."""
+        valid = self._selection_valid(expected, probe, epoch)
+        if not valid():
+            return None
+        try:
+            selection = focus.read_selection(expected, valid, SELECTION_MAX)
+        except Exception as exc:  # noqa: BLE001 — не показывать текст в журнале
+            log.warning("исправить выделенное: чтение не удалось (%s)", type(exc).__name__)
+            return None
+        if not isinstance(selection, focus.TextSelection):
+            return None
+        start, end, text = selection
+        if (type(start) is not int or type(end) is not int
+                or not isinstance(text, str)
+                or not 0 <= start < end
+                or end - start != len(text)
+                or not text
+                or len(text) > SELECTION_MAX
+                or "\n" in text or "\r" in text):
+            log.info("исправить выделенное: некорректное или неоднострочное выделение")
+            return None
+        if not valid():
+            return None
+        return selection
+
+    def _wake_focus(self, probe, epoch: int, accept, cancelled):
+        """Разбудить опрос и ограниченно дождаться годного снимка фокуса.
+
+        accept(снимок, время) -> True (годится) | False (ждать дальше) |
+        None (ждать бессмысленно, например поле пароля). cancelled() — отмена
+        по внешнему событию (пауза, блокировка, смена probe, ввод). Дедлайн —
+        та же константа, что у явной selection-команды: новых таймеров нет.
+        """
+        try:
+            probe.poke()
+        except Exception as exc:  # noqa: BLE001 — провайдер не должен ронять команду
+            log.warning("опрос фокуса не разбужен (%s)", type(exc).__name__)
+            return None, "error"
+        deadline = time.monotonic() + SELECTION_FOCUS_WAIT
+        while True:
+            if cancelled():
+                return None, "cancelled"
+            try:
+                snap = probe.snapshot()
+            except Exception as exc:  # noqa: BLE001 — не показывать payload провайдера
+                log.warning("снимок фокуса недоступен (%s)", type(exc).__name__)
+                return None, "error"
+            if isinstance(snap, focus.FocusSnapshot):
+                verdict = accept(snap, self.clock())
+                if verdict is True:
+                    return snap, "ok"
+                if verdict is None:
+                    return snap, "password"
+            if time.monotonic() >= deadline:
+                return None, "timeout"
+            self.pump()
+            self.sleep(0.01)
+
+    def _selection_cancelled(self, probe, epoch: int) -> bool:
+        """Отменена ли уже зарезервированная явная команда.
+
+        busy выставлен до подготовки, а флаги прерывания обнулены тогда же:
+        любое их значение сейчас — новое событие (клавиша, клик, пауза,
+        блокировка, смена probe), его нельзя затирать.
+        """
+        return (self.probe is not probe or self._probe_epoch != epoch
+                or self.paused or self.locked or self.screen_locked()
+                or self._abort_requested or self._operation_invalidated
+                or self._busy_reset)
+
+    def _prepare_selection_focus(self, probe, epoch: int):
+        """Разбудить опрос и дождаться свежего доверенного поля.
+
+        После IDLE_STOP_SEC AtspiProbe очищает снимок и завершает поток, поэтому
+        первая явная команда сама будит его через poke() и даёт ограниченное
+        время на асинхронный ответ. busy уже зарезервирован: реентрантный вызов
+        из poke/pump отклоняется, а пауза/блокировка/ввод остаются отменой.
+        """
+        def accept(snap, now):
+            if snap.protection(now) is True:
+                return None
+            return self._selection_snapshot_ok(snap, now)
+
+        fresh, why = self._wake_focus(
+            probe, epoch, accept=accept,
+            cancelled=lambda: self._selection_cancelled(probe, epoch))
+        if why != "ok" or fresh is None:
+            return None
+        if self._selection_cancelled(probe, epoch):
+            return None
+        try:
+            self._sync_focus(initial_binding=True)
+        except Exception as exc:  # noqa: BLE001 — источник фокуса не разрешает чтение
+            log.warning("исправить выделенное: фокус недоступен (%s)", type(exc).__name__)
+            return None
+        if self._selection_cancelled(probe, epoch):
+            return None
+        expected = self._selection_snapshot()
+        if expected is None or self._selection_cancelled(probe, epoch):
+            return None
+        return expected
+
     def transform_selection(self, action: str, text: str | None = None) -> bool:
         """Действие над выделенным текстом: «layout» — другая раскладка,
         «translit» — транслитерация, «numbers» — число прописью.
 
-        Текст берётся у бэкенда (расширение GNOME Shell читает PRIMARY —
-        выделение без Ctrl+C) и печатается поверх выделения: в любом поле ввода
-        набор заменяет выделенный текст, Backspace не нужен — значит, и стереть
-        лишнее нечем.
+        Читается текущее выделение конкретного поля через AT-SPI: PRIMARY и
+        backend.get_selection устарели и не доказывают, что выделено сейчас.
+        Текст печатается поверх выделения: Backspace и буфер обмена не нужны.
+        Явный text (совместимость) лишь сверяется с прочитанным, не заменяя его.
         """
-        if not self._manual_allowed():
+        if not self._manual_allowed() or not self._selection_supported():
             return False
-        self._sync_focus()
-        selection_focus = self._buffer_focus
-        if text is None:
-            getter = getattr(self.backend, "get_selection", None)
-            try:
-                text = getter() if getter is not None else None
-            except Exception as exc:  # noqa: BLE001 — бэкенд/расширение не ответили
-                log.warning("выделение не прочитать: %s", type(exc).__name__)
-                return False
-        if not text:
-            log.info("исправить выделенное: ничего не выделено")
-            return False
-        if "\n" in text or "\r" in text or len(text) > SELECTION_MAX:
-            # Перевод строки ушёл бы клавишей Enter — в мессенджере это
-            # «отправить» посреди текста. Длинный текст печатался бы минутами.
-            log.info("исправить выделенное: выделено больше одной строки или "
-                     "больше %d символов", SELECTION_MAX)
-            return False
-        groups = self._groups()
-        if groups is None:
-            return False
-        converted = self._convert_selection(action, text, groups)
-        if converted is None:
-            log.info("выделенное: нечего менять (%s)", action)
-            return False
-        new_text, target = converted
-        # Каждый символ должен быть в целевой раскладке: и uinput, и
-        # расширение GNOME печатают клавишами этой раскладки, а символ без
-        # клавиши (эмодзи, «—») пропал бы молча — выделение уже заменено.
-        keys = keys_for_typing(new_text, target, self.keymap, self.buffer.caps)
-        if keys is None:
-            log.warning("исправить выделенное: есть символы, которые не напечатать")
-            return False
-        steps: list = [ReleaseModifiers(), SwitchLayout(target)]
-        steps.append(Type(new_text, [] if isinstance(self.typist, TextTypist) else keys))
-        if self.dry_run:
-            log.info("[dry-run] выделенное → %d символов", len(new_text))
-            return False
-        if not self._sync_focus() or self._buffer_focus != selection_focus:
-            return False
-        secret = self._secret_focus()
-        # busy — до ожидания: пока ждём отпускания, pump() доставляет и
-        # повторный вызов (нажали сочетание дважды), он напечатал бы ещё раз.
+        probe, epoch = self.probe, self._probe_epoch
+        # busy — ДО poke/pump: реентрантный selection-запрос из провайдера или
+        # pump, а также физический ввод должны видеть уже занятую операцию.
         self.busy = True
         self._abort_requested = self._operation_invalidated = False
+        self._busy_reset = False
+        self._lost_input = False
+        self._busy_keys = []
+        result = ABORTED
         try:
+            expected = self._prepare_selection_focus(probe, epoch)
+            if expected is None:
+                log.info("исправить выделенное: фокус не подтверждён")
+                return False
+            groups = self._groups()
+            if groups is None:
+                return False
+            try:
+                secret = self._secret_focus()
+            except Exception as exc:  # noqa: BLE001 — не показывать payload провайдера
+                log.warning("исправить выделенное: снимок фокуса недоступен (%s)",
+                            type(exc).__name__)
+                return False
+            if self._selection_cancelled(probe, epoch):
+                return False
+            selection = self._read_bound_selection(expected, probe, epoch)
+            if selection is None:
+                log.info("исправить выделенное: выделение не прочитано")
+                return False
+            if text is not None and text != selection.text:
+                log.info("исправить выделенное: явный текст не совпадает с текущим")
+                return False
+            converted = self._convert_selection(action, selection.text, groups)
+            if converted is None:
+                log.info("выделенное: нечего менять (%s)", action)
+                return False
+            new_text, target = converted
+            # Каждый символ должен быть в целевой раскладке: и uinput, и
+            # расширение GNOME печатают клавишами этой раскладки, а символ без
+            # клавиши (эмодзи, «—») пропал бы молча — выделение уже заменено.
+            keys = keys_for_typing(new_text, target, self.keymap, self.buffer.caps)
+            if keys is None:
+                log.warning("исправить выделенное: есть символы, которые не напечатать")
+                return False
+            steps: list = [ReleaseModifiers(), SwitchLayout(target)]
+            steps.append(Type(new_text, [] if isinstance(self.typist, TextTypist) else keys))
+            if self.dry_run:
+                log.info("[dry-run] выделенное → %d символов", len(new_text))
+                return False
             # Вызов с системного сочетания (Ctrl+Alt+…) приходит, пока клавиши
             # ещё зажаты: буквы превратились бы в команды. Ждём отпускания всех.
             if not self._wait_all_released(SELECTION_RELEASE_WAIT):
                 log.info("исправить выделенное: клавиши сочетания не отпущены")
                 return False
-            # Прерывать нечего: стирающих шагов нет, а наполовину набранная
-            # фраза хуже целой.
+
+            def before_write() -> bool:
+                # Повторно читаем ТО ЖЕ выделение после ожиданий и подтверждения
+                # раскладки: старый снимок не доказывает, что границы не сдвинулись.
+                again = self._read_bound_selection(expected, probe, epoch)
+                return again is not None and again == selection
+
+            # Стирающих шагов нет: execute вызывает before_write перед первой
+            # печатаемой клавишей; отказ не оставляет ни текста, ни статистики.
             result = execute(Plan(steps), self.typist, self.backend, abort=self._abort,
                              key_delay=self.config.typing.key_delay_ms / 1000.0,
                              sleep=self.sleep, restore_group=groups[0],
-                             hold=self._wait_shift_released, stop=self._stop)
+                             hold=self._wait_shift_released, stop=self._stop,
+                             before_write=before_write)
+        except Exception as exc:  # noqa: BLE001 — не выпускать payload провайдера
+            result = FAILED
+            log.warning("исправить выделенное: ошибка (%s)", type(exc).__name__)
         finally:
+            if (self._lost_input and _word_unfinished(self._busy_keys)) or result == FAILED:
+                self._skip_word = True
+            self.buffer.reset()
+            self.context.clear()
+            self._last_fix = None
             self.busy = False
             self._lost_input = False
             self._busy_keys = []
             self._busy_reset = False
-        self.buffer.reset()
-        self.context.clear()
-        if result != DONE or not self._sync_focus() or self._operation_invalidated:
+        try:
+            synced = self._sync_focus()
+        except Exception as exc:  # noqa: BLE001 — не показывать payload провайдера
+            log.warning("исправить выделенное: фокус недоступен (%s)", type(exc).__name__)
+            synced = False
+        if result != DONE or not synced or self._operation_invalidated:
             log.info("исправить выделенное: %s", result)
             self._emit_status()
             return False
@@ -955,9 +1313,16 @@ class Controller:
         self._last_fix = None
         if self.on_fixed:
             self.on_fixed(True)
-        if self.on_corrected and not secret and not self._secret_focus():
+        report_safe = False
+        if self.on_corrected and not secret:
+            try:
+                report_safe = not self._secret_focus()
+            except Exception as exc:  # noqa: BLE001 — не показывать payload провайдера
+                log.warning("исправить выделенное: снимок фокуса недоступен (%s)",
+                            type(exc).__name__)
+        if report_safe:
             # Наружу — только начало: сигнал видят все программы сеанса.
-            self.on_corrected(_clip(text), _clip(new_text), True)
+            self.on_corrected(_clip(selection.text), _clip(new_text), True)
         self._emit_status()
         return True
 
@@ -982,7 +1347,9 @@ class Controller:
         return True
 
     def manual_phrase(self) -> bool:
-        if not self._manual_allowed() or not self._sync_focus() or self._skip_word:
+        if not self._manual_allowed() or not self._ready_for_manual_focus():
+            return False
+        if not self._sync_focus() or self._skip_word:
             return False
         current = self.backend.current()
         keys = self.buffer.phrase()
@@ -1019,6 +1386,8 @@ class Controller:
             ok = False
             outcome: dict = {}
             try:
+                if self._focus_waiting:
+                    self._focus_wait_boundary = True
                 if self.busy:
                     log.info("исправление %s отменено: другое исправление в работе", reason)
                     return
@@ -1065,8 +1434,49 @@ class Controller:
         return self._abort_requested
 
     def _stop(self) -> bool:
-        return (self._operation_invalidated or self.screen_locked() or self.locked
+        return (self._operation_invalidated or self._busy_reset
+                or self.screen_locked() or self.locked
+                or self._groups() is None
                 or not self._sync_focus())
+
+    def _native_append_count(self) -> int | None:
+        if not self.busy or self._busy_reset or self._operation_invalidated:
+            return None
+        count = 0
+        for code, value, _device in self._busy_keys:
+            if value not in (0, 1):
+                return None
+            if code in kc.SHIFT_KEYS:
+                continue
+            if not (code in kc.WORD_EXTRA_KEYS or code == kc.KEY_SPACE
+                    or self.keymap.is_letter_key(code)):
+                return None
+            count += value
+        return count
+
+    def _native_focus_snapshot(self):
+        """Живой снимок фокуса для KDE-нативной замены; None — нет доверия.
+
+        Полный обход a11y.find_focus в горячем пути не нужен: опрос фокуса уже
+        идёт отдельным потоком и инвалидируется событиями смены фокуса, а
+        _stop/_sync_focus отменяют операцию при смене поля. Здесь проверяется
+        только то, что снимок свежий, принадлежит тому же полю и вне пароля.
+        """
+        if (not self.busy or self._busy_reset or self._operation_invalidated
+                or self.probe is None or isinstance(self.probe, focus.NullProbe)):
+            return None
+        snap = self.probe.snapshot()
+        if not isinstance(snap, focus.FocusSnapshot):
+            return None
+        now = self.clock()
+        taken_at = snap.taken_at
+        if (snap.app is None or snap.field is None or snap.password is not False
+                or type(taken_at) not in (int, float) or isinstance(taken_at, bool)
+                or not 0 < taken_at <= now
+                or snap.age(now) > focus.MAX_AGE_SEC
+                or snap.protection(now) is not False):
+            return None
+        return snap
 
     def _blocking_keys_held(self, trigger: tuple[int, int] | None) -> bool:
         """Есть ли физически зажатые клавиши, мешающие печати.
@@ -1110,6 +1520,8 @@ class Controller:
                    outcome: dict | None = None) -> bool:
         # Бэкенд может ошибаться насчёт текущей раскладки (IBus на GNOME 46+).
         # Проверяем ДО плана: после Backspace-ов откатывать уже нечего.
+        if self._groups() is None or self.backend.current() != group_before:
+            return False
         verify = getattr(self.backend, "verify_layout", None)
         if verify is not None and not verify():
             log.error("исправление отменено: бэкенд %s ошибается насчёт раскладки "
@@ -1125,6 +1537,8 @@ class Controller:
         if self.dry_run:
             log.info("[dry-run] %s: исправление текста", reason)
             return False
+        plan.source_text = original + " " * tail
+        plan.focus = self.probe.snapshot() if self.probe is not None else None
         secret = secret or self._secret_focus()
         outcome = {} if outcome is None else outcome
         outcome["secret"] = secret
@@ -1145,7 +1559,9 @@ class Controller:
                                  key_delay=self.config.typing.key_delay_ms / 1000.0,
                                  sleep=self.sleep,
                                  restore_group=group_before if switch else None,
-                                 hold=self._wait_shift_released, outcome=outcome, stop=self._stop)
+                                 hold=self._wait_shift_released, outcome=outcome, stop=self._stop,
+                                 native_append=self._native_append_count,
+                                 native_focus=self._native_focus_snapshot)
         except Exception as exc:  # noqa: BLE001 — execute сам ловит, это страховка
             log.error("исправление %s: ошибка %s", reason, type(exc).__name__)
             result = "failed"
@@ -1161,6 +1577,17 @@ class Controller:
         lost, self._lost_input = self._lost_input, False
         busy_keys, self._busy_keys = self._busy_keys, []
         interrupted, self._busy_reset = self._busy_reset, False
+        native_done = result == DONE and outcome.get("native_span") and not interrupted
+        replay = native_done and any(v == 1 for _, v, _ in busy_keys) and all(
+            v == 0 or v == 1 and (
+                c in (kc.WORD_EXTRA_KEYS | {kc.KEY_SPACE} | (kc.MODIFIER_KEYS - kc.META_KEYS))
+                or self.keymap.is_letter_key(c)) for c, v, _ in busy_keys)
+        if native_done and any(v == 2 for _, v, _ in busy_keys):
+            lost = True
+        if replay:
+            if lost:
+                self.context.clear()
+            lost = False
         if result == ABORTED and not interrupted:
             # Экран не тронут: на нём прежнее слово и то, что человек
             # допечатал. Досылаем эти нажатия в буфер с тем состоянием
@@ -1191,6 +1618,12 @@ class Controller:
             self._emit_status()
             return False
         log.info("%s: исправлено за %.0f мс", reason, (self.clock() - started) * 1000)
+        if "target_text" in outcome:
+            text = outcome["target_text"]
+            original = outcome["source_text"][:-tail] if tail else outcome["source_text"]
+            actual_keys = keys_for_typing(original, group_before, self.keymap, False)
+            if actual_keys is not None:
+                keys = [KeyPress(code, shift) for code, shift in actual_keys]
         secret = secret or self._secret_focus()
         outcome["secret"] = secret
         new_keys = [KeyPress(code, shift) for code, shift in
@@ -1202,6 +1635,7 @@ class Controller:
         else:
             self.buffer.replace_last_word(new_keys[: len(new_keys) - tail] if tail else new_keys)
         word_keys = new_keys[: len(new_keys) - tail] if tail else new_keys
+        fixed_end = len(self.buffer.phrase()) - tail
         if lost:
             self.buffer.reset()
             self.context.clear()
@@ -1213,8 +1647,16 @@ class Controller:
             self.stats["corrections"] += 1
             if not lost:
                 self._last_fix = LastFix(list(keys), word_keys, group_before, self.clock(),
-                                         end=len(self.buffer.phrase()) - tail,
-                                         early=reason == "early", secret=secret)
+                                         end=fixed_end,
+                                         early=reason == "early", secret=secret,
+                                         original_text=original)
+        if replay:
+            # Текст уже в приложении; восстанавливаем только учёт нажатий и отмену.
+            self.buffer.restore_held(self._busy_held)
+            for code, value, device_id in busy_keys:
+                event = self.buffer.feed(code, value, device_id, self.clock())
+                if event is not None and event.kind == "word":
+                    self._remember_fix_word(event.keys)
         if self.on_fixed:
             self.on_fixed(manual)
         if self.on_corrected and not secret and not self._secret_focus():

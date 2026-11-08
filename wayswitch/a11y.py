@@ -15,7 +15,10 @@ MAX_AGE_SEC ограничивает срок действия снимка пр
 
 from __future__ import annotations
 
+import configparser
 import logging
+import os
+import stat
 import threading
 import time
 from collections.abc import Callable
@@ -25,6 +28,8 @@ log = logging.getLogger("wayswitch")
 
 # Биты в маске состояний at-spi.
 ACTIVE = 1
+DEFUNCT = 6
+EDITABLE = 7
 FOCUSED = 12
 SHOWING = 25
 
@@ -49,8 +54,10 @@ IDLE_STOP_SEC = 30.0
 
 # ATSPI_ROLE_PASSWORD_TEXT / TERMINAL: VTE не сообщает о скрытом вводе getpass.
 PROTECTED_ROLES = frozenset({40, 60})
-# ATSPI_ROLE_TEXT / ENTRY: сфокусированный контейнер не подтверждает тип ввода.
-TEXT_ROLES = frozenset({61, 79})
+MENU_ROLES = frozenset({33, 34, 35, 41})
+TEXT = "org.a11y.atspi.Text"
+HYPERTEXT = "org.a11y.atspi.Hypertext"
+HYPERLINK = "org.a11y.atspi.Hyperlink"
 
 # Оболочки и оконные менеджеры: их узлы at-spi тоже бывают «в фокусе» (панель,
 # обзор), но печатает человек не в них. Иначе при любом окне на экране
@@ -74,6 +81,12 @@ class FocusSnapshot(NamedTuple):
 
     def protection(self, now: float) -> bool | None:
         return self.password if self.app and self.age(now) <= MAX_AGE_SEC else None
+
+
+class TextSelection(NamedTuple):
+    start: int
+    end: int
+    text: str
 
 
 class _FocusWatch(NamedTuple):
@@ -286,65 +299,208 @@ def _state_focused(words: list[int]) -> bool:
     return _state_bit(words, FOCUSED)
 
 
-def find_focus(tree, root) -> FocusSnapshot:
-    """Чистый обход: приложение в фокусе и признак защищённого ввода.
+def _caret_field(tree, node, parents, remaining, depth):
+    """Проверить тип ввода и владельца каретки, не читая содержимое поля."""
+    ancestor = node
+    uncertain = False
+    while ancestor is not None:
+        if _state_bit(tree.state(ancestor), DEFUNCT):
+            return None
+        role = tree.role(ancestor)
+        if role in PROTECTED_ROLES:
+            return node, True
+        input_type = tree.input_type(ancestor)
+        if input_type == "password":
+            return node, True
+        uncertain |= role in (None, 0, 67) or input_type is None
+        ancestor = parents.get(ancestor)
+    if uncertain:
+        return None
 
-    ``tree`` — объект с методами children(node), state(node), role(node),
-    app_name(node), app_of(node); в query_focus он ходит в D-Bus, в тестах —
-    в словарь.
+    seen = set()
+    while node not in seen and depth <= MAX_DEPTH:
+        seen.add(node)
+        state = tree.state(node)
+        if _state_bit(state, DEFUNCT):
+            return None
+        role = tree.role(node)
+        if role in PROTECTED_ROLES or tree.input_type(node) == "password":
+            return node, True
+        interfaces = tree.interfaces(node)
+        if (role in (None, 0, 67) or not interfaces or TEXT not in interfaces
+                or not _state_bit(state, EDITABLE)
+                or tree.input_type(node) is None):
+            return None
+        caret = tree.caret(node)
+        if type(caret) is not int or caret < 0:
+            return None
+        if HYPERTEXT not in interfaces:
+            return node, False
+        count = tree.link_count(node)
+        if type(count) is not int or not 0 <= count <= remaining[0]:
+            return None
+        anchor = None
+        for index in range(count):
+            remaining[0] -= 1
+            link = tree.link(node, index)
+            offsets = tree.link_range(link) if link is not None else None
+            if offsets is None or not 0 <= offsets[0] < offsets[1]:
+                return None
+            # Chromium GetLinkIndex может считать UTF-16 вместо символов Unicode.
+            if offsets[0] <= caret < offsets[1]:
+                anchor = tree.link_object(link)
+                if anchor is None:
+                    return None
+                break
+        if anchor is None:
+            return node, False
+        if remaining[0] <= 0:
+            return None
+        remaining[0] -= 1
+        node = anchor
+        depth += 1
+    return None
 
-    Сначала ищем активное окно (дети приложений, глубина 2, это дёшево), и
-    уже внутри него — сфокусированный узел. Обход всего дерева в ширину делил
-    бюджет MAX_NODES на все приложения, и до поля ввода в браузере (глубже
-    десятка уровней) он не доходил. Заодно снимается вопрос «два узла в
-    фокусе сразу» — ищем только в активном окне. Видимые ветки проверяем
-    раньше остальных, чтобы скрытые меню Qt не исчерпывали бюджет до поля.
-    """
+
+def _flatpak_instance(pid):
+    """Достоверная пара приложения и экземпляра, включая отдельный D-Bus proxy."""
+    if type(pid) is not int or pid <= 0:
+        return None
+    root_fd = info_fd = None
+    try:
+        root_fd = os.open(f"/proc/{pid}/root", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        info_fd = os.open(".flatpak-info", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+                          | os.O_CLOEXEC, dir_fd=root_fd)
+        info = os.fstat(info_fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 65536:
+            return None
+        with os.fdopen(info_fd, "rb") as stream:
+            info_fd = None
+            data = stream.read(65537)
+        if len(data) > 65536 or b"\0" in data:
+            return None
+        parser = configparser.ConfigParser(interpolation=None, default_section="")
+        parser.optionxform = str
+        parser.read_string(data.decode("utf-8"))
+        app = parser.get("Application", "name").strip()
+        instance = parser.get("Instance", "instance-id").strip()
+        return (app, instance) if app and instance else None
+    except (OSError, configparser.Error, UnicodeError, ValueError, AttributeError,
+            NotImplementedError):
+        return None
+    finally:
+        if info_fd is not None:
+            os.close(info_fd)
+        if root_fd is not None:
+            os.close(root_fd)
+
+
+def _same_application(pid, focused_pid):
+    if (type(pid) is not int or type(focused_pid) is not int
+            or pid <= 0 or focused_pid <= 0):
+        return False
+    if pid == focused_pid:
+        return True
+    instance = _flatpak_instance(pid)
+    return instance is not None and instance == _flatpak_instance(focused_pid)
+
+
+def find_focus(tree, root, focused_pid: int = 0) -> FocusSnapshot:
+    """Обход подтверждённого окна: редактируемое поле либо защищённый ввод."""
     active = None
-    for app in tree.children(root):
+    scoped = None
+    remaining = [MAX_NODES]
+    for app in tree.children(root) or []:
+        remaining[0] -= 1
+        if remaining[0] <= 0:
+            return FocusSnapshot()
         name = tree.app_name(app)
-        if name and name.lower() in SHELL_APPS:
+        if not name or name.lower() in SHELL_APPS:
             continue
-        for window in tree.children(app):
-            if _state_bit(tree.state(window), ACTIVE):
-                active = (window, name or None)
+        if focused_pid and not _same_application(tree.pid(app), focused_pid):
+            continue
+        if focused_pid:
+            scoped = (app, name)
+        for window in tree.children(app) or []:
+            remaining[0] -= 1
+            if remaining[0] <= 0:
+                return FocusSnapshot()
+            state = tree.state(window)
+            if _state_bit(state, ACTIVE) and not _state_bit(state, DEFUNCT):
+                active = (window, name)
                 break
         if active:
             break
-    if active is not None:
-        start, app_name = [(active[0], 0)], active[1]
-    else:
-        # Тулкит не отмечает активное окно — прежний обход от корня.
-        start, app_name = [(root, 0)], None
-    queue = [(node, depth, None) for node, depth in start]
+    active = active or scoped
+    if active is None:
+        return FocusSnapshot()
+    window, app_name = active
+    tree.prepare(window)
+    queue = [(window, 0, None)]
+    deferred = []
+    web = []
     seen = set()
-    visited = 0
-    while queue and visited < MAX_NODES:
+    roles = {}
+    parents = {}
+    complete = True
+    native_phase = True
+    unverified_focus = set()
+    while (queue or deferred or web) and remaining[0] > 0:
+        if not queue:
+            if deferred:
+                queue, deferred = deferred, []
+                continue
+            if not complete:
+                return FocusSnapshot()
+            if native_phase:
+                hosts = set()
+                for web_root, _, _ in web:
+                    ancestor = parents.get(web_root)
+                    while ancestor is not None:
+                        hosts.add(ancestor)
+                        ancestor = parents.get(ancestor)
+                if unverified_focus - hosts:
+                    return FocusSnapshot()
+                native_phase = False
+            queue, web = web, []
         node, depth, parent = queue.pop(0)
         if node in seen:
             continue
+        # Сначала нативный интерфейс: браузеры сохраняют FOCUSED у веб-поля.
+        if node not in roles:
+            remaining[0] -= 1
+            roles[node] = tree.role(node)
+        role = roles[node]
+        if role == 95 and native_phase:
+            if node not in parents:
+                parents[node] = parent
+                web.append((node, depth, parent))
+            continue
         seen.add(node)
-        visited += 1
+        parents[node] = parent
         state = tree.state(node)
+        if _state_bit(state, DEFUNCT):
+            continue
+        if not state or role in (None, 0, 67):
+            complete = False
         if _state_focused(state):
-            owner = app_name or tree.app_of(node)
-            if owner and owner.lower() in SHELL_APPS:
-                continue
-            role = tree.role(node)
-            if role in PROTECTED_ROLES:
-                return FocusSnapshot(owner, True, field=node)
-            if role in TEXT_ROLES:
-                return FocusSnapshot(owner, False, field=node)
+            field = _caret_field(tree, node, parents, remaining, depth)
+            if field is not None:
+                return FocusSnapshot(app_name, field[1], field=field[0])
+            if native_phase:
+                unverified_focus.add(node)
         if depth < MAX_DEPTH:
-            children = [(child, depth + 1, node) for child in tree.children(node)]
-            if _state_bit(state, SHOWING):
-                # Соседнее поле проверяем раньше потомков видимой панели.
-                insert = next((i for i, (_, _, queued_parent) in enumerate(queue)
-                               if queued_parent != parent), len(queue))
-                queue[insert:insert] = children
-            else:
+            kids = tree.children(node)
+            if kids is None:
+                complete = False
+            children = [(child, depth + 1, node) for child in kids or []]
+            if _state_bit(state, SHOWING) and role not in MENU_ROLES:
                 queue.extend(children)
-    # Активное окно без доступного поля не подтверждает, что ввод не секретный.
+            else:
+                # Qt отмечает закрытые меню как SHOWING: их потомки проверяются позже.
+                deferred.extend(children)
+        else:
+            complete = False
     return FocusSnapshot()
 
 
@@ -374,6 +530,8 @@ def _new_a11y_connection():
 def _watch_focus_events(query_connection, invalidate) -> _FocusWatch:
     from gi.repository import Gio, GLib
 
+    from wayswitch.backends.gnome_shell import BUS_NAME, INTERFACE, OBJECT_PATH
+
     # Отдельное имя клиента не даёт старому probe удалить подписку нового при Reload.
     connection = _new_a11y_connection()
     registry = "org.a11y.atspi.Registry"
@@ -382,7 +540,7 @@ def _watch_focus_events(query_connection, invalidate) -> _FocusWatch:
     live = threading.Event()
     live.set()
     subscriptions = []
-    closed_handler = None
+    closed_handlers = []
 
     def changed(*_args):
         invalidate()
@@ -393,10 +551,10 @@ def _watch_focus_events(query_connection, invalidate) -> _FocusWatch:
 
     def close():
         live.clear()
-        for subscription in subscriptions:
-            connection.signal_unsubscribe(subscription)
-        if closed_handler is not None:
-            connection.disconnect(closed_handler)
+        for bus, subscription in subscriptions:
+            bus.signal_unsubscribe(subscription)
+        for bus, handler in closed_handlers:
+            bus.disconnect(handler)
         try:
             connection.close_sync(None)
         except GLib.Error:
@@ -409,13 +567,21 @@ def _watch_focus_events(query_connection, invalidate) -> _FocusWatch:
             Gio.DBusCallFlags.NONE, 1500, None).unpack()[0]
 
     try:
-        closed_handler = connection.connect("closed", lost)
-        subscriptions.append(connection.signal_subscribe(
-            None, "org.a11y.atspi.Event.Object", "StateChanged", None, "focused",
-            Gio.DBusSignalFlags.NONE, changed, None))
-        subscriptions.append(connection.signal_subscribe(
+        closed_handlers.append((connection, connection.connect("closed", lost)))
+        session = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        closed_handlers.append((session, session.connect("closed", lost)))
+        subscriptions.append((session, session.signal_subscribe(
+            BUS_NAME, INTERFACE, "FocusedContextChanged", OBJECT_PATH, None,
+            Gio.DBusSignalFlags.NONE, changed, None)))
+        subscriptions.append((session, session.signal_subscribe(
             "org.freedesktop.DBus", "org.freedesktop.DBus", "NameOwnerChanged",
-            "/org/freedesktop/DBus", registry, Gio.DBusSignalFlags.NONE, lost, None))
+            "/org/freedesktop/DBus", BUS_NAME, Gio.DBusSignalFlags.NONE, changed, None)))
+        subscriptions.append((connection, connection.signal_subscribe(
+            None, "org.a11y.atspi.Event.Object", "StateChanged", None, "focused",
+            Gio.DBusSignalFlags.NONE, changed, None)))
+        subscriptions.append((connection, connection.signal_subscribe(
+            "org.freedesktop.DBus", "org.freedesktop.DBus", "NameOwnerChanged",
+            "/org/freedesktop/DBus", registry, Gio.DBusSignalFlags.NONE, lost, None)))
         connection.call_sync(
             "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
             "StartServiceByName", GLib.Variant("(su)", (registry, 0)), GLib.VariantType("(u)"),
@@ -452,7 +618,12 @@ class _DbusTree:
 
     def children(self, node):
         kids = self._call(node, ACC, "GetChildren", None, "(a(so))")
-        return [(n, p) for n, p in (kids[0] if kids else []) if n and p]
+        return [(n, p) for n, p in kids[0] if n and p
+                and p != "/org/a11y/atspi/null"] if kids else None
+
+    def prepare(self, node):
+        # Chromium включает полное дерево при первом запросе клиента доступности.
+        self._call(node, ACC, "GetRelationSet", None, "(a(ua(so)))")
 
     def state(self, node):
         got = self._call(node, ACC, "GetState", None, "(au)")
@@ -460,6 +631,96 @@ class _DbusTree:
 
     def role(self, node) -> int | None:
         got = self._call(node, ACC, "GetRole", None, "(u)")
+        return got[0] if got else None
+
+    def interfaces(self, node):
+        got = self._call(node, ACC, "GetInterfaces", None, "(as)")
+        return got[0] if got else None
+
+    def input_type(self, node):
+        got = self._call(node, ACC, "GetAttributes", None, "(a{ss})")
+        return got[0].get("text-input-type", "").lower() if got else None
+
+    def _property(self, node, interface, name):
+        got = self._call(node, "org.freedesktop.DBus.Properties", "Get",
+                         self._GLib.Variant("(ss)", (interface, name)), "(v)")
+        return got[0] if got else None
+
+    def caret(self, node):
+        return self._property(node, TEXT, "CaretOffset")
+
+    def character_count(self, node):
+        return self._property(node, TEXT, "CharacterCount")
+
+    def selection_count(self, node):
+        got = self._call(node, TEXT, "GetNSelections", None, "(i)")
+        return got[0] if got else None
+
+    def selection_range(self, node):
+        got = self._call(node, TEXT, "GetSelection", self._GLib.Variant("(i)", (0,)), "(ii)")
+        if (isinstance(got, (tuple, list)) and len(got) == 2
+                and all(type(value) is int for value in got)):
+            return got[0], got[1]
+        return None
+
+    def text_range(self, node, start, end):
+        if (type(start) is not int or type(end) is not int
+                or not 0 <= start <= end <= 0x7FFFFFFF or end - start > 1024):
+            return None
+        got = self._call(node, TEXT, "GetText", self._GLib.Variant("(ii)", (start, end)), "(s)")
+        return got[0] if got else None
+
+    def insert_text(self, node, start, text):
+        if (type(start) is not int or not 0 <= start <= 0x7FFFFFFF
+                or not isinstance(text, str) or not 0 < len(text) <= 512):
+            return None
+        application = self._call(node, ACC, "GetApplication", None, "((so))")
+        if not application or application[0][0] != node[0]:
+            return None
+        toolkit = self._property(application[0], "org.a11y.atspi.Application", "ToolkitName")
+        if not isinstance(toolkit, str) or not toolkit:
+            return None
+        # Qt resizes a QString using this length; other bridges use AT-SPI's UTF-8 bytes.
+        size = len(text.encode("utf-16-le")) // 2 if toolkit.casefold() == "qt" else len(
+            text.encode("utf-8"))
+        got = self._call(node, "org.a11y.atspi.EditableText", "InsertText",
+                         self._GLib.Variant("(isi)", (start, text, size)), "(b)")
+        return got[0] if got else None
+
+    def delete_text(self, node, start, end):
+        if (type(start) is not int or type(end) is not int
+                or not 0 <= start < end <= 0x7FFFFFFF or end - start > 512):
+            return None
+        got = self._call(node, "org.a11y.atspi.EditableText", "DeleteText",
+                         self._GLib.Variant("(ii)", (start, end)), "(b)")
+        return got[0] if got else None
+
+    def link_count(self, node):
+        got = self._call(node, HYPERTEXT, "GetNLinks", None, "(i)")
+        return got[0] if got else None
+
+    def _reference(self, node, interface, method, index):
+        got = self._call(node, interface, method,
+                         self._GLib.Variant("(i)", (index,)), "((so))")
+        if got and got[0][0] and got[0][1] != "/org/a11y/atspi/null":
+            return tuple(got[0])
+        return None
+
+    def link(self, node, index):
+        return self._reference(node, HYPERTEXT, "GetLink", index)
+
+    def link_range(self, node):
+        start = self._property(node, HYPERLINK, "StartIndex")
+        end = self._property(node, HYPERLINK, "EndIndex")
+        return (start, end) if type(start) is int and type(end) is int else None
+
+    def link_object(self, node):
+        return self._reference(node, HYPERLINK, "GetObject", 0)
+
+    def pid(self, node):
+        got = self._call(("org.freedesktop.DBus", "/org/freedesktop/DBus"),
+                         "org.freedesktop.DBus", "GetConnectionUnixProcessID",
+                         self._GLib.Variant("(s)", (node[0],)), "(u)")
         return got[0] if got else None
 
     def app_name(self, node) -> str:
@@ -475,6 +736,46 @@ class _DbusTree:
 
 
 ROOT = ("org.a11y.atspi.Registry", "/org/a11y/atspi/accessible/root")
+
+
+class ShellContext(NamedTuple):
+    app_ids: tuple[str, ...] = ()
+    modal: bool = False
+    ime_focus: bool = False
+    purpose: int = 0
+    hints: int = 0
+    pid: int = 0
+
+    def protected(self) -> bool:
+        return self.modal or self.ime_focus and (self.purpose in (8, 12)
+                                                 or bool(self.hints & (64 | 128)))
+
+
+def query_shell_context() -> ShellContext | None:
+    """Атомарные сведения GNOME; старое расширение отдаёт только идентификаторы."""
+    try:
+        from gi.repository import Gio, GLib
+
+        from wayswitch.backends.gnome_shell import BUS_NAME, INTERFACE, OBJECT_PATH
+
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        result = bus.call_sync(BUS_NAME, OBJECT_PATH, INTERFACE, "GetFocusedContext", None,
+                               GLib.VariantType("(asbbuuu)"), Gio.DBusCallFlags.NONE, 500, None)
+        app_ids, modal, ime_focus, purpose, hints, pid = result.unpack()
+        return ShellContext(tuple(app_ids), modal, ime_focus, purpose, hints, pid)
+    except ImportError:
+        return ShellContext(query_shell_app_ids())
+    except Exception as exc:  # noqa: BLE001 — неизвестный контекст не разрешает ввод
+        try:
+            error = Gio.DBusError.get_remote_error(exc)
+        except (AttributeError, TypeError):
+            return None
+        if error in {"org.freedesktop.DBus.Error.UnknownMethod",
+                     "org.freedesktop.DBus.Error.UnknownInterface",
+                     "org.freedesktop.DBus.Error.ServiceUnknown",
+                     "org.freedesktop.DBus.Error.NameHasNoOwner"}:
+            return ShellContext(query_shell_app_ids())
+        return None
 
 
 def query_shell_app_ids() -> tuple[str, ...]:
@@ -495,15 +796,105 @@ def query_shell_app_ids() -> tuple[str, ...]:
 def query_focus() -> FocusSnapshot:
     """Приложение в фокусе и признак защищённого ввода (блокирует на D-Bus)."""
     global _CONN
-    app_ids = query_shell_app_ids()
+    context = query_shell_context()
+    if context is None:
+        return FocusSnapshot()
+    if context.protected():
+        return FocusSnapshot(context.app_ids[0] if context.app_ids else "gnome-shell", True,
+                             app_ids=context.app_ids)
     try:
-        snap = find_focus(_DbusTree(_a11y_connection()), ROOT)
+        snap = find_focus(_DbusTree(_a11y_connection()), ROOT, context.pid)
     except Exception:
         _CONN = None  # шина доступности перезапустилась — пересоздадим
-        if not app_ids:
+        if not context.app_ids:
             raise
         snap = FocusSnapshot()
-    return snap._replace(app_ids=app_ids)
+    current = query_shell_context()
+    if current is None:
+        return FocusSnapshot()
+    if current.protected():
+        return FocusSnapshot(current.app_ids[0] if current.app_ids else "gnome-shell", True,
+                             app_ids=current.app_ids)
+    if current != context:
+        snap = FocusSnapshot()
+    return snap._replace(app_ids=current.app_ids)
+
+
+def _selection_ready(expected, valid, limit):
+    now = time.monotonic()
+    return (isinstance(expected, FocusSnapshot) and expected.field is not None
+            and type(limit) is int and 0 < limit <= 1024
+            and type(expected.taken_at) in (int, float) and 0 < expected.taken_at <= now
+            and expected.protection(now) is False and valid() is True)
+
+
+def _read_selection(tree, expected, valid, limit) -> TextSelection | None:
+    try:
+        if not _selection_ready(expected, valid, limit):
+            return None
+        context = query_shell_context()
+        if (context is None or context.protected()
+                or context.app_ids != expected.app_ids):
+            return None
+
+        def same_focus():
+            if (not _selection_ready(expected, valid, limit)
+                    or query_shell_context() != context):
+                return False
+            snap = find_focus(tree, ROOT, context.pid)
+            return (snap.app == expected.app and snap.field == expected.field
+                    and snap.password is False and query_shell_context() == context
+                    and _selection_ready(expected, valid, limit))
+
+        def metadata():
+            selections = tree.selection_count(expected.field)
+            if type(selections) is not int or selections != 1:
+                return None
+            count = tree.character_count(expected.field)
+            bounds = tree.selection_range(expected.field)
+            if (type(count) is not int or not 0 <= count <= 0x7FFFFFFF
+                    or not isinstance(bounds, (tuple, list)) or len(bounds) != 2):
+                return None
+            start, end = bounds
+            if (type(start) is not int or type(end) is not int
+                    or not 0 <= start < end <= count or end - start > limit):
+                return None
+            return count, start, end
+
+        before = metadata()
+        if before is None or not same_focus() or metadata() != before:
+            return None
+        _count, start, end = before
+        text = tree.text_range(expected.field, start, end)
+        if (type(text) is not str or len(text) != end - start
+                or "\r" in text or "\n" in text):
+            return None
+        if metadata() != before or not same_focus():
+            return None
+        return TextSelection(start, end, text)
+    except Exception:  # noqa: BLE001 — provider failures must not expose selected text
+        return None
+
+
+def read_selection(expected: FocusSnapshot, valid: Callable[[], bool],
+                   limit: int) -> TextSelection | None:
+    """Read one bounded selection; execution still needs its own fresh validation."""
+    connection = None
+    try:
+        if not _selection_ready(expected, valid, limit):
+            return None
+        connection = _new_a11y_connection()
+        if connection is None:
+            return None
+        return _read_selection(_DbusTree(connection), expected, valid, limit)
+    except Exception:  # noqa: BLE001 — provider errors may contain document text
+        return None
+    finally:
+        if connection is not None:
+            try:
+                connection.close_sync(None)
+            except Exception:  # noqa: BLE001 — cleanup never exposes provider diagnostics
+                pass
 
 
 def bridge_available() -> tuple[bool, str]:

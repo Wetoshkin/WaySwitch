@@ -11,7 +11,7 @@ else
     BUILDER=(flatpak run org.flatpak.Builder)
 fi
 "${BUILDER[@]}" --user --force-clean --repo="$OUT/repo" "$OUT/app" \
-    "$ROOT/packaging/flatpak/ru.siberia.WaySwitch.Gui.json"
+    "$ROOT/packaging/flatpak/io.github.Wetoshkin.WaySwitch.Gui.json"
 flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
-    "$OUT/repo" "$OUT/WaySwitch-Settings.flatpak" ru.siberia.WaySwitch.Gui
+    "$OUT/repo" "$OUT/WaySwitch-Settings.flatpak" io.github.Wetoshkin.WaySwitch.Gui
 (cd "$OUT" && sha256sum WaySwitch-Settings.flatpak > SHA256SUMS)

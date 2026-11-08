@@ -17,7 +17,7 @@ from wayswitch.backends.select import choose_backend
 from wayswitch.controller import Controller
 from wayswitch.dbus_service import DaemonService
 from wayswitch.detector import SENSITIVITY, Detector, LanguageModel
-from wayswitch.keymap import XkbKeymap
+from wayswitch.keymap import LAYOUT_SCOPE, XkbKeymap
 from wayswitch.keys import DeviceWatcher
 from wayswitch.session import SessionGuard
 from wayswitch.sound import ensure_and_play
@@ -29,17 +29,32 @@ STARTUP_DELAY = 5
 RESTART = 75  # не в RestartPreventExitStatus: systemd перезапустит службу
 
 
+def _open_uinput() -> UInputTypist:
+    waiting = False
+    while True:
+        try:
+            typist = UInputTypist()
+        except OSError as exc:
+            if not waiting:
+                log.warning(
+                    "/dev/uinput недоступен: %s; ожидание доступа. uaccess выдаёт права "
+                    "активному локальному сеансу, отдельный RDP-сеанс может их не иметь. "
+                    "Проверьте локальный вход и wayswitch doctor", exc)
+                waiting = True
+            time.sleep(STARTUP_DELAY)
+        else:
+            if waiting:
+                log.info("доступ к /dev/uinput восстановлен, запуск продолжается")
+            return typist
+
+
 def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     from gi.repository import GLib
 
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
     config = cfgmod.load(config_path)
-    try:
-        typist = UInputTypist()
-    except OSError as e:
-        log.error("не открыть /dev/uinput: %s (правило udev? см. wayswitch doctor)", e)
-        return 1
+    typist = _open_uinput()
     # При входе служба может стартовать раньше, чем KWin опубликовал раскладки
     # или Shell включил расширение: даём среде минуту, прежде чем сдаться.
     backend = None
@@ -59,10 +74,15 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     log.info("среда: %s", session_summary())
     log.info("бэкенд раскладки: %s, источники: %s", backend.name,
              [s.xkb_id for s in backend.layouts()])
-    if backend.name in ("kde", "sway", "hyprland", "cosmic"):
+    if backend.name in ("kde", "sway", "hyprland", "cosmic", "umbriel"):
         # Расширения нет: печатаем сканкодами через uinput. Раскладку
         # переключает композитор, паузу после переключения ждёт wait_applied.
         log.info("печать символов: uinput (бэкенд %s)", backend.name)
+        if backend.name == "kde":
+            from wayswitch.editable import try_replace_kde
+
+            # Только KDE: нативный span-протокол для Writer через AT-SPI.
+            typist.replace_span = try_replace_kde
         typist_for_controller = typist
     elif backend.name == "shell" and config.backend.shell_typing == "uinput":
         # Печать сканкодами через uinput, хотя раскладку переключает расширение:
@@ -77,7 +97,7 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         typist_for_controller = ShellTypist(backend, keys=typist)
     else:
         typist_for_controller = typist
-        if backend.name == "ibus" and not backend.verify_layout():
+        if backend.name == "ibus" and backend.current() is not None and not backend.verify_layout():
             # На GNOME 46+ глобальный движок IBus — не то же самое, что
             # раскладка компоузитора: set_global_engine() меняет движок, а
             # раскладка ввода остаётся прежней. Демон тогда уверен, что
@@ -86,20 +106,21 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
             log.error(
                 "IBus-движок расходится с раскладкой GNOME (источники: %s): на этом "
                 "GNOME IBus не переключает раскладку, автоисправление сломало бы "
-                "текст. Включите расширение wayswitch@siberia.ru "
-                "(gnome-extensions enable wayswitch@siberia.ru) и перезапустите "
+                "текст. Включите расширение wayswitch@wetoshkin.github.io "
+                "(gnome-extensions enable wayswitch@wetoshkin.github.io) и перезапустите "
                 "демон: systemctl --user restart wayswitch",
                 [s.xkb_id for s in backend.layouts()])
             backend.supports_auto = False
     keymap = (backend.keymap if backend.name == "cosmic" else
-              XkbKeymap.from_names(backend.layouts(), backend.xkb_options()))
+              XkbKeymap.from_names(backend.layouts(), backend.xkb_options() or []))
     models = {}
     for group in range(keymap.num_groups):
-        lang = {"ru": "ru", "latin": "en"}.get(keymap.alphabet(group))
+        lang = keymap.language(group)
         if lang and lang not in models:
             models[lang] = LanguageModel.load(lang)
-    if set(models) != {"ru", "en"} or keymap.num_groups != 2:
-        log.warning("нужны ровно две раскладки: русская и латинская; авторежим выключен")
+    log.info(LAYOUT_SCOPE)
+    if set(models) != {"ru", "en"}:
+        log.warning("не найдена пара русской и английской раскладок; исправления недоступны")
         backend.supports_auto = False
     detector = Detector(keymap, models, cfgmod.load_exceptions(),
                         SENSITIVITY[config.general.sensitivity])
@@ -161,9 +182,11 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
             threading.Thread(
                 target=ensure_and_play, args=(cfgmod.config_dir(),), daemon=True).start()
     cosmic_session = detect_desktop() == COSMIC or backend.name == COSMIC
+    native_input_guard = backend.input_locked if backend.name == "umbriel" else None
     controller = Controller(
         config, keymap, detector, backend, typist_for_controller, pump=pump, dry_run=dry_run,
-        screen_locked=lambda: guard.input_locked() if cosmic_session else False,
+        screen_locked=lambda: guard.input_locked()
+        if cosmic_session or native_input_guard is not None else False,
         require_lock_confirmation=cosmic_session,
         on_corrected=lambda o, f, m: _corrected(o, f, m),
         on_fixed=_fixed,
@@ -200,7 +223,8 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         if not entering:
             watcher.schedule_rescans()
 
-    guard = SessionGuard(controller.set_locked, on_sleep, cosmic=cosmic_session)
+    guard = SessionGuard(controller.set_locked, on_sleep, cosmic=cosmic_session,
+                         input_guard=native_input_guard)
     guard.start()
 
     def reload() -> None:

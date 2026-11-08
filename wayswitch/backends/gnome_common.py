@@ -27,7 +27,7 @@ def engine_name_for(spec: LayoutSpec) -> str:
 
 def index_of_engine(engine: str, specs: list[LayoutSpec]) -> int | None:
     for i, spec in enumerate(specs):
-        if engine.startswith(engine_name_for(spec)):
+        if spec.kind == "xkb" and engine.startswith(engine_name_for(spec)):
             return i
     return None
 
@@ -66,9 +66,7 @@ def read_sources() -> list[LayoutSpec]:
     raw = _settings(SCHEMA_SOURCES).get_value("sources").unpack()
     specs = []
     for kind, ident in raw:
-        if kind != "xkb":
-            raise BackendError(f"источник ввода {kind}:{ident} — не xkb-раскладка")
-        specs.append(LayoutSpec.parse(ident))
+        specs.append(LayoutSpec.parse(ident) if kind == "xkb" else LayoutSpec(ident, kind=kind))
     if not specs:
         raise BackendError("в gsettings нет источников ввода")
     return specs
@@ -88,14 +86,12 @@ def index_of_mru(raw: list[tuple[str, str]], specs: list[LayoutSpec]) -> int | N
     if not raw:
         return None
     kind, ident = raw[0]
-    if kind != "xkb":
-        return None
     try:
-        spec = LayoutSpec.parse(ident)
+        spec = LayoutSpec.parse(ident) if kind == "xkb" else LayoutSpec(ident, kind=kind)
     except BackendError:
         return None
     for i, s in enumerate(specs):
-        if (s.layout, s.variant) == (spec.layout, spec.variant):
+        if s == spec:
             return i
     return None
 

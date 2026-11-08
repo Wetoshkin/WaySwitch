@@ -3,6 +3,7 @@
 import pytest
 
 from tests.fakes import RU, US, FakeBackend, RecordingTypist, SafeProbe, keys_for_text, make_keymap
+from wayswitch import a11y
 from wayswitch import config as cfgmod
 from wayswitch import keycodes as kc
 from wayswitch.buffer import KeyPress
@@ -24,14 +25,32 @@ class SelBackend(FakeBackend):
         return self.selection
 
 
-def make(real, group, config=None, selection=""):
+class SelectionProbe(SafeProbe):
+    field = (":test", "/field")
+    generation = 1
+
+    def snapshot(self):
+        return a11y.FocusSnapshot("editor", False, self.clock(),
+                                  field=self.field, generation=self.generation)
+
+
+def make(real, group, config=None, selection="", monkeypatch=None):
     km, models = real
     backend = SelBackend(current=group)
     backend.selection = selection
     typist, corrected = RecordingTypist(), []
     ctrl = Controller(config or Config(), km, Detector(km, models), backend, typist,
-                      on_corrected=lambda o, f, m: corrected.append((o, f, m)), probe=SafeProbe())
+                      on_corrected=lambda o, f, m: corrected.append((o, f, m)),
+                      probe=SelectionProbe())
     ctrl.probe.clock = lambda: ctrl.clock()
+    if monkeypatch is not None:
+        def read(expected, valid, limit):
+            assert limit == 300
+            if not selection or not valid():
+                return None
+            return a11y.TextSelection(0, len(selection), selection)
+
+        monkeypatch.setattr(a11y, "read_selection", read)
     return ctrl, backend, typist, corrected
 
 
@@ -112,6 +131,89 @@ def test_caps_toggle_rolled_back_when_aborted():
     assert [c for c, _ in typist.taps()].count(kc.KEY_CAPSLOCK) in (0, 2)
 
 
+# --- две заглавные в другой раскладке -----------------------------------------
+
+@pytest.mark.parametrize("word,group,target_group,expected", [
+    ("GHbdtn", US, RU, "Привет"),
+    ("RFntujhbz", US, RU, "Категория"),
+    ("РУддщ", RU, US, "Hello"),
+])
+@pytest.mark.parametrize("early_switch", [False, True])
+def test_wrong_layout_two_capitals_and_exact_undo(real, word, group, target_group,
+                                                expected, early_switch):
+    km = real[0]
+    cfg = Config()
+    cfg.general.early_switch = early_switch
+    ctrl, backend, typist, corrected = make(real, group, cfg)
+    for key in keys_for_text(km, word + " ", group):
+        press(ctrl, key.code, key.shift)
+
+    assert corrected == [(word, expected, False)]
+    assert backend.current() == target_group
+    assert typed(km, typist, target_group) == expected + " "
+    assert ctrl.stats["corrections"] == 1
+    assert km.decode(ctrl._last_fix.original_keys, group) == word
+    assert km.decode(ctrl._last_fix.target_keys, target_group) == expected
+
+    typist.events.clear()
+    assert ctrl.manual_word()
+    assert corrected == [(word, expected, False), (expected, word, True)]
+    assert backend.current() == group
+    assert typed(km, typist, group) == word + " "
+    assert ctrl.stats["corrections"] == 1 and ctrl.stats["undo"] == 1
+    assert ctrl._last_fix is None
+
+
+@pytest.mark.parametrize("setting", ["auto_correct", "two_capitals_fix"])
+def test_joint_two_capitals_settings_preserve_manual_case(real, setting):
+    km = real[0]
+    cfg = Config()
+    setattr(cfg.general, setting, False)
+    ctrl, backend, typist, corrected = make(real, US, cfg)
+    for key in keys_for_text(km, "GHbdtn ", US):
+        press(ctrl, key.code, key.shift)
+    assert corrected == [] and typist.events == []
+    assert backend.current() == US
+    assert ctrl.manual_word()
+    assert corrected == [("GHbdtn", "ПРивет", True)]
+    assert typed(km, typist, RU) == "ПРивет "
+
+
+def test_joint_two_capitals_does_not_normalize_with_caps_lock(real):
+    km = real[0]
+    ctrl, backend, typist, corrected = make(real, US)
+    ctrl.set_caps(True)
+    for key in keys_for_text(km, "GHbdtn ", US):
+        press(ctrl, key.code, not key.shift if key.code != kc.KEY_SPACE else False)
+    assert corrected == [] and typist.events == []
+    assert backend.current() == US and ctrl.buffer.caps
+
+
+@pytest.mark.parametrize("protected", [False, True])
+def test_joint_two_capitals_keeps_unknown_or_protected_focus(real, protected):
+    from wayswitch.a11y import FocusSnapshot
+
+    ctrl, backend, typist, corrected = make(real, US)
+    ctrl.probe.snapshot = lambda: (
+        FocusSnapshot("kate", True, ctrl.clock()) if protected else FocusSnapshot())
+    for key in keys_for_text(real[0], "GHbdtn ", US):
+        press(ctrl, key.code, key.shift)
+    assert corrected == [] and typist.events == []
+    assert backend.current() == US
+
+
+def test_joint_two_capitals_uses_text_typist_with_original_source(real):
+    from tests.fakes import RecordingTextTypist
+
+    ctrl, backend, _typist, corrected = make(real, US)
+    ctrl.typist = RecordingTextTypist()
+    for key in keys_for_text(real[0], "GHbdtn ", US):
+        press(ctrl, key.code, key.shift)
+    assert ctrl.typist.calls == [("backspace", 7), ("type", "Привет ")]
+    assert corrected == [("GHbdtn", "Привет", False)]
+    assert backend.current() == RU
+
+
 # --- ранний триггер ----------------------------------------------------------
 
 def test_early_switch_on_fourth_letter(real):
@@ -152,25 +254,27 @@ def test_early_switch_leaves_real_words_alone(real):
 
 # --- действия над выделенным -------------------------------------------------
 
-def test_translit_selection(real):
+def test_translit_selection(real, monkeypatch):
     km = real[0]
-    ctrl, backend, typist, corrected = make(real, RU, selection="Привет, мир")
+    ctrl, backend, typist, corrected = make(real, RU, selection="Привет, мир",
+                                            monkeypatch=monkeypatch)
     assert ctrl.transform_selection("translit")
     assert backend.current() == US
     assert typed(km, typist, US) == "Privet, mir"
     assert corrected[-1] == ("Привет, мир", "Privet, mir", True)
 
 
-def test_number_words_selection(real):
+def test_number_words_selection(real, monkeypatch):
     km = real[0]
-    ctrl, backend, typist, _c = make(real, US, selection="1 250")
+    ctrl, backend, typist, _c = make(real, US, selection="1 250",
+                                     monkeypatch=monkeypatch)
     assert ctrl.transform_selection("numbers")
     assert backend.current() == RU
     assert typed(km, typist, RU) == "одна тысяча двести пятьдесят"
 
 
-def test_number_words_rejects_non_number(real):
-    ctrl, *_ = make(real, RU, selection="двенадцать")
+def test_number_words_rejects_non_number(real, monkeypatch):
+    ctrl, *_ = make(real, RU, selection="двенадцать", monkeypatch=monkeypatch)
     assert not ctrl.transform_selection("numbers")
 
 

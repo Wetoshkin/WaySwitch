@@ -8,11 +8,13 @@ KDE — D-Bus KWin, в прочих средах прочитать её нео�
 from __future__ import annotations
 
 import os
+import platform
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
 from wayswitch.backends.desktop import (
+    CINNAMON,
     COMPOSITOR_DESKTOPS,
     COSMIC,
     DESKTOP_NAMES,
@@ -20,6 +22,7 @@ from wayswitch.backends.desktop import (
     HYPRLAND,
     KDE,
     SWAY,
+    UMBRIEL,
     detect_desktop,
     is_wayland,
 )
@@ -49,7 +52,7 @@ def _check(name: str, fn, hint: str, required: bool = True, key: str = "") -> Ch
 
 # Состояние расширения GNOME Shell → (ok, ключ проверки для окна, обязательна
 # ли, текст). Один источник и для `wayswitch doctor`, и для первого запуска.
-EXTENSION_UUID = "wayswitch@siberia.ru"
+EXTENSION_UUID = "wayswitch@wetoshkin.github.io"
 RELOGIN = "выйдите из сеанса и войдите снова — тогда GNOME загрузит новую версию"
 EXTENSION_STATES = {
     "ok": (True, "extension", True, ""),
@@ -58,7 +61,7 @@ EXTENSION_STATES = {
                 "которой устанавливали"),
     "disabled": (False, "extension", True,
                  "расширение выключено: включите его (кнопка «Включить» в окне WaySwitch "
-                 "или gnome-extensions enable wayswitch@siberia.ru)"),
+                 "или gnome-extensions enable wayswitch@wetoshkin.github.io)"),
     # Включено, но GNOME его ещё не загрузил (поставили в этом сеансе) или
     # держит старую копию после обновления: кнопкой «Включить» тут ничего не
     # изменить, нужен новый вход. Не блокируем: старая копия умеет главное.
@@ -73,7 +76,7 @@ def extension_state(installed: bool, enabled: bool, running: bool,
                     version: int | None) -> str:
     """Одно из EXTENSION_STATES по фактам о расширении. Чистая функция."""
     if running:
-        return "outdated" if version is not None and version < 2 else "ok"
+        return "outdated" if version is not None and version < 3 else "ok"
     if not installed:
         return "missing"
     return "not_loaded" if enabled else "disabled"
@@ -111,7 +114,8 @@ def uinput_status() -> tuple[bool, str]:
         # getattr: на Windows (разработка, тесты) O_NONBLOCK нет.
         fd = os.open("/dev/uinput", os.O_WRONLY | getattr(os, "O_NONBLOCK", 0))
     except PermissionError:
-        return False, "нет прав на /dev/uinput"
+        return False, ("нет прав на /dev/uinput: uaccess требует активного локального сеанса; "
+                       "отдельный RDP-сеанс может не иметь доступа к устройствам")
     except OSError as e:
         return False, f"/dev/uinput не открывается ({e.strerror or e}) — модуль uinput не загружен?"
     os.close(fd)
@@ -153,6 +157,12 @@ def focus_status() -> tuple[bool, str]:
     """Свежие идентификаторы приложения без заголовков окна и текста поля."""
     from wayswitch.a11y import query_focus
 
+    if detect_desktop() == UMBRIEL:
+        from wayswitch.backends import umbriel
+
+        path = umbriel.find_socket()
+        if path is None or umbriel.query_input_locked(umbriel.UmbrielIpc(path)):
+            return False, "Umbriel: активное обычное окно не подтверждено; ввод заблокирован"
     snap = query_focus()
     names = ", ".join(snap.app_ids)
     detail = f"AT-SPI: {snap.app or 'приложение не определено'}"
@@ -166,6 +176,12 @@ def focus_status() -> tuple[bool, str]:
 def run_checks() -> list[Check]:
     checks = []
     desktop = detect_desktop()
+    try:
+        nixos = platform.freedesktop_os_release().get("ID") == "nixos"
+    except OSError:
+        nixos = False
+    nixos_hint = ("в NixOS подключите модуль WaySwitch из docs/nixos.md и выполните "
+                  "sudo nixos-rebuild switch")
 
     def session():
         wayland = is_wayland()
@@ -192,6 +208,7 @@ def run_checks() -> list[Check]:
                          focus_hint, required=False, key="focus"))
 
     cosmic_map = None
+    umbriel_specs = None
     if desktop == COSMIC:
         def cosmic():
             nonlocal cosmic_map
@@ -269,20 +286,41 @@ def run_checks() -> list[Check]:
                              "запустите службу из сеанса Hyprland (uwsm или exec-once)",
                              key="switch"))
 
+    if desktop == UMBRIEL:
+        def umbriel_ipc():
+            nonlocal umbriel_specs
+            from wayswitch.backends import sway, umbriel
+
+            path = umbriel.find_socket()
+            if path is None:
+                return False, "сокет Umbriel не найден"
+            names, index = umbriel.keyboard_state(
+                umbriel.UmbrielIpc(path).request({"cmd": "keyboard-layouts"}))
+            umbriel_specs = sway.specs_from_names(names)
+            return True, f"Umbriel IPC; группа {index}"
+        checks.append(_check("Переключение раскладки (Umbriel IPC)", umbriel_ipc,
+                             "запустите службу из сеанса Umbriel; передайте UMBRIEL_SOCKET "
+                             "и WAYLAND_DISPLAY в окружение пользовательского systemd",
+                             key="switch"))
+
     if desktop in COMPOSITOR_DESKTOPS:
         def compositor_xkb():
             from wayswitch.backends import compositor
             specs, options, where = compositor.read_xkb()
-            if len(specs) < 2:
+            if not specs:
                 return False, "раскладки композитора не найдены"
             if not compositor.toggle_combos(options):
                 return False, f"нет сочетания переключения в xkb_options ({where})"
+            if not compositor.cycle_supported(options, len(specs)):
+                return False, ("счётчик не может подтвердить переключение при этих источниках "
+                               "и сочетаниях; служба запускается пассивно. Для 3–4 раскладок "
+                               "используйте grp:alt_shift_toggle без переназначения Shift")
             return True, f"{where}: {', '.join(s.xkb_id for s in specs)}"
         checks.append(_check("Сочетание переключения раскладки (labwc / Wayfire)",
                              compositor_xkb,
                              "задайте в ~/.config/labwc/environment: XKB_DEFAULT_LAYOUT=us,ru и "
                              "XKB_DEFAULT_OPTIONS=grp:alt_shift_toggle (или xkb_layout / "
-                             "xkb_options в [input] wayfire.ini)", key="switch"))
+                             "xkb_options в [input] wayfire.ini)", required=False, key="switch"))
 
     def modules():
         import evdev  # noqa: F401
@@ -292,6 +330,7 @@ def run_checks() -> list[Check]:
         from gi.repository import Adw, Gtk  # noqa: F401
         return True, ""
     checks.append(_check("Нужные программные библиотеки (evdev, GTK 4, libadwaita)", modules,
+                         nixos_hint if nixos else
                          "apt install python3-evdev python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 "
                          "(dnf: python3-evdev python3-gobject gtk4 libadwaita, "
                          "pacman: python-evdev python-gobject gtk4 libadwaita)"))
@@ -300,19 +339,27 @@ def run_checks() -> list[Check]:
         from wayswitch.keymap import XkbKeymap
         return XkbKeymap.available(), ""
     checks.append(_check("Библиотека раскладок (libxkbcommon)", xkb,
+                         nixos_hint if nixos else
                          "apt install libxkbcommon0 / dnf install libxkbcommon / "
                          "pacman -S libxkbcommon"))
 
     def sources():
-        """Две раскладки: ru и латинская — по данным среды."""
+        """Наличие ru/en без ограничения на остальные источники."""
         from wayswitch.keymap import XkbKeymap
         if cosmic_map is not None:
-            alphabets = sorted(cosmic_map.alphabet(g) for g in range(cosmic_map.num_groups))
-            return alphabets == ["latin", "ru"], ", ".join(s.xkb_id for s in cosmic_map.specs)
-        if desktop == KDE:
+            ready = any(cosmic_map.opposite_group(g) is not None
+                        for g in range(cosmic_map.num_groups))
+            return ready, ", ".join(s.xkb_id for s in cosmic_map.specs)
+        if desktop == UMBRIEL:
+            specs = umbriel_specs
+        elif desktop == KDE:
             from wayswitch.backends.kde_plasma import KdePlasmaBackend
-            specs = KdePlasmaBackend().layouts()
-        elif desktop == GNOME:
+            backend = KdePlasmaBackend()
+            try:
+                specs = backend.layouts()
+            finally:
+                backend.close()
+        elif desktop in (GNOME, CINNAMON):
             from wayswitch.backends.gnome_common import read_sources
             specs = read_sources()
         elif desktop == SWAY:
@@ -337,12 +384,18 @@ def run_checks() -> list[Check]:
             if not specs:
                 return False, "раскладки композитора не найдены"
         km = XkbKeymap.from_names(specs, [])
-        alphabets = sorted(km.alphabet(g) for g in range(km.num_groups))
-        return alphabets == ["latin", "ru"], ", ".join(s.xkb_id for s in specs)
-    if desktop != COSMIC or cosmic_map is not None:
-        checks.append(_check("Две раскладки: русская и английская", sources,
-                             "оставьте в системе ровно две раскладки: русскую и английскую",
-                             key="layouts"))
+        ready = any(km.opposite_group(g) is not None for g in range(km.num_groups))
+        return ready, ", ".join(s.xkb_id for s in specs)
+    if (desktop != COSMIC or cosmic_map is not None) \
+            and (desktop != UMBRIEL or umbriel_specs is not None):
+        checks.append(_check("Русская и английская раскладки", sources,
+                             "добавьте русскую и английскую раскладки; другие удалять не нужно. "
+                             "До появления пары ru/en исправления недоступны",
+                             required=False, key="layouts"))
+    from wayswitch.keymap import LAYOUT_SCOPE
+
+    checks.append(Check("Рабочие языки WaySwitch", True, LAYOUT_SCOPE,
+                        required=False, key="layout_scope"))
 
     def uinput():
         return uinput_status()
@@ -377,15 +430,18 @@ def run_checks() -> list[Check]:
                              "/usr/lib/udev/rules.d/60-wayswitch.rules") if Path(p).exists()]
         return bool(found), found[0] if found else ""
     checks.append(_check("Доступ к клавиатуре настроен (правило udev)", udev_rule,
+                         nixos_hint if nixos else
                          "переустановите WaySwitch той же командой, которой устанавливали"))
 
     def unit():
         # .deb кладёт юнит системно, install.sh — в профиль пользователя.
         candidates = (Path("/usr/lib/systemd/user/wayswitch.service"),
+                      Path("/etc/systemd/user/wayswitch.service"),
                       Path.home() / ".config/systemd/user/wayswitch.service")
         found = [str(c) for c in candidates if c.exists()]
         return bool(found), found[0] if found else ""
     checks.append(_check("Автозапуск установлен", unit,
+                         nixos_hint if nixos else
                          "необязательно: переустановите WaySwitch той же командой, "
                          "которой устанавливали", required=False))
 
@@ -399,10 +455,13 @@ def run_checks() -> list[Check]:
         return out == "active", out
     # Sway, Hyprland без uwsm и сеансы на labwc/Wayfire не поднимают
     # graphical-session.target — включённая служба там сама не стартует.
-    hint = ("systemctl --user start wayswitch; для автозапуска добавьте в конфиг "
-            + ("exec-once = wayswitch run" if desktop == HYPRLAND else "exec wayswitch run")
-            if desktop in (SWAY, HYPRLAND) else
-            "systemctl --user enable --now wayswitch; журнал: journalctl --user -u wayswitch")
+    if desktop == UMBRIEL:
+        hint = "systemctl --user start wayswitch; добавьте wayswitch run в автозапуск Umbriel"
+    elif desktop in (SWAY, HYPRLAND):
+        hint = ("systemctl --user start wayswitch; для автозапуска добавьте в конфиг "
+                + ("exec-once = wayswitch run" if desktop == HYPRLAND else "exec wayswitch run"))
+    else:
+        hint = "systemctl --user enable --now wayswitch; журнал: journalctl --user -u wayswitch"
     checks.append(_check("Служба WaySwitch работает", service_running, hint,
                          required=False, key="service"))
 
@@ -432,7 +491,7 @@ def format_report(checks: list[Check]) -> str:
         lines.append("Обязательные проверки пройдены.")
         if any(c.key == "focus" and not c.ok for c in checks):
             lines.append("Защищённое автоисправление не подтверждено: "
-                         "нужен достоверный фокус в поле ввода; ручное исправление доступно.")
+                         "нужен достоверный фокус в поле ввода.")
     return "\n".join(lines)
 
 

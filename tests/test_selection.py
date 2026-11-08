@@ -9,6 +9,7 @@ from tests.fakes import (
     SafeProbe,
     make_keymap,
 )
+from wayswitch import a11y
 from wayswitch import keycodes as kc
 from wayswitch.buffer import KeyPress
 from wayswitch.config import Config
@@ -51,7 +52,27 @@ class SelectingBackend(FakeBackend):
         return self.selection
 
 
-def make_ctrl(selection, typist=None, current=US):
+class SelectionProbe(SafeProbe):
+    field = (":test", "/field")
+    generation = 1
+
+    def snapshot(self):
+        return a11y.FocusSnapshot("editor", False, self.clock(),
+                                  field=self.field, generation=self.generation)
+
+
+def use_selection_reader(monkeypatch, selection):
+    """Подменить AT-SPI-чтение: старый backend.get_selection больше не в пути."""
+    def read(expected, valid, limit):
+        assert limit == 300
+        if selection is None or not valid():
+            return None
+        return a11y.TextSelection(0, len(selection), selection)
+
+    monkeypatch.setattr(a11y, "read_selection", read)
+
+
+def make_ctrl(selection, typist=None, current=US, monkeypatch=None):
     km = make_keymap()
     det = Detector(km, {
         "ru": LanguageModel.from_words("ru", [("привет", 900.0)],
@@ -61,13 +82,16 @@ def make_ctrl(selection, typist=None, current=US):
     backend = SelectingBackend(selection, current=current)
     corrected = []
     ctrl = Controller(Config(), km, det, backend, typist or RecordingTypist(),
-                      on_corrected=lambda o, f, m: corrected.append((o, f, m)), probe=SafeProbe())
+                      on_corrected=lambda o, f, m: corrected.append((o, f, m)),
+                      probe=SelectionProbe())
+    if monkeypatch is not None:
+        use_selection_reader(monkeypatch, selection)
     return ctrl, backend, corrected
 
 
-def test_fix_selection_types_over_selection_without_backspace():
+def test_fix_selection_types_over_selection_without_backspace(monkeypatch):
     typist = RecordingTypist()
-    ctrl, backend, corrected = make_ctrl("ghbdtn vbh", typist)
+    ctrl, backend, corrected = make_ctrl("ghbdtn vbh", typist, monkeypatch=monkeypatch)
     assert ctrl.fix_selection()
     taps = typist.taps()
     assert kc.KEY_BACKSPACE not in [c for c, _ in taps]
@@ -76,25 +100,49 @@ def test_fix_selection_types_over_selection_without_backspace():
     assert corrected == [("ghbdtn vbh", "привет мир", True)]
 
 
-def test_fix_selection_with_extension_typist():
+def test_fix_selection_with_extension_typist(monkeypatch):
     typist = RecordingTextTypist()
-    ctrl, _backend, _corrected = make_ctrl("руддщ", typist, current=RU)
+    ctrl, _backend, _corrected = make_ctrl("руддщ", typist, current=RU,
+                                           monkeypatch=monkeypatch)
     assert ctrl.fix_selection()
     assert typist.calls == [("type", "hello")]
 
 
-def test_fix_selection_nothing_selected():
-    ctrl, backend, corrected = make_ctrl(None)
+def test_fix_selection_nothing_selected(monkeypatch):
+    ctrl, backend, corrected = make_ctrl(None, monkeypatch=monkeypatch)
     assert not ctrl.fix_selection()
     assert backend.set_calls == [] and corrected == []
 
 
-def test_selection_key_from_config():
+def test_status_reports_selection_support_from_probe():
+    """Поддержка — наличие безопасного AT-SPI, а не флаг старого бэкенда."""
+    ctrl, backend, _ = make_ctrl("")
+    backend.supports_selection = False
+    assert ctrl.status().get("selection_supported") is True
+    backend.supports_selection = True
+    assert ctrl.status().get("selection_supported") is True
+    ctrl.set_probe(a11y.NullProbe())
+    assert ctrl.status().get("selection_supported") is False
+    ctrl.set_probe(None)
+    assert ctrl.status().get("selection_supported") is False
+
+
+def test_backend_selection_capabilities():
+    from wayswitch.backends.base import LayoutBackend
+    from wayswitch.backends.gnome_shell import GnomeShellBackend
+    from wayswitch.backends.kde_plasma import KdePlasmaBackend
+
+    assert LayoutBackend.supports_selection is False
+    assert GnomeShellBackend.supports_selection is True
+    assert KdePlasmaBackend.supports_selection is False
+
+
+def test_selection_key_from_config(monkeypatch):
     """Клавиша «Исправить выделенное» — та, что выбрал человек, не Shift+Pause."""
     cfg = Config()
     cfg.gesture.selection_key = "rightctrl"
     typist = RecordingTypist()
-    ctrl, _backend, corrected = make_ctrl("ghbdtn", typist)
+    ctrl, _backend, corrected = make_ctrl("ghbdtn", typist, monkeypatch=monkeypatch)
     ctrl.reload_config(cfg)
     ctrl.on_key(kc.KEY_RIGHTCTRL, 1, 1)
     ctrl.on_key(kc.KEY_RIGHTCTRL, 0, 1)
@@ -128,11 +176,11 @@ def test_selection_key_validation():
         cfgmod._validate(cfg)
 
 
-def test_fix_selection_pressed_twice_types_once():
+def test_fix_selection_pressed_twice_types_once(monkeypatch):
     # Сочетание нажали второй раз, пока первый вызов ждёт отпускания клавиш:
     # второй вызов приходит через pump() и должен быть отклонён.
     typist = RecordingTypist()
-    ctrl, _backend, _corrected = make_ctrl("ghbdtn", typist)
+    ctrl, _backend, _corrected = make_ctrl("ghbdtn", typist, monkeypatch=monkeypatch)
     ctrl.buffer.note_press(kc.KEY_LEFTCTRL, 1)
     second = []
 
