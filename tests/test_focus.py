@@ -968,19 +968,27 @@ def test_focus_loss_and_gain_both_invalidate_without_reading_event_payload(event
     watch.close()
 
 
-def test_idle_worker_releases_subscription(monkeypatch, focus_bus):
+def test_idle_worker_keeps_accessibility_enabled_until_close(monkeypatch, focus_bus):
     monkeypatch.setattr(a11y, "IDLE_STOP_SEC", 0.0)
     monkeypatch.setattr(a11y, "query_focus", lambda: ("Editor", False))
     probe = a11y.AtspiProbe(poll_sec=0.01)
     try:
         probe.poke()
         deadline = time.monotonic() + 1.0
-        while not focus_bus["closed"] and time.monotonic() < deadline:
+        while probe._thread is not None and time.monotonic() < deadline:
             time.sleep(0.01)
-        assert focus_bus["closed"]
+        assert probe._thread is None
+        assert len(focus_bus["callbacks"]) == 1
+        assert not focus_bus["closed"]
         assert probe.snapshot().app is None
+        probe.poke()
+        deadline = time.monotonic() + 1.0
+        while probe._thread is not None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert len(focus_bus["callbacks"]) == 1
     finally:
         probe.close(wait=True)
+    assert focus_bus["closed"] == [focus_bus["connection"]]
 
 
 def test_make_probe_respects_flag():

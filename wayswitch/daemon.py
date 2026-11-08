@@ -160,8 +160,9 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     service: DaemonService | None = None
     # Сведения о фокусе (приложение, поле пароля) нужны и автоисправлению, и
     # ручным жестам: пароль, исправленный двойным Shift, не должен уйти в
-    # историю окна. Поток опроса стартует лениво, на первой клавише.
+    # историю окна. Подписка нужна до запуска приложений, в том числе после простоя.
     probe = cfgmod_a11y.make_probe(enabled=True)
+    probe.poke()
 
     last_beep = [0.0]
 

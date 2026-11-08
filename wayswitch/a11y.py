@@ -155,8 +155,7 @@ def skip_reason(probe: Probe, excluded: list[str] | tuple[str, ...],
 class AtspiProbe:
     """Настоящий опрос at-spi в отдельном потоке.
 
-    Поток стартует лениво (при первом poke), чтобы демон не занимался
-    доступностью, пока автоисправление выключено.
+    Опрос засыпает при простое; подписка доступности живёт до close().
     """
 
     def __init__(self, poll_sec: float = POLL_SEC, clock=time.monotonic,
@@ -200,6 +199,8 @@ class AtspiProbe:
         self._stop.set()
         self._invalidate()
         thread = self._thread
+        if thread is None or not thread.is_alive():
+            self._drop_watcher()
         if wait and thread is not None and thread.is_alive():
             thread.join(timeout=1.0)
 
@@ -240,10 +241,11 @@ class AtspiProbe:
                         self._snap = FocusSnapshot(generation=self._generation)
                     return
         finally:
-            # Регистрация могла закончиться уже после close(wait=False).
-            self._drop_watcher()
             with self._lock:
                 self._thread = None
+            # Без слушателя AT-SPI новые Electron-окна могут не включить доступность.
+            if self._stop.is_set():
+                self._drop_watcher()
             if self._wake.is_set() and not self._stop.is_set():
                 self._ensure_thread()
 
