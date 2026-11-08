@@ -924,6 +924,24 @@ def test_first_auto_fix_after_idle_waits_for_fresh_focus(env):
     assert env["corrected"] == [("ghbdtn", "привет", False)]
 
 
+def test_click_during_idle_wake_drops_trigger_key_instead_of_misplacing_it(env):
+    probe = idle_env(env)
+    clicks = []
+
+    def pump():
+        if not clicks:
+            clicks.append(1)
+            env["ctrl"].on_click()
+
+    env["ctrl"].pump = pump
+    type_text(env, "ghbdtn ")
+    assert clicks and probe.pokes >= 1
+    # Клик во время ожидания — граница: клавиша-триггер не должна попасть
+    # в новый буфер, иначе автофикс сделает лишний Backspace по чужому месту.
+    assert env["corrected"] == []
+    assert chr(8) not in typed_text(env)
+
+
 def test_manual_gesture_after_idle_waits_for_fresh_focus(env):
     probe = idle_env(env)
     type_text(env, "ghbdtn")
