@@ -41,6 +41,8 @@ _UNSET = object()  # «кэш ещё не заполнялся»: None знач�
 RELEASE_WAIT = 0.3  # сколько ждать отпускания физических клавиш перед печатью
 SELECTION_RELEASE_WAIT = 2.0  # «Исправить выделенное» с сочетания: ждать отпускания
 SELECTION_FOCUS_WAIT = 2.0  # после простоя ждём первый асинхронный снимок фокуса
+# Готовый снимок фокуса после простоя опроса (тот же дедлайн, что у
+# selection-команды): ждём не дольше, чем фоновый опрос успевает ответить.
 SELECTION_MAX = 300  # больше — это уже не опечатка во фразе
 
 
@@ -130,6 +132,15 @@ class Controller:
         # к тому же объекту probe (ABA): номер меняется на каждом set_probe.
         self._probe_epoch = 0
         self._buffer_focus = None
+        # Ожидание снимка после простоя: реентрантные клавиши из pump() копим
+        # до конца текущей, иначе они обгонят ещё не учтённую клавишу.
+        self._focus_waiting = False
+        self._focus_wait_cancel = False
+        self._focus_wait_queue: list[tuple[int, int, int]] = []
+        self._key_depth = 0
+        # Одна попытка пробуждения на эпизод простоя: у совсем упавшего
+        # провайдера не должно быть дедлайна на каждую следующую клавишу.
+        self._focus_wake_attempted = False
         # Список исключённых приложений нужен на каждом слове, а читать файл
         # каждый раз незачем: кэшируем по mtime, тогда правка apps.txt всё равно
         # подхватывается без перезапуска демона.
@@ -312,6 +323,103 @@ class Controller:
     # --- входящие события -------------------------------------------------------
 
     def on_key(self, code: int, value: int, device_id: int) -> None:
+        """Точка входа клавиатуры: во время ожидания фокуса события копим.
+
+        pump() внутри ожидания прокручивает главный цикл, и нажатия приходят
+        реентрантно. Обработать их сразу нельзя (предыдущая клавиша ещё не
+        учтена в буфере), а терять нельзя — откладываем до конца текущей.
+        """
+        if self._focus_waiting:
+            self._focus_wait_queue.append((code, value, device_id))
+            if value != 0:
+                self._focus_wait_cancel = True
+            return
+        self._key_depth += 1
+        try:
+            self._on_key(code, value, device_id)
+        finally:
+            self._key_depth -= 1
+            if self._key_depth == 0:
+                self._replay_focus_queue()
+
+    def _replay_focus_queue(self) -> None:
+        """Дослать отложенные за время ожидания клавиши в исходном порядке."""
+        while self._focus_wait_queue:
+            events, self._focus_wait_queue = self._focus_wait_queue, []
+            for code, value, device_id in events:
+                self.on_key(code, value, device_id)
+
+    def _focus_wait_cancelled(self, probe, epoch: int) -> bool:
+        """Ожидание снимка отменяется, как только меняется его источник или режим."""
+        return (self.probe is not probe or self._probe_epoch != epoch
+                or self.paused or self.locked or self.screen_locked()
+                or self._focus_wait_cancel)
+
+    def _wake_focus_after_idle(self):
+        """Разбудить уснувший опрос и ограниченно дождаться свежего фокуса.
+
+        AtspiProbe после IDLE_STOP_SEC очищает снимок и завершает поток: первая
+        клавиша после простоя должна сама разбудить его и подождать ответ, иначе
+        слово начнётся по пустому снимку, а пришедший посреди слова снимок того
+        же поля будет принят за смену поля. Возвращает («woke» | «skip» |
+        «cancelled» | «rejected», снимок). Дедлайн — общий с selection-командой.
+        """
+        if self.probe is None or isinstance(self.probe, focus.NullProbe):
+            return "skip", None
+        try:
+            snap = self.probe.snapshot()
+        except Exception as exc:  # noqa: BLE001 — не показывать payload провайдера
+            log.warning("снимок фокуса недоступен (%s)", type(exc).__name__)
+            return "rejected", None
+        now = self.clock()
+        if snap.protection(now) is False:
+            # Фокус и так свежий и доверенный: заново будить нечего.
+            self._focus_wake_attempted = False
+            return "skip", None
+        if snap.app is not None or snap.age(now) <= focus.MAX_AGE_SEC:
+            return "skip", None
+        if self._focus_wake_attempted:
+            return "skip", None
+        self._focus_wake_attempted = True
+        probe, epoch = self.probe, self._probe_epoch
+        self._focus_wait_cancel = False
+        self._focus_waiting = True
+        try:
+            fresh, why = self._wake_focus(
+                probe, epoch,
+                accept=lambda s, at: None if s.protection(at) is True
+                else s.protection(at) is False,
+                cancelled=lambda: self._focus_wait_cancelled(probe, epoch))
+        finally:
+            self._focus_waiting = False
+            if self._key_depth == 0:
+                self._replay_focus_queue()
+        if fresh is not None:
+            self._focus_wake_attempted = False
+            return "woke", fresh
+        if why == "cancelled":
+            return "cancelled", None
+        return "rejected", None
+
+    def _rebind_focus_after_wake(self, snap) -> bool:
+        """Свежий снимок после пробуждения — новый исходный, а не смена поля.
+
+        Поколение выросло из-за перезапуска потока опроса, но поле (или
+        приложение) то же — буфер последнего слова ещё действителен. Если же
+        подтверждено другое поле, идём обычной проверкой: она сбросит буфер.
+        """
+        old = self._buffer_focus
+        if old is not None:
+            old_probe, _, old_field, old_app, old_protection = old
+            if (old_protection is not None
+                    and (old_probe is not self.probe
+                         or (old_field, old_app) != (snap.field, snap.app))):
+                return self._sync_focus()
+        self._buffer_focus = (self.probe, snap.generation, snap.field, snap.app,
+                              snap.protection(self.clock()))
+        return True
+
+    def _on_key(self, code: int, value: int, device_id: int) -> None:
         if self.screen_locked() or self.lock_confirmation_required:
             if value == 0:
                 self.buffer.note_release(code, device_id)
@@ -325,7 +433,19 @@ class Controller:
                 and not (self.busy or self.paused or self.locked):
             # Будим опрос фокуса с первой буквы: после простоя поток спит, и
             # к пробелу снимок поля пароля должен быть уже свежим.
-            self.probe.poke()
+            try:
+                self.probe.poke()
+            except Exception as exc:  # noqa: BLE001 — провайдер не должен ронять ввод
+                log.warning("опрос фокуса не разбужен (%s)", type(exc).__name__)
+        if value == 1 and not (self.busy or self.paused or self.locked):
+            # Первая клавиша после простоя: без ожидания снимок пуст, и слово
+            # начнётся по неизвестному фокусу. Ждём ограниченно; при неудаче
+            # защиту не ослабляем — слово просто не исправится.
+            why, snap = self._wake_focus_after_idle()
+            if why == "woke":
+                self._rebind_focus_after_wake(snap)
+            elif why == "rejected":
+                self._skip_word = True
         if not (self.paused or self.locked):
             self._sync_focus()
         # Жест прокручиваем всегда, в том числе во время фикса: иначе третий
@@ -767,13 +887,29 @@ class Controller:
         # вызовы приходят мимо клавиатурного гейта — в том числе реентрантно
         # из pump() посреди исполняющегося фикса и на экране блокировки.
         return (not (self.busy or self.paused or self.locked or self.screen_locked())
+                and not self._focus_waiting
                 and self._groups() is not None)
+
+    def _ready_for_manual_focus(self) -> bool:
+        """Ручной жест после простоя: дождаться свежего фокуса или отказать.
+
+        Без свежего снимка не трогаем текст: слово могло быть набрано в другом
+        поле, а пауза/блокировка/смена probe во время ожидания — отказ.
+        """
+        why, snap = self._wake_focus_after_idle()
+        if why in ("cancelled", "rejected"):
+            return False
+        if why == "woke":
+            return self._rebind_focus_after_wake(snap)
+        return True
 
     def manual_word(self) -> bool:
         """Исправить последнее слово (или откатить, или просто переключить раскладку).
 
         True — исправление запланировано/выполнено, False — нечего делать."""
-        if not self._manual_allowed() or not self._sync_focus() or self._skip_word:
+        if not self._manual_allowed() or not self._ready_for_manual_focus():
+            return False
+        if not self._sync_focus() or self._skip_word:
             return False
         groups = self._groups()
         if groups is None:
@@ -978,6 +1114,39 @@ class Controller:
             return None
         return selection
 
+    def _wake_focus(self, probe, epoch: int, accept, cancelled):
+        """Разбудить опрос и ограниченно дождаться годного снимка фокуса.
+
+        accept(снимок, время) -> True (годится) | False (ждать дальше) |
+        None (ждать бессмысленно, например поле пароля). cancelled() — отмена
+        по внешнему событию (пауза, блокировка, смена probe, ввод). Дедлайн —
+        та же константа, что у явной selection-команды: новых таймеров нет.
+        """
+        try:
+            probe.poke()
+        except Exception as exc:  # noqa: BLE001 — провайдер не должен ронять команду
+            log.warning("опрос фокуса не разбужен (%s)", type(exc).__name__)
+            return None, "error"
+        deadline = time.monotonic() + SELECTION_FOCUS_WAIT
+        while True:
+            if cancelled():
+                return None, "cancelled"
+            try:
+                snap = probe.snapshot()
+            except Exception as exc:  # noqa: BLE001 — не показывать payload провайдера
+                log.warning("снимок фокуса недоступен (%s)", type(exc).__name__)
+                return None, "error"
+            if isinstance(snap, focus.FocusSnapshot):
+                verdict = accept(snap, self.clock())
+                if verdict is True:
+                    return snap, "ok"
+                if verdict is None:
+                    return snap, "password"
+            if time.monotonic() >= deadline:
+                return None, "timeout"
+            self.pump()
+            self.sleep(0.01)
+
     def _selection_cancelled(self, probe, epoch: int) -> bool:
         """Отменена ли уже зарезервированная явная команда.
 
@@ -998,31 +1167,16 @@ class Controller:
         время на асинхронный ответ. busy уже зарезервирован: реентрантный вызов
         из poke/pump отклоняется, а пауза/блокировка/ввод остаются отменой.
         """
-        try:
-            probe.poke()
-        except Exception as exc:  # noqa: BLE001 — провайдер не должен ронять команду
-            log.warning("исправить выделенное: опрос фокуса не разбужен (%s)",
-                        type(exc).__name__)
+        def accept(snap, now):
+            if snap.protection(now) is True:
+                return None
+            return self._selection_snapshot_ok(snap, now)
+
+        fresh, why = self._wake_focus(
+            probe, epoch, accept=accept,
+            cancelled=lambda: self._selection_cancelled(probe, epoch))
+        if why != "ok" or fresh is None:
             return None
-        deadline = time.monotonic() + SELECTION_FOCUS_WAIT
-        while True:
-            if self._selection_cancelled(probe, epoch):
-                return None
-            try:
-                snap = probe.snapshot()
-            except Exception as exc:  # noqa: BLE001 — не показывать payload провайдера
-                log.warning("исправить выделенное: снимок фокуса недоступен (%s)",
-                            type(exc).__name__)
-                return None
-            if (isinstance(snap, focus.FocusSnapshot)
-                    and snap.protection(self.clock()) is True):
-                return None
-            if self._selection_snapshot_ok(snap, self.clock()):
-                break
-            if time.monotonic() >= deadline:
-                return None
-            self.pump()
-            self.sleep(0.01)
         if self._selection_cancelled(probe, epoch):
             return None
         try:
@@ -1176,7 +1330,9 @@ class Controller:
         return True
 
     def manual_phrase(self) -> bool:
-        if not self._manual_allowed() or not self._sync_focus() or self._skip_word:
+        if not self._manual_allowed() or not self._ready_for_manual_focus():
+            return False
+        if not self._sync_focus() or self._skip_word:
             return False
         current = self.backend.current()
         keys = self.buffer.phrase()

@@ -3,6 +3,7 @@ import pytest
 from tests.fakes import RU, US, FakeBackend, RecordingTypist, SafeProbe, make_keymap
 from wayswitch import controller as controller_mod
 from wayswitch import keycodes as kc
+from wayswitch.a11y import FocusSnapshot
 from wayswitch.config import Config
 from wayswitch.controller import Controller
 from wayswitch.detector import Detector, LanguageModel
@@ -874,3 +875,157 @@ def test_device_gone_during_fix_does_not_resurrect_held_shift(env, monkeypatch):
     ctrl.on_key(kc.KEY_SPACE, 0, 1)
     assert fired
     assert (2, kc.KEY_LEFTSHIFT) not in ctrl.buffer.held_physical()
+
+# --- исправление после простоя опроса at-spi -----------------------------------
+
+
+class IdleProbe(SafeProbe):
+    """Снимок фокуса после простоя пуст; оживает асинхронно после poke."""
+
+    def __init__(self, clock):
+        super().__init__(clock)
+        self.pokes = 0
+        self.fresh = True
+        self.generation = 1
+
+    def snapshot(self):
+        if not self.fresh:
+            return FocusSnapshot(generation=self.generation)
+        return FocusSnapshot("editor", False, self.clock(), generation=self.generation)
+
+    def poke(self):
+        self.pokes += 1
+
+    def go_idle(self):
+        self.fresh = False
+        self.generation += 1
+
+    def wake(self):
+        if not self.fresh:
+            self.fresh = True
+            self.generation += 1
+
+
+def idle_env(env):
+    """Как env, но опрос фокуса «спит»; рабудит его только pump/sleep."""
+    probe = IdleProbe(env["clock"])
+    env["ctrl"].set_probe(probe)
+    env["ctrl"].pump = lambda: None
+    env["ctrl"].sleep = lambda _delay: probe.wake()
+    probe.go_idle()
+    return probe
+
+
+def test_first_auto_fix_after_idle_waits_for_fresh_focus(env):
+    probe = idle_env(env)
+    type_text(env, "ghbdtn ")
+    assert probe.pokes >= 1
+    assert env["backend"].set_calls == [RU]
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+
+
+def test_manual_gesture_after_idle_waits_for_fresh_focus(env):
+    probe = idle_env(env)
+    type_text(env, "ghbdtn")
+    probe.go_idle()
+    double_shift(env)
+    assert probe.pokes >= 1
+    assert typed_text(env) == chr(8) * 6 + "привет"
+    assert env["corrected"][-1][2] is True
+
+def test_manual_word_call_after_idle_waits_for_fresh_focus(env):
+    probe = idle_env(env)
+    type_text(env, "ghbdtn")
+    probe.go_idle()
+    assert env["ctrl"].manual_word()
+    assert typed_text(env) == chr(8) * 6 + "привет"
+    assert probe.pokes >= 1
+
+
+
+def test_auto_fix_after_idle_unresponsive_probe_is_skipped(env, monkeypatch):
+    monkeypatch.setattr(controller_mod, "SELECTION_FOCUS_WAIT", 0.05)
+    probe = IdleProbe(env["clock"])
+    env["ctrl"].set_probe(probe)
+    env["ctrl"].pump = lambda: None
+    env["ctrl"].sleep = lambda _delay: None
+    probe.go_idle()
+    type_text(env, "ghbdtn ")
+    assert env["corrected"] == [] and env["backend"].set_calls == []
+    assert env["ctrl"].stats["corrections"] == 0
+
+
+@pytest.mark.parametrize("broken", ["poke", "snapshot"])
+def test_auto_fix_after_idle_probe_error_is_contained(env, monkeypatch, broken):
+    monkeypatch.setattr(controller_mod, "SELECTION_FOCUS_WAIT", 0.05)
+    probe = IdleProbe(env["clock"])
+    original = probe.snapshot
+    calls = []
+
+    if broken == "poke":
+        def poke():
+            raise RuntimeError("private probe payload")
+        probe.poke = poke
+    else:
+        def snapshot():
+            calls.append(1)
+            if len(calls) == 2:
+                raise RuntimeError("private probe payload")
+            return original()
+        probe.snapshot = snapshot
+    env["ctrl"].set_probe(probe)
+    env["ctrl"].pump = lambda: None
+    env["ctrl"].sleep = lambda _delay: None
+    probe.go_idle()
+    type_text(env, "ghbdtn ")
+    assert env["corrected"] == [] and env["backend"].set_calls == []
+
+
+@pytest.mark.parametrize("how", ["pause", "lock"])
+def test_pause_or_lock_cancels_idle_wake(env, how):
+    probe = IdleProbe(env["clock"])
+    probe.go_idle()
+    env["ctrl"].set_probe(probe)
+    env["ctrl"].sleep = lambda _delay: None
+    if how == "pause":
+        env["ctrl"].pump = env["ctrl"].pause
+    else:
+        env["ctrl"].pump = lambda: env["ctrl"].set_locked(True)
+    type_text(env, "ghbdtn ")
+    assert probe.pokes >= 1
+    assert env["ctrl"].paused is (how == "pause")
+    assert env["ctrl"].locked is (how == "lock")
+    assert env["corrected"] == [] and env["backend"].set_calls == []
+
+
+@pytest.mark.parametrize("how", ["pause", "lock"])
+def test_pause_or_lock_cancels_manual_wake(env, how):
+    probe = idle_env(env)
+    type_text(env, "ghbdtn")
+    probe.go_idle()
+    env["ctrl"].sleep = lambda _delay: None
+    if how == "pause":
+        env["ctrl"].pump = env["ctrl"].pause
+    else:
+        env["ctrl"].pump = lambda: env["ctrl"].set_locked(True)
+    double_shift(env)
+    assert probe.pokes >= 1
+    assert env["ctrl"].paused is (how == "pause")
+    assert env["ctrl"].locked is (how == "lock")
+    assert env["corrected"] == [] and env["backend"].set_calls == []
+
+
+def test_password_field_after_idle_is_still_protected(env):
+    class PasswordIdleProbe(IdleProbe):
+        def snapshot(self):
+            snap = super().snapshot()
+            return snap._replace(password=True) if snap.app else snap
+
+    probe = PasswordIdleProbe(env["clock"])
+    probe.go_idle()
+    env["ctrl"].set_probe(probe)
+    env["ctrl"].pump = lambda: None
+    env["ctrl"].sleep = lambda _delay: probe.wake()
+    type_text(env, "ghbdtn ")
+    assert env["corrected"] == [] and env["typist"].events == []
+    assert env["ctrl"].stats["corrections"] == 0
