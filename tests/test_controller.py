@@ -1113,3 +1113,44 @@ def test_direct_typing_without_native_never_writes_keys(env):
     assert env["typist"].events == []
     assert env["backend"].set_calls == []
     assert env["corrected"] == []
+
+
+
+class TwoFieldsProbe(SafeProbe):
+    """Поле сначала A, затем тот же app, но новый field B (редактор пересоздан)."""
+
+    def __init__(self, clock):
+        super().__init__(clock)
+        self.second = False
+
+    def snapshot(self):
+        field = (":1.1", "/field-b") if self.second else (":1.1", "/field-a")
+        return FocusSnapshot("editor", False, self.clock(), field=field, generation=2)
+
+    def poke(self):
+        pass
+
+
+def test_recreated_field_keeps_buffer_and_uses_verified_span(env):
+    probe = TwoFieldsProbe(env["clock"])
+    native = NativeTypist()
+    ctrl = env["ctrl"]
+    ctrl.set_probe(probe)
+    ctrl.typist = env["typist"] = native
+    type_text(env, "g")  # поле A
+    probe.second = True  # редактор пересоздан: field B
+    type_text(env, "hbdtn ")
+    assert native.native == [("ghbdtn ", "привет ")]
+    assert native.taps() == []
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+
+
+def test_recreated_field_without_native_never_writes_keys(env):
+    probe = TwoFieldsProbe(env["clock"])
+    env["ctrl"].set_probe(probe)
+    type_text(env, "g")
+    probe.second = True
+    type_text(env, "hbdtn ")
+    assert env["typist"].events == []
+    assert env["backend"].set_calls == []
+    assert env["corrected"] == []

@@ -465,7 +465,7 @@ class Controller:
             elif why == "rejected":
                 self._skip_word = True
         if not (self.paused or self.locked):
-            self._sync_focus()
+            self._sync_focus(typing_key=value == 1 and self.keymap.is_letter_key(code))
         # Жест прокручиваем всегда, в том числе во время фикса: иначе третий
         # Shift-тап, пришедший при busy, не будет учтён, и на его отпускании
         # счётчик снова даст «word» — лишний переворот раскладки.
@@ -690,7 +690,7 @@ class Controller:
         if close is not None:
             close()
 
-    def _sync_focus(self, *, initial_binding: bool = False) -> bool:
+    def _sync_focus(self, *, initial_binding: bool = False, typing_key: bool = False) -> bool:
         """Один буфер принадлежит одному полю, включая ожидание и исполнение фикса.
 
         initial_binding — только для первой привязки явной selection-команды:
@@ -703,15 +703,21 @@ class Controller:
         old, self._buffer_focus = self._buffer_focus, scope
         if old is None or old == scope:
             return True
-        old_probe, _, old_field, _, old_protection = old
+        old_probe, _, old_field, old_app, old_protection = old
+        # Редактор ячейки Calc создаётся заново на каждый вход: до первого
+        # символа поля может не быть, а после — уже другой field в том же окне.
+        # Префикс при этом остаётся набранным в этом же приложении, поэтому
+        # буфер не стираем, но разрешаем только проверяемую native-замену.
+        partial_word = (typing_key and bool(self.buffer.current_word())
+                        and not self._lost_input)
         appeared_field = (old_probe is self.probe and old_field is None
                           and snap.field is not None and protection is False
-                          and not self._lost_input and bool(self.buffer.current_word()))
-        if appeared_field:
-            # Поле не было видно до первого символа (редактор ячейки появляется
-            # на ходу). Префикс мог уйти в него, поэтому не стираем буфер, но
-            # запрещаем обычную клавиатурную запись: только native-замена
-            # с чтением фактического диапазона.
+                          and partial_word)
+        recreated_field = (old_probe is self.probe and old_field is not None
+                           and snap.field is not None and old_field != snap.field
+                           and old_app == snap.app and protection is False
+                           and partial_word)
+        if appeared_field or recreated_field:
             self._provisional_binding = True
             return True
         changed_field = (old_probe is self.probe and old_protection is not None
