@@ -161,14 +161,18 @@
   задача: подтверждённая проверка каретки после смены раскладки либо
   ограничение нативного пути Calc с прежними строгими проверками.
   ONLYOFFICE, авторизованные чаты и прочие окружения не проверялись.
-- Полный `python -m pytest -q` на итоговой ветке: Windows — 1725 passed,
+- Полный `python -m pytest -q` на итоговой ветке: Windows — 1727 passed,
   22 skipped; Ruff и `git diff --check` проходят. Коммиты: `14ae711`,
-  `fa06213`, `ef94887`, `7c186a1`, `a402b2d`, `4b23a3a` и слияния
-  `de305b7`, `cbe3ed1`, `404f30a`, `36c4289`. Ветки
+  `fa06213`, `ef94887`, `7c186a1`, `a402b2d`, `4b23a3a`, `e2a7e09`
+  и слияния `de305b7`, `cbe3ed1`, `404f30a`, `36c4289`. Ветки
   `codex/issue18-writer-native`, `codex/issue18-idle-wake` и
-  `codex/issue18-selection-integration` отправлены в origin; CI запущен,
-  его результат фиксируется отдельно. Релиз и слияние в `main`
-  не выполнялись.
+  `codex/issue18-selection-integration` отправлены в origin. CI на
+  `e2a7e09` прошёл полностью:
+  [все проверки](https://github.com/Wetoshkin/WaySwitch/actions/runs/42450611220)
+  (Linux pytest, DEB/RPM/Arch/Flatpak/AppImage/Nix и development-gate) —
+  success. Этап слияния в `main`, релиз и ответы в issue требуют отдельного
+  решения владельца; Calc по-прежнему не закрыт, поэтому выпуск 1.1.2
+  не объявляется.
 
 ## Проверка объединённой ветки и выпуск
 
