@@ -136,6 +136,9 @@ class Controller:
         # до конца текущей, иначе они обгонят ещё не учтённую клавишу.
         self._focus_waiting = False
         self._focus_wait_cancel = False
+        # Клик/фикс во время ожидания меняет контекст: клавиша-триггер уже
+        # относится к прежнему месту и не должна попасть в новый буфер.
+        self._focus_wait_boundary = False
         self._focus_wait_queue: list[tuple[int, int, int]] = []
         self._key_depth = 0
         # Одна попытка пробуждения на эпизод простоя: у совсем упавшего
@@ -383,6 +386,7 @@ class Controller:
         self._focus_wake_attempted = True
         probe, epoch = self.probe, self._probe_epoch
         self._focus_wait_cancel = False
+        self._focus_wait_boundary = False
         self._focus_waiting = True
         try:
             fresh, why = self._wake_focus(
@@ -442,6 +446,13 @@ class Controller:
             # начнётся по неизвестному фокусу. Ждём ограниченно; при неудаче
             # защиту не ослабляем — слово просто не исправится.
             why, snap = self._wake_focus_after_idle()
+            if self._focus_wait_boundary:
+                # Клик/фикс во время ожидания: физически клавиша набрана до
+                # смены места, в новый буфер её не переносим (лучше не
+                # исправить, чем стереть чужой символ).
+                self._focus_wait_boundary = False
+                self._skip_word = True
+                return
             if why == "woke":
                 self._rebind_focus_after_wake(snap)
             elif why == "rejected":
@@ -576,6 +587,8 @@ class Controller:
             self.manual_phrase()
 
     def on_click(self) -> None:
+        if self._focus_waiting:
+            self._focus_wait_boundary = True
         if self.busy:
             self._abort_requested = True  # клик — физический ввод, как и нажатие клавиши
             self._busy_reset = True
@@ -1369,6 +1382,8 @@ class Controller:
             ok = False
             outcome: dict = {}
             try:
+                if self._focus_waiting:
+                    self._focus_wait_boundary = True
                 if self.busy:
                     log.info("исправление %s отменено: другое исправление в работе", reason)
                     return
