@@ -529,6 +529,10 @@ class Controller:
             return
         if value == 1 and self._skip_word and (code in kc.RESET_KEYS or code in kc.META_KEYS):
             self._skip_word = False  # Enter, стрелки, Esc: каретка ушла, слово кончилось
+        if value == 1 and self.buffer.is_empty():
+            # Новое слово начинается с пустого буфера — прежний сомнительный
+            # контекст больше не действует.
+            self._provisional_binding = False
         event = self.buffer.feed(code, value, device_id, now)
         if value == 1 and self._pause_key is not None and code == self._pause_key:
             (self.resume if self.paused else self.pause)()
@@ -710,20 +714,16 @@ class Controller:
         if old is None or old == scope:
             return True
         old_probe, _, old_field, old_app, old_protection = old
-        # Редактор ячейки Calc создаётся заново на каждый вход: до первого
-        # символа поля может не быть, а после — уже другой field в том же окне.
-        # Префикс при этом остаётся набранным в этом же приложении, поэтому
-        # буфер не стираем, но разрешаем только проверяемую native-замену.
+        # Редактор ячейки Calc создаётся заново на каждый вход, поэтому во
+        # время набора поле успевает побывать None и смениться (grid → новый
+        # редактор). Префикс остаётся набранным в этом же приложении: буфер не
+        # стираем, но разрешаем только проверяемую native-замену. Клик/жест
+        # сюда не попадают (typing_key=False) и по-прежнему сбрасывают буфер.
         partial_word = (typing_key and bool(self.buffer.current_word())
                         and not self._lost_input)
-        appeared_field = (old_probe is self.probe and old_field is None
-                          and snap.field is not None and protection is False
-                          and partial_word)
-        recreated_field = (old_probe is self.probe and old_field is not None
-                           and snap.field is not None and old_field != snap.field
-                           and old_app == snap.app and protection is False
-                           and partial_word)
-        if appeared_field or recreated_field:
+        carry = (old_probe is self.probe and partial_word and snap.app is not None
+                 and protection is False and old_app in (None, snap.app))
+        if carry:
             self._provisional_binding = True
             return True
         changed_field = (old_probe is self.probe and old_protection is not None
@@ -1560,7 +1560,7 @@ class Controller:
         if plan is None:
             log.warning("не могу набрать текст в группе %s", target_group)
             return False
-        plan.require_verified, self._provisional_binding = self._provisional_binding, False
+        plan.require_verified = self._provisional_binding
         original = self.keymap.decode(keys, group_before)
         if self.dry_run:
             log.info("[dry-run] %s: исправление текста", reason)
@@ -1617,6 +1617,11 @@ class Controller:
                 self.context.clear()
             lost = False
         if result == ABORTED and not interrupted:
+            if self._provisional_binding:
+                # Буфер собран при неподтверждённой привязке: текущее слово
+                # больше не исправляем (безопасность важнее), следующее — можно.
+                self._skip_word = True
+                self._provisional_binding = False
             # Экран не тронут: на нём прежнее слово и то, что человек
             # допечатал. Досылаем эти нажатия в буфер с тем состоянием
             # зажатых клавиш, что было на входе, — как будто исправления не было.
