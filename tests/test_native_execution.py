@@ -201,6 +201,23 @@ def test_key_native_anchor_rejects_input_before_it_and_allows_append_after():
     assert typist.taps() == []
 
 
+def test_native_abort_after_committed_layout_does_not_replay_keys():
+    physical = [False]
+
+    def native(_commit, stopped):
+        physical[0] = False
+        assert stopped.reserve_anchor() is True  # раскладка уже сменена
+        physical[0] = True
+        assert stopped() is False  # дописывание разрешено, но run помечен committed
+        return SpanResult(ABORTED)
+
+    typist, backend = NativeKeyTypist(native), FakeBackend(current=US)
+    assert execute(key_plan(), typist, backend, restore_group=US,
+                   abort=lambda: bool(physical[0])) == FAILED
+    assert typist.taps() == []
+    assert backend.set_calls == [RU]  # откат запрещён: раскладка остаётся сменённой
+
+
 def test_key_native_fast_switch_skips_client_settle_for_accessibility_write():
     class Backend(FakeBackend):
         def __init__(self):
