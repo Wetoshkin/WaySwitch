@@ -220,6 +220,83 @@ def test_update_text():
     assert "последняя" in update_text(None, checked=True)
 
 
+@pytest.mark.parametrize("checked", [False, True])
+@pytest.mark.parametrize("release", [None, "9.9.9"])
+def test_packaged_update_status_never_claims_latest(monkeypatch, tmp_path, checked, release):
+    from wayswitch.gui import portable
+    from wayswitch.updates import Release
+
+    package = tmp_path / "wayswitch"
+    package.mkdir()
+    (package / ".packaged").touch()
+    monkeypatch.setattr(portable, "__file__", str(package / "gui" / "portable.py"))
+    latest = Release(release, "u") if release else None
+    assert update_text(latest, checked) == "Обновления через пакетный менеджер"
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_packaged_gui_skips_check_without_recording_success(monkeypatch, force):
+    import sys
+    import types
+
+    from wayswitch.gui import app, portable, widgets
+
+    classes = []
+
+    class ApplicationDefined(Exception):
+        pass
+
+    class Application:
+        def __init_subclass__(cls):
+            classes.append(cls)
+            raise ApplicationDefined
+
+    gi = types.ModuleType("gi")
+    gi.require_version = lambda *args: None
+    repository = types.ModuleType("gi.repository")
+    repository.Adw = types.SimpleNamespace(Application=Application)
+    repository.Gio = types.SimpleNamespace()
+    repository.GLib = types.SimpleNamespace(
+        SOURCE_REMOVE=False,
+        timeout_add_seconds=lambda *args: pytest.fail("packaged update timer scheduled"))
+    monkeypatch.setitem(sys.modules, "gi", gi)
+    monkeypatch.setitem(sys.modules, "gi.repository", repository)
+    monkeypatch.setattr(portable, "is_system_packaged", lambda: True)
+    monkeypatch.setattr(app.autostart, "migrate_tray", lambda: None)
+    monkeypatch.setattr(app.cfgmod, "load", app.cfgmod.Config)
+    monkeypatch.setattr(widgets, "run_in_thread",
+                        lambda *args: pytest.fail("packaged update worker started"))
+    with pytest.raises(ApplicationDefined):
+        app.main([])
+    instance = object.__new__(classes[0])
+    instance._update_checked = False
+    completed = []
+    instance.check_updates(force=force, done=completed.append)
+    assert completed == [None]
+    assert instance._update_checked is False
+    assert instance._periodic_update() is False
+
+
+@pytest.mark.parametrize("packaged", [False, True])
+def test_onboarding_preserves_update_preference_when_packaged(monkeypatch, tmp_path, packaged):
+    from types import SimpleNamespace
+
+    from wayswitch import config as cfgmod
+    from wayswitch.gui import onboarding, portable
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setattr(portable, "is_system_packaged", lambda: packaged)
+    monkeypatch.setattr(portable, "package_kind", lambda: "appimage")
+    instance = object.__new__(onboarding.Onboarding)
+    instance._finished = False
+    instance._index = lambda: 2
+    instance.sw_updates = SimpleNamespace(get_active=lambda: False)
+    instance.on_finish = lambda: None
+    instance._finish()
+    assert cfgmod.load().general.check_updates is packaged
+    assert not onboarding.needed()
+
+
 # --- тексты -----------------------------------------------------------------------
 
 def test_plural():

@@ -11,6 +11,7 @@ FLATPAK_ID = "io.github.Wetoshkin.WaySwitch.Gui"
 APPIMAGE_ID = "io.github.Wetoshkin.WaySwitch.AppImage"
 NATIVE_ID = "io.github.Wetoshkin.WaySwitch.Settings"
 RELEASES_URL = "https://github.com/Wetoshkin/WaySwitch/releases"
+PACKAGED_UPDATE_TEXT = "Обновления через пакетный менеджер"
 SETUP = (
     "Это окно настроек. Исправление и жесты выполняет отдельная служба WaySwitch "
     "на основной системе. Установите нативный пакет из Releases или выполните "

@@ -146,10 +146,11 @@ def test_is_system_packaged_detects_marker(monkeypatch, tmp_path):
     assert portable.is_system_packaged() is True
 
 
-def test_check_skips_when_system_packaged(monkeypatch, tmp_path):
+@pytest.mark.parametrize("force", [False, True])
+def test_check_skips_when_system_packaged(monkeypatch, tmp_path, force):
     monkeypatch.setattr(updates.portable, "is_system_packaged", lambda: True)
     calls = []
-    assert updates.check("1.0.0", path=tmp_path / "c.json",
+    assert updates.check("1.0.0", force=force, path=tmp_path / "c.json",
                          fetch=lambda *a, **k: calls.append(1)) is None
     assert calls == []
 
