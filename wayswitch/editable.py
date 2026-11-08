@@ -250,6 +250,8 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
                 return SpanResult("aborted")
         anchor_count, anchor_caret = count, caret
 
+        eventless = _libreoffice_component(focus) == "calc"
+
         def confirmed(first, before, after, kind, size, initial_count):
             if not safe():
                 return False
@@ -264,6 +266,19 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
             else:
                 return False
             changes = events[first:]
+            if eventless:
+                # Редактор Calc не даёт достоверных object:text-changed: события
+                # могут отсутствовать или не совпадать с диапазоном. Доказываем
+                # результат точным чтением диапазона (проверено выше), счётчиком
+                # ровно на длину операции и отсутствием физического ввода.
+                if not safe() or stopped():
+                    return False
+                final_count = tree.character_count(node)
+                last_physical = _physical_count(stopped)
+                expected = initial_count + (size if kind == "insert" else -size)
+                return (physical_base is not None and n2 is not None
+                        and last_physical == physical_base
+                        and final_count == expected and safe() and not stopped())
             if _edits(changes, before, after, start, kind, size, initial_count, current_count):
                 return True
             # Lost outside-span notifications need independent kernel input and caret proof.
@@ -322,9 +337,27 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
         return SpanResult("failed", attempted)
 
 
+def _libreoffice_component(focus) -> str | None:
+    """Компонент по имени активного окна: на KDE app_ids недоступны."""
+    window = getattr(focus, "window", None)
+    if not isinstance(window, str):
+        return None
+    name = window.casefold()
+    if "libreoffice writer" in name:
+        return "writer"
+    if "libreoffice calc" in name:
+        return "calc"
+    return None
+
+
+def _writer_window(focus) -> bool:
+    return _libreoffice_component(focus) == "writer"
+
+
 def _kde_identity(focus) -> bool:
     return (isinstance(focus, a11y.FocusSnapshot) and type(focus.app) is str
-            and focus.app.casefold() in KDE_APPS)
+            and focus.app.casefold() in KDE_APPS
+            and _libreoffice_component(focus) is not None)
 
 
 def _kde_field(field) -> bool:
