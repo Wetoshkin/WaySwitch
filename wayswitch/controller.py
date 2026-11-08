@@ -1471,7 +1471,7 @@ class Controller:
                 or self._groups() is None
                 or not self._sync_focus())
 
-    def _refresh_focus_for_verified(self, expected_app, timeout: float = 0.6):
+    def _refresh_focus_for_verified(self, expected, timeout: float = 0.6):
         """Свежий снимок фокуса для проверяемой native-замены.
 
         При входе в редактор ячейки кэш опроса может отставать; без свежего
@@ -1489,9 +1489,13 @@ class Controller:
                 snap = probe.snapshot()
             except Exception:  # noqa: BLE001 — неизвестный снимок не доказывает фокус
                 return None
+            same = (expected is None
+                    or expected.app is None
+                    or snap.app == expected.app)
+            if expected is not None and expected.window and snap.window:
+                same = snap.window == expected.window
             if (snap.field is not None
-                    and snap.protection(self.clock()) is False
-                    and (expected_app is None or snap.app == expected_app)):
+                    and snap.protection(self.clock()) is False and same):
                 return snap
             self.pump()
             self.sleep(0.02)
@@ -1599,8 +1603,7 @@ class Controller:
         plan.source_text = original + " " * tail
         plan.focus = self.probe.snapshot() if self.probe is not None else None
         if plan.require_verified and self.probe is not None:
-            fresh = self._refresh_focus_for_verified(
-                plan.focus.app if plan.focus is not None else None)
+            fresh = self._refresh_focus_for_verified(plan.focus)
             if fresh is not None:
                 plan.focus = fresh
         secret = secret or self._secret_focus()
