@@ -721,9 +721,14 @@ class Controller:
         # сюда не попадают (typing_key=False) и по-прежнему сбрасывают буфер.
         partial_word = (typing_key and bool(self.buffer.current_word())
                         and not self._lost_input)
+        # Поколение опроса может вырасти само по себе (событие окна/поллинга),
+        # не меняя поле и приложение: это не смена контекста, буфер сохраняем.
+        generation_only = (old_probe is self.probe and partial_word
+                           and old_field == snap.field and old_app == snap.app
+                           and old_protection == protection)
         carry = (old_probe is self.probe and partial_word and snap.app is not None
                  and protection is False and old_app in (None, snap.app))
-        if carry:
+        if generation_only or carry:
             self._provisional_binding = True
             return True
         changed_field = (old_probe is self.probe and old_protection is not None

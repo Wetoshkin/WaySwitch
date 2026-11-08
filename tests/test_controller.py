@@ -1154,3 +1154,57 @@ def test_recreated_field_without_native_never_writes_keys(env):
     assert env["typist"].events == []
     assert env["backend"].set_calls == []
     assert env["corrected"] == []
+
+
+
+class GenerationProbe(SafeProbe):
+    """Поколение растёт, пока поле не подтверждено; затем появляется поле."""
+
+    def __init__(self, clock):
+        super().__init__(clock)
+        self.generation = 0
+        self.confirmed = False
+
+    def snapshot(self):
+        if self.confirmed:
+            return FocusSnapshot("editor", False, self.clock(),
+                                 field=(":1.1", "/confirmed"), generation=self.generation)
+        return FocusSnapshot(None, False, self.clock(), generation=self.generation)
+
+    def bump(self):
+        """Событие окна/поллинга без смены поля."""
+        self.generation += 1
+
+    def poke(self):
+        pass
+
+
+def test_generation_bump_during_typing_keeps_buffer_and_uses_verified_span(env):
+    probe = GenerationProbe(env["clock"])
+    native = NativeTypist()
+    ctrl = env["ctrl"]
+    ctrl.set_probe(probe)
+    ctrl.typist = env["typist"] = native
+    type_text(env, "g")
+    probe.bump()
+    type_text(env, "hbdtn")
+    probe.confirmed = True
+    probe.bump()
+    type_text(env, " ")
+    assert native.native == [("ghbdtn ", "привет ")]
+    assert native.taps() == []
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+
+
+def test_generation_bump_without_native_never_writes_keys(env):
+    probe = GenerationProbe(env["clock"])
+    env["ctrl"].set_probe(probe)
+    type_text(env, "g")
+    probe.bump()
+    type_text(env, "hbdtn")
+    probe.confirmed = True
+    probe.bump()
+    type_text(env, " ")
+    assert env["typist"].events == []
+    assert env["backend"].set_calls == []
+    assert env["corrected"] == []
