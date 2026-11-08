@@ -1247,3 +1247,16 @@ def test_late_field_is_bound_before_verified_span(env):
     type_text(env, "hbdtn ")
     assert native.native == [("ghbdtn ", "привет ")]
     assert env["corrected"] == [("ghbdtn", "привет", False)]
+
+
+
+def test_boundary_triggered_abort_does_not_skip_next_confirmed_word(env):
+    probe = AppearingProbe(env["clock"])
+    env["ctrl"].set_probe(probe)
+    type_text(env, "g")
+    probe.visible = True
+    type_text(env, "hbdtn ")  # слово в сомнительной привязке: native нет -> отказ
+    assert env["corrected"] == [] and env["typist"].events == []
+    type_text(env, "ghbdtn ")  # подтверждённое поле: обычная клавиатурная замена
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+    assert env["typist"].taps()
