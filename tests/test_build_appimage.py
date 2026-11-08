@@ -2,8 +2,10 @@
 
 import hashlib
 import importlib.util
+import io
 import json
 import re
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -36,6 +38,80 @@ def test_verified_download_rejects_wrong_digest(tmp_path):
     with pytest.raises(ValueError, match="SHA256"):
         builder().fetch_verified(source.as_uri(), target, "0" * 64)
     assert not target.exists()
+
+
+def test_verified_download_retries_transient_http_errors(tmp_path):
+    payload = b"runtime bytes"
+    sha256 = hashlib.sha256(payload).hexdigest()
+    calls = []
+
+    def opener(url, timeout):
+        calls.append((url, timeout))
+        if len(calls) < 3:
+            raise urllib.error.HTTPError(url, 504, "Gateway Time-out", {}, None)
+        return io.BytesIO(payload)
+
+    sleeps = []
+    builder().fetch_verified("https://example.invalid/runtime", tmp_path / "cache", sha256,
+                             opener=opener, sleep=sleeps.append, base_delay=0.5)
+    assert (tmp_path / "cache").read_bytes() == payload
+    assert len(calls) == 3
+    assert sleeps == [0.5, 1.0]
+
+
+def test_verified_download_does_not_retry_permanent_http_errors(tmp_path):
+    calls = []
+
+    def opener(url, timeout):
+        calls.append(url)
+        raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+
+    sleeps = []
+    with pytest.raises(urllib.error.HTTPError, match="404"):
+        builder().fetch_verified("https://example.invalid/runtime", tmp_path / "cache",
+                                 "0" * 64, opener=opener, sleep=sleeps.append)
+    assert len(calls) == 1 and not sleeps
+
+
+def test_verified_download_reports_error_after_retries(tmp_path):
+    calls = []
+
+    def opener(url, timeout):
+        calls.append(url)
+        raise urllib.error.HTTPError(url, 503, "Unavailable", {}, None)
+
+    sleeps = []
+    with pytest.raises(urllib.error.HTTPError, match="503"):
+        builder().fetch_verified("https://example.invalid/runtime", tmp_path / "cache",
+                                 "0" * 64, opener=opener, sleep=sleeps.append,
+                                 attempts=3, base_delay=0.25)
+    assert len(calls) == 3 and sleeps == [0.25, 0.5]
+    assert not (tmp_path / "cache").exists()
+
+
+def test_verified_download_falls_back_to_api_asset(tmp_path, monkeypatch):
+    payload = b"runtime bytes"
+    sha256 = hashlib.sha256(payload).hexdigest()
+    primary = "https://github.com/o/r/releases/download/tag/runtime-x86_64"
+    asset = "https://api.github.com/repos/o/r/releases/assets/1"
+    calls = []
+
+    def opener(request, timeout):
+        url = request if isinstance(request, str) else request.full_url
+        headers = None if isinstance(request, str) else dict(request.headers)
+        calls.append((url, headers))
+        if url == primary:
+            raise urllib.error.HTTPError(url, 504, "Gateway Time-out", {}, None)
+        return io.BytesIO(payload)
+
+    module = builder()
+    monkeypatch.setattr(module, "_release_fallback", lambda url: (asset, {
+        "Accept": "application/octet-stream"}))
+    module.fetch_verified(primary, tmp_path / "cache", sha256, opener=opener,
+                          sleep=lambda _delay: None, base_delay=0.1)
+    assert (tmp_path / "cache").read_bytes() == payload
+    assert [url for url, _ in calls] == [primary, asset]
+    assert calls[1][1]["Accept"] == "application/octet-stream"
 
 
 def test_common_licenses_have_a_verified_source():
