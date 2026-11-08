@@ -135,6 +135,10 @@ class Controller:
         # к тому же объекту probe (ABA): номер меняется на каждом set_probe.
         self._probe_epoch = 0
         self._buffer_focus = None
+        # Поле появилось уже после первых букв (вход в редактирование ячейки
+        # Calc): буфер сохраняем, но исправление разрешаем только проверяемой
+        # заменой диапазона, а не клавишами.
+        self._provisional_binding = False
         # Ожидание снимка после простоя: реентрантные клавиши из pump() копим
         # до конца текущей, иначе они обгонят ещё не учтённую клавишу.
         self._focus_waiting = False
@@ -700,6 +704,16 @@ class Controller:
         if old is None or old == scope:
             return True
         old_probe, _, old_field, _, old_protection = old
+        appeared_field = (old_probe is self.probe and old_field is None
+                          and snap.field is not None and protection is False
+                          and not self._lost_input and bool(self.buffer.current_word()))
+        if appeared_field:
+            # Поле не было видно до первого символа (редактор ячейки появляется
+            # на ходу). Префикс мог уйти в него, поэтому не стираем буфер, но
+            # запрещаем обычную клавиатурную запись: только native-замена
+            # с чтением фактического диапазона.
+            self._provisional_binding = True
+            return True
         changed_field = (old_probe is self.probe and old_protection is not None
                          and protection is not None and old_field is not None
                          and snap.field is not None and old_field != snap.field)
@@ -708,6 +722,7 @@ class Controller:
             self._skip_word = self._lost_input
         else:
             self._skip_word |= bool(self.buffer.current_word()) or self._lost_input
+        self._provisional_binding = False
         self.buffer.reset()  # физически зажатые клавиши остаются учтены
         self.context.clear()
         self._hold_keys = None
@@ -1533,6 +1548,7 @@ class Controller:
         if plan is None:
             log.warning("не могу набрать текст в группе %s", target_group)
             return False
+        plan.require_verified, self._provisional_binding = self._provisional_binding, False
         original = self.keymap.decode(keys, group_before)
         if self.dry_run:
             log.info("[dry-run] %s: исправление текста", reason)

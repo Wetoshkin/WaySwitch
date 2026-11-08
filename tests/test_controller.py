@@ -1055,3 +1055,61 @@ def test_password_field_after_idle_is_still_protected(env):
     type_text(env, "ghbdtn ")
     assert env["corrected"] == [] and env["typist"].events == []
     assert env["ctrl"].stats["corrections"] == 0
+
+
+
+# --- прямой ввод до появления подтверждённого поля (редактор ячейки Calc) ---
+
+
+class AppearingProbe(SafeProbe):
+    """Поле подтверждается не сразу: до первого символа его ещё нет."""
+
+    def __init__(self, clock):
+        super().__init__(clock)
+        self.visible = False
+
+    def snapshot(self):
+        field = (":1.1", "/org/a11y/atspi/accessible/1") if self.visible else None
+        return FocusSnapshot("editor", False, self.clock(), field=field, generation=1)
+
+    def poke(self):
+        pass
+
+
+class NativeTypist(RecordingTypist):
+    def __init__(self):
+        super().__init__()
+        self.native = []
+
+    def replace_span(self, focus, source, target, begin, stop):
+        if not begin():
+            return None
+        from wayswitch.editable import SpanResult
+
+        self.native.append((source, target))
+        return SpanResult("done", True)
+
+
+def test_direct_typing_keeps_buffer_and_uses_verified_span(env):
+    probe = AppearingProbe(env["clock"])
+    native = NativeTypist()
+    ctrl = env["ctrl"]
+    ctrl.set_probe(probe)
+    ctrl.typist = env["typist"] = native
+    type_text(env, "g")  # поле ещё не подтверждено
+    probe.visible = True
+    type_text(env, "hbdtn ")
+    assert native.native == [("ghbdtn ", "привет ")]
+    assert native.taps() == []
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+
+
+def test_direct_typing_without_native_never_writes_keys(env):
+    probe = AppearingProbe(env["clock"])
+    env["ctrl"].set_probe(probe)
+    type_text(env, "g")
+    probe.visible = True
+    type_text(env, "hbdtn ")
+    assert env["typist"].events == []
+    assert env["backend"].set_calls == []
+    assert env["corrected"] == []
