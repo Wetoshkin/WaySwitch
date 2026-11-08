@@ -12,6 +12,7 @@ from tests.fakes import (
     make_keymap,
 )
 from tests.test_focus import make_env, type_keys
+from wayswitch import a11y
 from wayswitch import keycodes as kc
 from wayswitch.a11y import FocusSnapshot
 from wayswitch.actuator import (
@@ -174,6 +175,130 @@ def test_key_typist_before_write_runs_after_layout_and_caps_once():
     assert typist.taps() == [(kc.KEY_CAPSLOCK, False)]
     assert outcome["caps_off"] is True and outcome["native_span"] is True
     assert backend.set_calls == [RU]
+
+
+def test_key_native_anchor_rejects_input_before_it_and_allows_append_after():
+    physical = [False]
+    seen = []
+
+    def native(commit, stopped):
+        physical[0] = True
+        seen.append(stopped())
+        assert stopped.reserve_anchor() is False
+        seen.append(stopped())
+        physical[0] = False
+        assert stopped.reserve_anchor() is True
+        physical[0] = True
+        seen.append(stopped())
+        seen.append(stopped(before_write=True))
+        assert commit() is True
+        return SpanResult(DONE, True)
+
+    typist = NativeKeyTypist(native)
+    assert execute(key_plan(), typist, FakeBackend(current=US), restore_group=US,
+                   abort=lambda: bool(physical[0])) == DONE
+    assert seen == [True, True, False, True]
+    assert typist.taps() == []
+
+
+def test_key_native_fast_switch_skips_client_settle_for_accessibility_write():
+    class Backend(FakeBackend):
+        def __init__(self):
+            super().__init__(current=US)
+            self.waits = []
+
+        def wait_applied(self, index, timeout):
+            self.waits.append((index, timeout))
+            return super().wait_applied(index, timeout)
+
+    def native(commit, stopped):
+        stopped.use_fast_switch()
+        assert commit() is True
+        return SpanResult(DONE, True)
+
+    typist, backend = NativeKeyTypist(native), Backend()
+    assert execute(key_plan(), typist, backend, restore_group=US) == DONE
+    assert backend.set_calls == [RU]
+    assert backend.waits == []
+    assert typist.taps() == []
+
+
+def test_key_native_default_switch_still_waits_for_client_settle():
+    class Backend(FakeBackend):
+        def __init__(self):
+            super().__init__(current=US)
+            self.waits = []
+
+        def wait_applied(self, index, timeout):
+            self.waits.append(index)
+            return super().wait_applied(index, timeout)
+
+    typist, backend = NativeKeyTypist(), Backend()
+    assert execute(key_plan(), typist, backend, restore_group=US) == DONE
+    assert backend.set_calls == [RU]
+    assert backend.waits == [RU]
+
+
+def test_native_handler_receives_controller_focus_callback():
+    snapshot = FocusSnapshot("soffice", False, 5.0, (), (":1.5", "/field"))
+    seen = []
+
+    def native(commit, stopped):
+        seen.append(stopped.focus_snapshot())
+        assert commit() is True
+        return SpanResult(DONE, True)
+
+    assert execute(native_plan(), NativeKeyTypist(native), FakeBackend(current=US),
+                   restore_group=US, native_focus=lambda: snapshot) == DONE
+    assert seen == [snapshot]
+
+
+def test_native_handler_without_focus_callback_gets_no_proof():
+    seen = []
+
+    def native(commit, stopped):
+        seen.append(stopped.focus_snapshot())
+        assert commit() is True
+        return SpanResult(DONE, True)
+
+    assert execute(native_plan(), NativeKeyTypist(native), FakeBackend(current=US),
+                   restore_group=US) == DONE
+    assert seen == [None]
+
+
+def test_native_focus_callback_error_is_not_a_proof():
+    seen = []
+
+    def native(commit, stopped):
+        seen.append(stopped.focus_snapshot())
+        assert commit() is True
+        return SpanResult(DONE, True)
+
+    def broken():
+        raise RuntimeError("at-spi query failed")
+
+    assert execute(native_plan(), NativeKeyTypist(native), FakeBackend(current=US),
+                   restore_group=US, native_focus=broken) == DONE
+    assert seen == [None]
+
+
+def test_key_native_anchor_cannot_override_focus_or_destructive_stop():
+    physical = [False]
+    stopped_now = [False]
+
+    def native(commit, stopped):
+        physical[0] = True
+        stopped.reserve_anchor()
+        stopped_now[0] = True
+        assert stopped() is True
+        assert commit() is False
+        return SpanResult(ABORTED)
+
+    typist = NativeKeyTypist(native)
+    assert execute(key_plan(), typist, FakeBackend(current=US), restore_group=US,
+                   abort=lambda: bool(physical[0]),
+                   stop=lambda: bool(stopped_now[0])) == ABORTED
+    assert typist.taps() == []
 
 
 def test_unsupported_key_native_preserves_original_hold_abort_sequence():
@@ -374,6 +499,52 @@ def test_controller_carries_original_word_tail_and_focus_to_native_span():
     assert env["ctrl"].stats["corrections"] == 1
 
 
+def test_controller_offers_native_handler_a_fresh_focus_snapshot():
+    env = controller_env()
+    ctrl = env["ctrl"]
+    seen = []
+
+    def native(commit, stopped):
+        seen.append(stopped.focus_snapshot())
+        assert commit() is True
+        return SpanResult(DONE, True)
+
+    ctrl.typist.action = native
+    type_keys(env, keys_for_text(env["km"], "ghbdtn ", US))
+    assert seen == [FOCUS]
+    assert ctrl.stats["corrections"] == 1
+
+
+@pytest.mark.parametrize("snapshot", [
+    FocusSnapshot(),
+    FOCUS._replace(app=None),
+    FOCUS._replace(field=None),
+    FOCUS._replace(password=True),
+    FOCUS._replace(taken_at=0.0),
+    FOCUS._replace(taken_at=-1.0),
+])
+def test_controller_native_focus_snapshot_rejects_untrustworthy_scope(snapshot):
+    env = controller_env(focus=snapshot)
+    ctrl = env["ctrl"]
+    ctrl.busy = True
+    assert ctrl._native_focus_snapshot() is None
+
+
+def test_controller_native_focus_snapshot_rejects_stale_or_null_probe():
+    env = controller_env()
+    ctrl = env["ctrl"]
+    ctrl.busy = True
+    ctrl.set_probe(a11y.NullProbe())
+    assert ctrl._native_focus_snapshot() is None
+
+
+def test_controller_native_focus_snapshot_requires_running_operation():
+    env = controller_env()
+    ctrl = env["ctrl"]
+    assert not ctrl.busy
+    assert ctrl._native_focus_snapshot() is None
+
+
 def test_resolved_autocaps_case_is_kept_in_buffer_history_and_undo():
     env = controller_env()
     ctrl = env["ctrl"]
@@ -443,6 +614,50 @@ def test_disruptive_input_stops_mutation_after_native_commit(event):
     assert observed == [True]
     assert ctrl.stats["corrections"] == 0
     assert ctrl.typist.calls == []
+
+
+def test_physical_append_after_anchor_before_commit_is_replayed():
+    env = controller_env()
+    ctrl = env["ctrl"]
+
+    def native(commit, stopped):
+        stopped.reserve_anchor()
+        ctrl.on_key(kc.KEY_T, 1, 2)
+        ctrl.on_key(kc.KEY_T, 0, 2)
+        assert not stopped()
+        assert commit() is True
+        return SpanResult(DONE, True)
+
+    ctrl.typist.action = native
+    type_keys(env, keys_for_text(env["km"], "ghbdtn ", US))
+    assert ctrl.stats["corrections"] == 1
+    assert ctrl.typist.calls == []
+    assert not ctrl._skip_word
+    assert ctrl.keymap.decode(ctrl.buffer.current_word(), RU) == "е"
+
+
+def test_native_append_keeps_buffer_consistent_with_layout_used_by_real_field():
+    env = controller_env()
+    ctrl = env["ctrl"]
+    actual_append = []
+
+    def native(commit, stopped):
+        reserve = getattr(stopped, "reserve_anchor", None)
+        if reserve is not None:
+            reserve()
+        actual_append.append(ctrl.keymap.decode(
+            keys_for_text(env["km"], "t", US), ctrl.backend.current()))
+        ctrl.on_key(kc.KEY_T, 1, 2)
+        ctrl.on_key(kc.KEY_T, 0, 2)
+        if stopped():
+            return SpanResult(ABORTED)
+        assert commit() is True
+        return SpanResult(DONE, True)
+
+    ctrl.typist.action = native
+    type_keys(env, keys_for_text(env["km"], "ghbdtn ", US))
+    assert ctrl.keymap.decode(ctrl.buffer.current_word(), ctrl.backend.current()) == "".join(
+        actual_append)
 
 
 def test_plain_append_does_not_abort_committed_native_span():
