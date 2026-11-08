@@ -1229,6 +1229,113 @@ def test_kde_calc_external_change_without_events_is_refused(kde_native):
     assert SOURCE in tree.text
 
 
+@pytest.mark.parametrize("window,expected", [
+    ("doc — LibreOffice Writer", "writer"),
+    ("doc — LibreOffice Calc", "calc"),
+    ("LibreOffice Writer.xlsx — LibreOffice Calc", "calc"),
+    ("LibreOffice Calc.odp — LibreOffice Impress", "impress"),
+    ("Документ — LibreOffice Текст", None),
+    ("LibreOffice Writer — Документ", None),
+    ("LibreOffice Writer.xlsx", None),
+])
+def test_libreoffice_component_uses_only_the_final_component_suffix(window, expected):
+    assert editable._libreoffice_component(SimpleNamespace(window=window)) == expected
+
+
+def test_kde_calc_final_suffix_with_writer_document_name_uses_readback(kde_native):
+    kde_native.focus = kde_native.focus._replace(
+        window="LibreOffice Writer.xlsx — LibreOffice Calc")
+    tree = kde_native.tree
+    tree.silent_events = True
+    kde_native.stopped.append = lambda: 0
+    assert kde_replace(kde_native) == editable.SpanResult("done", True)
+    assert tree.text == "Test " + TARGET
+    assert tree.writes == [("insert", 5, TARGET), ("delete", 12, 19)]
+
+
+def test_kde_impress_final_suffix_with_calc_document_name_is_unsupported(kde_native):
+    kde_native.focus = kde_native.focus._replace(
+        window="LibreOffice Calc.odp — LibreOffice Impress")
+    tree = kde_native.tree
+    tree.silent_events = True
+    kde_native.stopped.append = lambda: 0
+    assert kde_replace(kde_native) is None
+    assert not tree.reads and not tree.writes and not kde_native.committed
+
+
+@pytest.mark.parametrize("window", ["Документ — LibreOffice Текст",
+                                    "LibreOffice Writer.xlsx", "LibreOffice"])
+def test_kde_unknown_or_localized_component_keeps_keyboard_transport(kde_native, window):
+    kde_native.focus = kde_native.focus._replace(window=window)
+    assert kde_replace(kde_native) is None
+    assert not kde_native.tree.reads and not kde_native.tree.writes
+    assert not kde_native.committed
+
+
+@pytest.mark.parametrize("aborted", [False, True])
+def test_kde_calc_physical_input_before_first_mutation_cancels(
+        kde_native, monkeypatch, aborted):
+    kde_native.focus = kde_native.focus._replace(window="doc — LibreOffice Calc")
+    tree = kde_native.tree
+    tree.silent_events = True
+    count = [0]
+    physical = KdeStop(kde_native.focus_snapshot)
+    physical.append = lambda: count[0]
+    kde_native.stopped = physical
+
+    @contextmanager
+    def changes(_connection, _field):
+        tree.append("м")
+        count[0] += 1
+        physical.aborted = aborted
+        yield kde_native.events
+
+    monkeypatch.setattr(editable, "_text_changes", changes)
+    assert kde_replace(kde_native) == editable.SpanResult("aborted")
+    assert tree.text == "Test " + SOURCE + "м"
+    assert tree.writes == [] and kde_native.committed == []
+
+
+def test_kde_calc_physical_appends_after_mutation_are_preserved(kde_native):
+    kde_native.focus = kde_native.focus._replace(window="doc — LibreOffice Calc")
+    tree = kde_native.tree
+    tree.silent_events = True
+    count = [0]
+    physical = KdeStop(kde_native.focus_snapshot)
+    physical.append = lambda: count[0]
+    kde_native.stopped = physical
+
+    def append_silently(letter):
+        position = tree.position
+        tree.text = tree.text[:position] + letter + tree.text[position:]
+        tree.position += 1
+        count[0] += 1
+
+    tree.after_insert = lambda: append_silently("X")
+    tree.after_delete = lambda: append_silently("Y")
+    assert kde_replace(kde_native) == editable.SpanResult("done", True)
+    assert tree.text == "Test " + TARGET + "XY"
+    assert tree.writes == [("insert", 5, TARGET), ("delete", 12, 19)]
+
+
+def test_kde_calc_unproven_physical_count_refuses_source_deletion(kde_native):
+    kde_native.focus = kde_native.focus._replace(window="doc — LibreOffice Calc")
+    tree = kde_native.tree
+    tree.silent_events = True
+    count = [0]
+    physical = KdeStop(kde_native.focus_snapshot)
+    physical.append = lambda: count[0]
+    kde_native.stopped = physical
+
+    def input_without_text():
+        count[0] += 1
+
+    tree.after_insert = input_without_text
+    assert kde_replace(kde_native) == editable.SpanResult("failed", True)
+    assert tree.text == "Test " + TARGET + SOURCE
+    assert all(operation[0] != "delete" for operation in tree.writes)
+
+
 def test_kde_unknown_window_keeps_keyboard_transport(kde_native):
     kde_native.focus = kde_native.focus._replace(window=None)
     assert kde_replace(kde_native) is None

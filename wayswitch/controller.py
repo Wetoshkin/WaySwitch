@@ -30,6 +30,7 @@ from wayswitch.actuator import (
 from wayswitch.buffer import InputBuffer, KeyPress
 from wayswitch.config import Config, apps_path
 from wayswitch.detector import SENSITIVITY, Detector
+from wayswitch.editable import _libreoffice_component
 from wayswitch.gesture import ShiftGesture, TapKeyGesture
 from wayswitch.selection import convert as convert_selection
 from wayswitch.textops import number_words, transliterate
@@ -138,6 +139,7 @@ class Controller:
         # Поле появилось уже после первых букв (вход в редактирование ячейки
         # Calc): буфер сохраняем, но исправление разрешаем только проверяемой
         # заменой диапазона, а не клавишами.
+        self._buffer_window = None
         self._provisional_binding = False
         # Ожидание снимка после простоя: реентрантные клавиши из pump() копим
         # до конца текущей, иначе они обгонят ещё не учтённую клавишу.
@@ -428,6 +430,7 @@ class Controller:
                 return self._sync_focus()
         self._buffer_focus = (self.probe, snap.generation, snap.field, snap.app,
                               snap.protection(self.clock()))
+        self._buffer_window = snap.window
         return True
 
     def _on_key(self, code: int, value: int, device_id: int) -> None:
@@ -711,7 +714,9 @@ class Controller:
         protection = snap.protection(self.clock())
         scope = (self.probe, snap.generation, snap.field, snap.app, protection)
         old, self._buffer_focus = self._buffer_focus, scope
-        if old is None or old == scope:
+        old_window, self._buffer_window = self._buffer_window, snap.window
+        same_window = old_window == snap.window
+        if old is None or old == scope and same_window:
             return True
         old_probe, _, old_field, old_app, old_protection = old
         # Редактор ячейки Calc создаётся заново на каждый вход, поэтому во
@@ -725,9 +730,13 @@ class Controller:
         # не меняя поле и приложение: это не смена контекста, буфер сохраняем.
         generation_only = (old_probe is self.probe and partial_word
                            and old_field == snap.field and old_app == snap.app
-                           and old_protection == protection)
+                           and old_protection == protection and same_window)
         carry = (old_probe is self.probe and partial_word and snap.app is not None
-                 and protection is False and old_app in (None, snap.app))
+                 and protection is False and old_protection is not True
+                 and old_app in (None, snap.app)
+                 and (same_window or old_window is None)
+                 and (old_field is None or old_app is None
+                      or same_window and _libreoffice_component(snap) == "calc"))
         if generation_only or carry:
             self._provisional_binding = True
             return True
@@ -1485,6 +1494,10 @@ class Controller:
             return None
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
+            if (self.paused or self.locked or self.screen_locked()
+                    or self._abort_requested or self._busy_reset
+                    or self._operation_invalidated or self.probe is not probe):
+                return None
             try:
                 snap = probe.snapshot()
             except Exception:  # noqa: BLE001 — неизвестный снимок не доказывает фокус
@@ -1493,7 +1506,7 @@ class Controller:
                     or expected.app is None
                     or snap.app == expected.app)
             if expected is not None and expected.window and snap.window:
-                same = snap.window == expected.window
+                same = same and snap.window == expected.window
             if (snap.field is not None
                     and snap.protection(self.clock()) is False and same):
                 return snap
@@ -1602,14 +1615,6 @@ class Controller:
             return False
         plan.source_text = original + " " * tail
         plan.focus = self.probe.snapshot() if self.probe is not None else None
-        if plan.require_verified and self.probe is not None:
-            fresh = self._refresh_focus_for_verified(plan.focus)
-            if fresh is not None:
-                plan.focus = fresh
-                # Связка буфера должна указывать на то же поле, иначе _stop()
-                # в native-протоколе увидит «смену поля» и отменит исправление.
-                self._buffer_focus = (self.probe, fresh.generation, fresh.field,
-                                      fresh.app, fresh.protection(self.clock()))
         secret = secret or self._secret_focus()
         outcome = {} if outcome is None else outcome
         outcome["secret"] = secret
@@ -1622,8 +1627,19 @@ class Controller:
         self._busy_reset = False
         started = self.clock()
         try:
-            if not self._wait_release(trigger):
-                log.info("исправление отменено: зажата физическая клавиша")
+            if plan.require_verified and self.probe is not None:
+                fresh = self._refresh_focus_for_verified(plan.focus)
+                if fresh is not None:
+                    plan.focus = fresh
+                    # Связка буфера должна указывать на то же поле, иначе _stop()
+                    # в native-протоколе увидит «смену поля» и отменит исправление.
+                    self._buffer_focus = (self.probe, fresh.generation, fresh.field,
+                                          fresh.app, fresh.protection(self.clock()))
+                    self._buffer_window = fresh.window
+            if (self._abort_requested or self._busy_reset or self._operation_invalidated
+                    or self.paused or self.locked or self.screen_locked()
+                    or not self._wait_release(trigger)):
+                log.info("исправление отменено: изменилось состояние ввода")
                 result = ABORTED
             else:
                 result = execute(plan, self.typist, self.backend, abort=self._abort,
@@ -1668,6 +1684,9 @@ class Controller:
                 if tail == 0:
                     self._skip_word = True
                 self._provisional_binding = False
+                self.buffer.reset()
+                self.context.clear()
+                self._last_fix = None
             # Экран не тронут: на нём прежнее слово и то, что человек
             # допечатал. Досылаем эти нажатия в буфер с тем состоянием
             # зажатых клавиш, что было на входе, — как будто исправления не было.
