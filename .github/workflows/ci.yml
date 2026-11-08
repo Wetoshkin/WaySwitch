@@ -97,23 +97,17 @@ jobs:
     container: archlinux:latest
     steps:
       - uses: actions/checkout@v4
-      - name: Сборка по PKGBUILD из исходников ветки
+      - name: Сборка по опубликованным исходникам PKGBUILD
         run: |
           pacman -Syu --noconfirm base-devel sudo
           useradd -m b
-          ver=$(grep -m1 '^pkgver=' packaging/arch/PKGBUILD | cut -d= -f2)
-          mkdir -p /pkg /tmp/src
-          cp packaging/arch/* /pkg/
-          cp -r . "/tmp/src/WaySwitch-$ver"
-          tar -C /tmp/src -czf "/pkg/wayswitch-$ver.tar.gz" "WaySwitch-$ver"
-          sed -i "s|^source=.*|source=(\"wayswitch-$ver.tar.gz\")|" /pkg/PKGBUILD
-          sed -i "s|^_commit=.*|_commit=$ver|" /pkg/PKGBUILD
-          # Архив собран из ветки, а не скачан с коммита: сумма из PKGBUILD к нему не относится.
-          sed -i "s|^sha256sums=.*|sha256sums=('SKIP')|" /pkg/PKGBUILD
+          mkdir -p /pkg
+          cp -r packaging/arch/. /pkg/
           chown -R b /pkg
           su b -c "cd /pkg && makepkg --nodeps"
           pacman -U --noconfirm /pkg/wayswitch-*.pkg.tar.zst
           wayswitch version
+          diff -r --exclude=__pycache__ wayswitch /usr/lib/wayswitch/wayswitch
 
   flatpak:
     needs: test
