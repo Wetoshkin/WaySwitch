@@ -17,9 +17,9 @@ optdepends=('gnome-shell: расширение для переключения �
 backup=('etc/xdg/autostart/wayswitch-session.desktop')
 install=wayswitch.install
 # Полный коммит исключает зависимость контрольной суммы от самого PKGBUILD в теге.
-_commit=6355dfbb00f0334cc0750c839cfb370f7f054d91
+_commit=f2e54f35a6c8428a4a0db1e803ee19fcc1e76334
 source=("$pkgname-$pkgver.tar.gz::$url/archive/$_commit.tar.gz")
-sha256sums=('61e69ff46863aee857fafb52720ea134f6ed39a9a6220afbe18c0ffc97f0846a')
+sha256sums=('cb034239ee2253628a515de3eae9c4017b7d1d9715b1d0a63010ebff5d480d3a')
 
 package() {
     cd "WaySwitch-$_commit"
