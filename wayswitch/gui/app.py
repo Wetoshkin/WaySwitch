@@ -50,6 +50,8 @@ def parse_gui_args(argv: list[str]) -> bool:
 
 def update_text(release, checked: bool) -> str:
     """Подпись строки «Проверить сейчас» в Параметрах → Система."""
+    if portable.is_system_packaged():
+        return portable.PACKAGED_UPDATE_TEXT
     if release is not None:
         return f"Доступна версия {release.version} (сейчас {__version__})"
     if checked:
@@ -278,7 +280,8 @@ def main(argv: list[str] | None = None) -> int:
 
         def _periodic_update(self):
             self.check_updates(force=False)
-            GLib.timeout_add_seconds(UPDATE_PERIOD_SEC, self._periodic_update)
+            if portable.can_self_update():
+                GLib.timeout_add_seconds(UPDATE_PERIOD_SEC, self._periodic_update)
             return GLib.SOURCE_REMOVE
 
         def check_updates(self, force: bool, done=None):
@@ -288,7 +291,7 @@ def main(argv: list[str] | None = None) -> int:
                 enabled = cfgmod.load().general.check_updates
             except cfgmod.ConfigError:
                 enabled = True
-            if not (enabled or force):
+            if not portable.can_self_update() or not (enabled or force):
                 if done:
                     done(None)
                 return

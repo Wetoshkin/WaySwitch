@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from wayswitch.gui.terminal import manual_command
 
@@ -10,6 +11,7 @@ FLATPAK_ID = "io.github.Wetoshkin.WaySwitch.Gui"
 APPIMAGE_ID = "io.github.Wetoshkin.WaySwitch.AppImage"
 NATIVE_ID = "io.github.Wetoshkin.WaySwitch.Settings"
 RELEASES_URL = "https://github.com/Wetoshkin/WaySwitch/releases"
+PACKAGED_UPDATE_TEXT = "Обновления через пакетный менеджер"
 SETUP = (
     "Это окно настроек. Исправление и жесты выполняет отдельная служба WaySwitch "
     "на основной системе. Установите нативный пакет из Releases или выполните "
@@ -27,6 +29,16 @@ def package_kind() -> str | None:
     if os.environ.get("WAYSWITCH_PACKAGE") == "appimage":
         return "appimage"
     return None
+
+
+def is_system_packaged() -> bool:
+    """True, если установлено через менеджер пакетов дистрибутива (RPM/deb/AUR)."""
+    return (Path(__file__).resolve().parent.parent / ".packaged").exists()
+
+
+def can_self_update() -> bool:
+    """GUI сам проверяет обновления, только если это не пакетная установка."""
+    return not is_system_packaged()
 
 
 def application_id() -> str:
