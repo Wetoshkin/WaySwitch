@@ -1208,3 +1208,42 @@ def test_generation_bump_without_native_never_writes_keys(env):
     assert env["typist"].events == []
     assert env["backend"].set_calls == []
     assert env["corrected"] == []
+
+
+
+class LateFieldProbe(SafeProbe):
+    """Поле появляется только во время pump() при ожидании свежего снимка."""
+
+    def __init__(self, clock):
+        super().__init__(clock)
+        self.confirmed = False
+        self.generation = 1
+
+    def snapshot(self):
+        if self.confirmed:
+            return FocusSnapshot("editor", False, self.clock(),
+                                 field=(":1.1", "/late"), generation=self.generation)
+        return FocusSnapshot("editor", False, self.clock(), generation=self.generation)
+
+    def bump(self):
+        self.generation += 1
+
+    def show(self):
+        self.confirmed = True
+
+    def poke(self):
+        pass
+
+
+def test_late_field_is_bound_before_verified_span(env):
+    probe = LateFieldProbe(env["clock"])
+    native = NativeTypist()
+    ctrl = env["ctrl"]
+    ctrl.set_probe(probe)
+    ctrl.typist = env["typist"] = native
+    ctrl.pump = probe.show
+    type_text(env, "g")
+    probe.bump()
+    type_text(env, "hbdtn ")
+    assert native.native == [("ghbdtn ", "привет ")]
+    assert env["corrected"] == [("ghbdtn", "привет", False)]

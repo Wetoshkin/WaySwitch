@@ -1606,6 +1606,10 @@ class Controller:
             fresh = self._refresh_focus_for_verified(plan.focus)
             if fresh is not None:
                 plan.focus = fresh
+                # Связка буфера должна указывать на то же поле, иначе _stop()
+                # в native-протоколе увидит «смену поля» и отменит исправление.
+                self._buffer_focus = (self.probe, fresh.generation, fresh.field,
+                                      fresh.app, fresh.protection(self.clock()))
         secret = secret or self._secret_focus()
         outcome = {} if outcome is None else outcome
         outcome["secret"] = secret
