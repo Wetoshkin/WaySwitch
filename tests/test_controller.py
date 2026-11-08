@@ -280,6 +280,14 @@ def test_triple_shift_after_auto_fix_keeps_fixed_word(env):
     assert env["backend"].current() == US
 
 
+def test_two_capitals_undo_restores_both_capitals(env):
+    type_text(env, "GHbdtn ")
+    assert env["corrected"] == [("GHbdtn", "Привет", False)]
+    double_shift(env)
+    # Первая серия — автозамена, вторая — откат; регистр отката проверяем хвостом.
+    assert typed_text(env).endswith(chr(8) * 7 + "GHbdtn ")
+
+
 def test_undo_by_gesture_adds_exception_after_second_undo(env):
     type_text(env, "ghbdtn ")
     env["typist"].events.clear()

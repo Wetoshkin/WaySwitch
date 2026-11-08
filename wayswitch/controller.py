@@ -82,6 +82,9 @@ class LastFix:
     # Исправлено ранним триггером по началу слова: после него человек
     # допечатывает слово, и ручной переворот всего слова — это отмена.
     early: bool = False
+    # Фактический исходный текст после разрешения регистра/раскладки: по нему
+    # откат восстанавливает и собственные заглавные (например, `GHbdtn`).
+    original_text: str | None = None
     # Для раннего триггера — всё слово (буквы в исходной раскладке), когда
     # его дописали: по нему потом сбрасывается счётчик отмен.
     word: str = ""
@@ -950,7 +953,8 @@ class Controller:
         secret = self._secret_focus()
         undo_keys = self._undo_span(last)
         if undo_keys is not None:
-            original = self.keymap.decode(last.original_keys, last.group_before)
+            original = (last.original_text if last.original_text is not None
+                        else self.keymap.decode(last.original_keys, last.group_before))
 
             def done(ok: bool, secret: bool) -> None:
                 if not ok:
@@ -1644,7 +1648,8 @@ class Controller:
             if not lost:
                 self._last_fix = LastFix(list(keys), word_keys, group_before, self.clock(),
                                          end=fixed_end,
-                                         early=reason == "early", secret=secret)
+                                         early=reason == "early", secret=secret,
+                                         original_text=original)
         if replay:
             # Текст уже в приложении; восстанавливаем только учёт нажатий и отмену.
             self.buffer.restore_held(self._busy_held)
