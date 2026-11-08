@@ -89,6 +89,31 @@ def test_verified_download_reports_error_after_retries(tmp_path):
     assert not (tmp_path / "cache").exists()
 
 
+def test_verified_download_falls_back_to_api_asset(tmp_path, monkeypatch):
+    payload = b"runtime bytes"
+    sha256 = hashlib.sha256(payload).hexdigest()
+    primary = "https://github.com/o/r/releases/download/tag/runtime-x86_64"
+    asset = "https://api.github.com/repos/o/r/releases/assets/1"
+    calls = []
+
+    def opener(request, timeout):
+        url = request if isinstance(request, str) else request.full_url
+        headers = None if isinstance(request, str) else dict(request.headers)
+        calls.append((url, headers))
+        if url == primary:
+            raise urllib.error.HTTPError(url, 504, "Gateway Time-out", {}, None)
+        return io.BytesIO(payload)
+
+    module = builder()
+    monkeypatch.setattr(module, "_release_fallback", lambda url: (asset, {
+        "Accept": "application/octet-stream"}))
+    module.fetch_verified(primary, tmp_path / "cache", sha256, opener=opener,
+                          sleep=lambda _delay: None, base_delay=0.1)
+    assert (tmp_path / "cache").read_bytes() == payload
+    assert [url for url, _ in calls] == [primary, asset]
+    assert calls[1][1]["Accept"] == "application/octet-stream"
+
+
 def test_common_licenses_have_a_verified_source():
     lock = json.loads((ROOT / "packaging/appimage/dependencies.json").read_text())
     source = lock["common_licenses"]
