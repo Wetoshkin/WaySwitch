@@ -201,6 +201,44 @@ def test_key_native_anchor_rejects_input_before_it_and_allows_append_after():
     assert typist.taps() == []
 
 
+def test_key_native_fast_switch_skips_client_settle_for_accessibility_write():
+    class Backend(FakeBackend):
+        def __init__(self):
+            super().__init__(current=US)
+            self.waits = []
+
+        def wait_applied(self, index, timeout):
+            self.waits.append((index, timeout))
+            return super().wait_applied(index, timeout)
+
+    def native(commit, stopped):
+        stopped.use_fast_switch()
+        assert commit() is True
+        return SpanResult(DONE, True)
+
+    typist, backend = NativeKeyTypist(native), Backend()
+    assert execute(key_plan(), typist, backend, restore_group=US) == DONE
+    assert backend.set_calls == [RU]
+    assert backend.waits == []
+    assert typist.taps() == []
+
+
+def test_key_native_default_switch_still_waits_for_client_settle():
+    class Backend(FakeBackend):
+        def __init__(self):
+            super().__init__(current=US)
+            self.waits = []
+
+        def wait_applied(self, index, timeout):
+            self.waits.append(index)
+            return super().wait_applied(index, timeout)
+
+    typist, backend = NativeKeyTypist(), Backend()
+    assert execute(key_plan(), typist, backend, restore_group=US) == DONE
+    assert backend.set_calls == [RU]
+    assert backend.waits == [RU]
+
+
 def test_native_handler_receives_controller_focus_callback():
     snapshot = FocusSnapshot("soffice", False, 5.0, (), (":1.5", "/field"))
     seen = []

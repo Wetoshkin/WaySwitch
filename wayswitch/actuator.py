@@ -175,6 +175,7 @@ class _Run:
         self.caps_toggle: Callable[[], None] | None = None  # чем вернуть Caps Lock
         self.committed = False  # текст или новый режим уже использован, откат небезопасен
         self.native_done = False
+        self.fast_switch = False  # native-запись не печатает клавишами: клиентский settle не нужен
         self.resolved_source: str | None = None
         self.resolved_target: str | None = None
 
@@ -225,6 +226,10 @@ class _Run:
     def switch(self, group: int, timeout: float) -> bool:
         self.switched = True
         self.backend.set(group)
+        if self.fast_switch:
+            # Синтетических клавиш не будет (запись через AT-SPI), а KDE-settle
+            # нужен только им: физическую печать он не защищает.
+            return True
         return bool(self.backend.wait_applied(group, timeout))
 
     def rollback(self) -> None:
@@ -269,6 +274,10 @@ class _NativeStop:
             return self._run.native_focus()
         except Exception:  # noqa: BLE001 — неизвестный снимок не доказывает фокус
             return None
+
+    def use_fast_switch(self) -> None:
+        """Native-запись не шлёт клавиши: не ждать клиентский settle после раскладки."""
+        self._run.fast_switch = True
 
     def reserve_anchor(self) -> bool:
         # Якорь нельзя разрешать раньше раскладки/Caps: иначе физическая клавиша

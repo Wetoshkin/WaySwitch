@@ -443,6 +443,11 @@ def try_replace_kde(focus, source, target, commit, stopped) -> SpanResult | None
             return SpanResult("aborted")
         start = caret - len(source)
         physical_base = _physical_count(stopped)
+        fast = getattr(stopped, "use_fast_switch", None)
+        if callable(fast):
+            # Запись идёт через AT-SPI, а не синтетическими клавишами; KDE-settle
+            # относится к ним и только удлинял бы окно до первой физической клавиши.
+            fast()
         prepare = getattr(stopped, "prepare", None)
         if callable(prepare) and prepare() is not True:
             return SpanResult("aborted")

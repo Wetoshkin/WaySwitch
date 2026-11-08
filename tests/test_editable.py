@@ -834,6 +834,7 @@ class KdeStop:
         self.prepare_result = True
         self.on_prepare = lambda: None
         self.append = lambda: None
+        self.fast_switch = False
 
     def __call__(self, *, before_write=False):
         return self.aborted and (before_write or not self.anchor)
@@ -846,11 +847,19 @@ class KdeStop:
         self.anchor = True
         return True
 
+    def use_fast_switch(self):
+        self.fast_switch = True
+
     def append_count(self):
         return self.append()
 
     def focus_snapshot(self):
         return self._live_snapshot()
+
+
+def test_kde_native_prepare_requests_fast_layout_switch(kde_native):
+    assert kde_replace(kde_native) == editable.SpanResult("done", True)
+    assert kde_native.stopped.fast_switch is True
 
 
 @pytest.mark.parametrize("failure", [None, "no-counter", "wrong-counter", "wrong-caret",
