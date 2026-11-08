@@ -403,10 +403,6 @@ def _attempt_native(plan: Plan, typist, run: _Run, setup,
             return ABORTED
         return _NATIVE_FALLBACK
     run.committed |= result.committed
-    if result.status == ABORTED and run.committed:
-        # Откат раскладки уже запрещён: экран не «нетронут», replay старых
-        # клавиш в новой раскладке небезопасен — только терминальный отказ.
-        return FAILED
     if result.status == DONE and not prepared:
         return FAILED
     if result.status == DONE:
