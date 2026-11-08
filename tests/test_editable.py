@@ -858,6 +858,15 @@ class KdeStop:
         return self._live_snapshot()
 
 
+def test_live_focus_accepts_snapshot_sampled_after_check_start(monkeypatch):
+    # На точных часах Linux снимок берётся уже после входа в проверку.
+    expected = a11y.FocusSnapshot("soffice", False, 100.0, (), (":1.5", "/field"))
+    snap = expected._replace(taken_at=100.5)
+    stopped = SimpleNamespace(focus_snapshot=lambda: snap)
+    monkeypatch.setattr(editable.time, "monotonic", lambda: 100.6)
+    assert editable._live_focus(stopped, expected, 100.0) is not None
+
+
 def test_kde_native_prepare_requests_fast_layout_switch(kde_native):
     assert kde_replace(kde_native) == editable.SpanResult("done", True)
     assert kde_native.stopped.fast_switch is True

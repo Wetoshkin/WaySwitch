@@ -133,15 +133,18 @@ def _live_focus(stopped, expected, now):
         return None
     if not isinstance(snapshot, a11y.FocusSnapshot):
         return None
+    # Снимок берётся уже после входа в проверку: на точных часах Linux его
+    # taken_at может быть чуть позже переданного now, это не «будущее».
+    checked_at = max(now, time.monotonic())
     taken_at = snapshot.taken_at
     if (snapshot.app != expected.app or snapshot.field != expected.field
             or snapshot.password is not False
             or snapshot.generation != expected.generation):
         return None
     if (type(taken_at) not in (int, float) or isinstance(taken_at, bool)
-            or not 0 < taken_at <= now):
+            or not 0 < taken_at <= checked_at):
         return None
-    if snapshot.age(now) > a11y.MAX_AGE_SEC or snapshot.protection(now) is not False:
+    if snapshot.age(checked_at) > a11y.MAX_AGE_SEC or snapshot.protection(checked_at) is not False:
         return None
     return snapshot
 
