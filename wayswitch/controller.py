@@ -30,6 +30,7 @@ from wayswitch.actuator import (
 from wayswitch.buffer import InputBuffer, KeyPress
 from wayswitch.config import Config, apps_path
 from wayswitch.detector import SENSITIVITY, Detector
+from wayswitch.editable import _libreoffice_component
 from wayswitch.gesture import ShiftGesture, TapKeyGesture
 from wayswitch.selection import convert as convert_selection
 from wayswitch.textops import number_words, transliterate
@@ -735,8 +736,7 @@ class Controller:
                  and old_app in (None, snap.app)
                  and (same_window or old_window is None)
                  and (old_field is None or old_app is None
-                      or same_window and snap.window is not None
-                      and snap.window.casefold().endswith("libreoffice calc")))
+                      or same_window and _libreoffice_component(snap) == "calc"))
         if generation_only or carry:
             self._provisional_binding = True
             return True

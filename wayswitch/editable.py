@@ -249,6 +249,10 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
                     or start < 0 or start + len(source) != caret or count < caret):
                 return SpanResult("aborted")
         anchor_count, anchor_caret = count, caret
+        if physical_base is not None and _physical_count(stopped) != physical_base:
+            # Печать до первой записи относится к прежней раскладке: span уже
+            # не соответствует набранному и не вправе начинать замену.
+            return SpanResult("aborted")
 
         eventless = _libreoffice_component(focus) == "calc"
 
@@ -269,16 +273,22 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
             if eventless:
                 # Редактор Calc не даёт достоверных object:text-changed: события
                 # могут отсутствовать или не совпадать с диапазоном. Доказываем
-                # результат точным чтением диапазона (проверено выше), счётчиком
-                # ровно на длину операции и отсутствием физического ввода.
-                if not safe() or stopped():
+                # точным чтением результата, независимым счётчиком физического
+                # ввода и арифметикой счётчика/каретки от якоря.
+                if not safe() or stopped() or physical_base is None or n2 is None:
                     return False
-                final_count = tree.character_count(node)
+                final_count, final_caret = tree.character_count(node), tree.caret(node)
                 last_physical = _physical_count(stopped)
-                expected = initial_count + (size if kind == "insert" else -size)
-                return (physical_base is not None and n2 is not None
-                        and last_physical == physical_base
-                        and final_count == expected and safe() and not stopped())
+                if type(last_physical) is not int or last_physical < physical_base:
+                    return False
+                appended = last_physical - physical_base
+                delta = len(target) if kind == "insert" else len(target) - size
+                return (last_physical == n2
+                        and type(final_count) is int and type(final_caret) is int
+                        and final_count == anchor_count + appended + delta
+                        and final_caret == anchor_caret + appended + delta
+                        and read(start, start + len(after)) == after
+                        and safe() and not stopped())
             if _edits(changes, before, after, start, kind, size, initial_count, current_count):
                 return True
             # Lost outside-span notifications need independent kernel input and caret proof.
@@ -306,11 +316,15 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
             if type(count) is not int or count < caret:
                 return SpanResult("aborted")
             first = len(events)
+        if physical_base is not None and _physical_count(stopped) != physical_base:
+            return SpanResult("aborted")
         if commit() is False:
             return SpanResult("aborted")
         attempted = True
         if not safe():
             return SpanResult("failed", True)
+        if physical_base is not None and _physical_count(stopped) != physical_base:
+            return SpanResult("aborted")
         if tree.insert_text(node, start, target) is not True:
             return SpanResult("failed", True)
         combined = target + source
@@ -337,17 +351,21 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
         return SpanResult("failed", attempted)
 
 
+_COMPONENTS = frozenset({"writer", "calc", "impress", "draw", "base", "math"})
+
+
 def _libreoffice_component(focus) -> str | None:
-    """Компонент по имени активного окна: на KDE app_ids недоступны."""
+    """Финальный суффикс отделяет компонент от произвольного имени документа."""
     window = getattr(focus, "window", None)
     if not isinstance(window, str):
         return None
-    name = window.casefold()
-    if "libreoffice writer" in name:
-        return "writer"
-    if "libreoffice calc" in name:
-        return "calc"
-    return None
+    name = window.casefold().strip()
+    marker = "libreoffice "
+    index = name.rfind(marker)
+    if index < 0:
+        return None
+    component = name[index + len(marker):].strip()
+    return component if component in _COMPONENTS else None
 
 
 def _writer_window(focus) -> bool:
@@ -357,7 +375,7 @@ def _writer_window(focus) -> bool:
 def _kde_identity(focus) -> bool:
     return (isinstance(focus, a11y.FocusSnapshot) and type(focus.app) is str
             and focus.app.casefold() in KDE_APPS
-            and _libreoffice_component(focus) is not None)
+            and _libreoffice_component(focus) in {"writer", "calc"})
 
 
 def _kde_field(field) -> bool:
