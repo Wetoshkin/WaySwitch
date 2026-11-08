@@ -48,10 +48,26 @@ class Screen:
         self.on_physical(code, 0)
 
 
+class TextScreen(Screen):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.on_chunk = lambda phase: None
+
+    def backspace(self, count):
+        self.deleted.append(self.text[-count:])
+        self.text = self.text[:-count]
+        self.on_chunk("backspace")
+
+    def type_text(self, text):
+        self.typed.append(text)
+        self.text += text
+        self.on_chunk("type")
+
+
 @pytest.fixture
-def keyboard():
+def keyboard(request):
     keymap, backend = make_keymap(), FakeBackend(current=US)
-    screen = Screen(keymap, backend)
+    screen = getattr(request, "param", Screen)(keymap, backend)
     interrupted = [False]
     screen.on_physical = lambda code, value: interrupted.__setitem__(0, True)
     return keymap, backend, screen, lambda: interrupted[0]
@@ -100,6 +116,7 @@ def test_interrupted_key_fix_has_no_history_counter_or_buffer_replay(automatic, 
 
 
 @pytest.mark.parametrize("outcome", [True, False, "error"])
+@pytest.mark.parametrize("keyboard", [Screen, TextScreen], indirect=True)
 def test_append_during_layout_wait_preserves_new_mode_even_on_failure(keyboard, outcome):
     keymap, backend, screen, abort = keyboard
 
@@ -116,6 +133,7 @@ def test_append_during_layout_wait_preserves_new_mode_even_on_failure(keyboard, 
     assert screen.deleted == screen.typed == [] and not screen.held
 
 
+@pytest.mark.parametrize("keyboard", [Screen, TextScreen], indirect=True)
 def test_append_during_set_exception_preserves_applied_mode(keyboard):
     keymap, backend, screen, abort = keyboard
     original = backend.set
@@ -133,6 +151,7 @@ def test_append_during_set_exception_preserves_applied_mode(keyboard):
 
 
 @pytest.mark.parametrize("outcome", [False, "error"])
+@pytest.mark.parametrize("keyboard", [Screen, TextScreen], indirect=True)
 def test_failed_layout_wait_without_physical_append_still_rolls_back(keyboard, outcome):
     keymap, backend, screen, abort = keyboard
 
@@ -146,6 +165,39 @@ def test_failed_layout_wait_without_physical_append_still_rolls_back(keyboard, o
     assert execute(plan, screen, backend, abort=abort, restore_group=US) == FAILED
     assert screen.text == "Test ghbdtn " and backend.current() == US
     assert screen.deleted == screen.typed == [] and not screen.held
+
+
+@pytest.mark.parametrize("phase", ["backspace", "type"])
+def test_text_chunk_interruption_stops_further_writes(keyboard, phase):
+    keymap, backend, _screen, _abort = keyboard
+    screen = TextScreen(keymap, backend)
+    screen.on_chunk = lambda chunk: screen.physical() if chunk == phase else None
+    plan = plan_fix(7, "привет ", RU, keymap, False)
+    assert execute(plan, screen, backend, abort=lambda: screen.injected,
+                   restore_group=US) == FAILED
+    assert screen.text == ("Test ф" if phase == "backspace" else "Test привет ф")
+    if phase == "backspace":
+        assert screen.typed == []
+
+
+@pytest.mark.parametrize("automatic", [False, True])
+@pytest.mark.parametrize("phase", ["backspace", "type"])
+def test_interrupted_text_fix_does_not_report_success_or_replay(automatic, phase):
+    state = controller_env.__wrapped__()
+    ctrl = state["ctrl"]
+    ctrl.config.general.auto_correct = automatic
+    ctrl.config.general.early_switch = False
+    screen = TextScreen(state["km"], state["backend"])
+    screen.on_physical = lambda code, value: ctrl.on_key(code, value, 99)
+    screen.on_chunk = lambda chunk: screen.physical() if chunk == phase else None
+    ctrl.typist = screen
+    type_text(state, "ghbdtn ")
+    if not automatic:
+        ctrl.manual_word()
+    assert screen.text == ("Test ф" if phase == "backspace" else "Test привет ф")
+    assert ctrl.buffer.is_empty() and ctrl._last_fix is None and ctrl._skip_word
+    assert ctrl.stats == {"corrections": 0, "manual": 0, "undo": 0}
+    assert state["corrected"] == [] and state["exceptions"] == []
 
 
 @pytest.mark.parametrize("failure", [False, True])
