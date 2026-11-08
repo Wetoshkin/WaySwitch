@@ -465,7 +465,13 @@ class Controller:
             elif why == "rejected":
                 self._skip_word = True
         if not (self.paused or self.locked):
-            self._sync_focus(typing_key=value == 1 and self.keymap.is_letter_key(code))
+            # Смена поля на любом «печатном» нажатии/отпускании может оказаться
+            # пересозданием редактора посреди слова; жесты и действия над
+            # выделением — это уже смена контекста, буфер не переносим.
+            keep_partial = (code not in self._gesture_keys
+                            and all(code not in gesture.keys
+                                    for gesture, _action in self._selection_gestures))
+            self._sync_focus(typing_key=keep_partial)
         # Жест прокручиваем всегда, в том числе во время фикса: иначе третий
         # Shift-тап, пришедший при busy, не будет учтён, и на его отпускании
         # счётчик снова даст «word» — лишний переворот раскладки.
