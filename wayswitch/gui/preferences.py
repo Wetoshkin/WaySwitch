@@ -507,12 +507,16 @@ class Preferences:
             title="Сообщать о новых версиях",
             subtitle="Раз в сутки спрашивать GitHub, вышла ли новая версия. Больше ничего "
                      "не отправляется")
+        if not portable.can_self_update():
+            self.sw_updates.set_sensitive(False)
+            self.sw_updates.set_subtitle(portable.PACKAGED_UPDATE_TEXT)
         self.sw_updates.connect("notify::active", lambda r, _p: self._set(
             "general", "check_updates", r.get_active()))
         updates.add(self.sw_updates)
         self.row_check = Adw.ActionRow(title="Проверить сейчас",
                                        subtitle=self.app.update_text())
-        check = Gtk.Button(label="Проверить", valign=Gtk.Align.CENTER)
+        check = Gtk.Button(label="Проверить", valign=Gtk.Align.CENTER,
+                           sensitive=portable.can_self_update())
         check.connect("clicked", lambda b: self._check_updates(b))
         self.row_check.add_suffix(check)
         # «Обновить» — пока есть новая версия; запускает команду в терминале.
@@ -586,7 +590,7 @@ class Preferences:
         c = self.cfg
         self._loading = True
         try:
-            self.sw_updates.set_active(c.general.check_updates)
+            self.sw_updates.set_active(c.general.check_updates and portable.can_self_update())
             self.cb_backend.set_selected(cfgmod.BACKEND_PREFS.index(c.backend.prefer))
             self.step_settle.set_value(c.typing.settle_ms)
             self.step_delay.set_value(c.typing.key_delay_ms)

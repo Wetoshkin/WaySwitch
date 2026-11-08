@@ -18,6 +18,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from wayswitch.gui import portable
+
 REPO = "Wetoshkin/WaySwitch"
 API_URL = f"https://api.github.com/repos/{REPO}/releases"
 RELEASES_URL = f"https://github.com/{REPO}/releases"
@@ -149,6 +151,8 @@ def fetch_latest(current: str, timeout: float = 5.0) -> Release | None:
 def check(current: str, *, force: bool = False, now: float | None = None,
           fetch=fetch_latest, path: Path | None = None) -> Release | None:
     """Новая версия с учётом суточного кэша. Блокирует — звать из потока."""
+    if portable.is_system_packaged():
+        return None
     now = time.time() if now is None else now
     cache = load_cache(path)
     if not force and not due(cache, now):

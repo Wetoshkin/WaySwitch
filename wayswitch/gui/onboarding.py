@@ -263,7 +263,11 @@ class Onboarding:
         self.sw_tray = Adw.SwitchRow(title=texts.tray_title(detect_desktop()), active=True)
         self.sw_updates = Adw.SwitchRow(title="Сообщать о новых версиях",
                                         subtitle="Раз в сутки спрашивать GitHub",
-                                        active=cfg.general.check_updates)
+                                        active=cfg.general.check_updates
+                                        and portable.can_self_update())
+        if not portable.can_self_update():
+            self.sw_updates.set_sensitive(False)
+            self.sw_updates.set_subtitle(portable.PACKAGED_UPDATE_TEXT)
         if portable.package_kind():
             for row in (self.sw_service, self.sw_tray):
                 row.set_active(False)
@@ -288,7 +292,8 @@ class Onboarding:
                 autostart.set_tray_enabled(self.sw_tray.get_active())
             try:
                 cfg = cfgmod.load()
-                cfg.general.check_updates = self.sw_updates.get_active()
+                if portable.can_self_update():
+                    cfg.general.check_updates = self.sw_updates.get_active()
                 cfgmod.save(cfg)
             except (cfgmod.ConfigError, OSError):
                 pass
