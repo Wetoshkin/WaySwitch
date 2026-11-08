@@ -135,6 +135,10 @@ class Controller:
         # к тому же объекту probe (ABA): номер меняется на каждом set_probe.
         self._probe_epoch = 0
         self._buffer_focus = None
+        # Поле появилось уже после первых букв (вход в редактирование ячейки
+        # Calc): буфер сохраняем, но исправление разрешаем только проверяемой
+        # заменой диапазона, а не клавишами.
+        self._provisional_binding = False
         # Ожидание снимка после простоя: реентрантные клавиши из pump() копим
         # до конца текущей, иначе они обгонят ещё не учтённую клавишу.
         self._focus_waiting = False
@@ -461,7 +465,13 @@ class Controller:
             elif why == "rejected":
                 self._skip_word = True
         if not (self.paused or self.locked):
-            self._sync_focus()
+            # Смена поля на любом «печатном» нажатии/отпускании может оказаться
+            # пересозданием редактора посреди слова; жесты и действия над
+            # выделением — это уже смена контекста, буфер не переносим.
+            keep_partial = (code not in self._gesture_keys
+                            and all(code not in gesture.keys
+                                    for gesture, _action in self._selection_gestures))
+            self._sync_focus(typing_key=keep_partial)
         # Жест прокручиваем всегда, в том числе во время фикса: иначе третий
         # Shift-тап, пришедший при busy, не будет учтён, и на его отпускании
         # счётчик снова даст «word» — лишний переворот раскладки.
@@ -519,6 +529,10 @@ class Controller:
             return
         if value == 1 and self._skip_word and (code in kc.RESET_KEYS or code in kc.META_KEYS):
             self._skip_word = False  # Enter, стрелки, Esc: каретка ушла, слово кончилось
+        if value == 1 and self.buffer.is_empty():
+            # Новое слово начинается с пустого буфера — прежний сомнительный
+            # контекст больше не действует.
+            self._provisional_binding = False
         event = self.buffer.feed(code, value, device_id, now)
         if value == 1 and self._pause_key is not None and code == self._pause_key:
             (self.resume if self.paused else self.pause)()
@@ -686,7 +700,7 @@ class Controller:
         if close is not None:
             close()
 
-    def _sync_focus(self, *, initial_binding: bool = False) -> bool:
+    def _sync_focus(self, *, initial_binding: bool = False, typing_key: bool = False) -> bool:
         """Один буфер принадлежит одному полю, включая ожидание и исполнение фикса.
 
         initial_binding — только для первой привязки явной selection-команды:
@@ -699,7 +713,24 @@ class Controller:
         old, self._buffer_focus = self._buffer_focus, scope
         if old is None or old == scope:
             return True
-        old_probe, _, old_field, _, old_protection = old
+        old_probe, _, old_field, old_app, old_protection = old
+        # Редактор ячейки Calc создаётся заново на каждый вход, поэтому во
+        # время набора поле успевает побывать None и смениться (grid → новый
+        # редактор). Префикс остаётся набранным в этом же приложении: буфер не
+        # стираем, но разрешаем только проверяемую native-замену. Клик/жест
+        # сюда не попадают (typing_key=False) и по-прежнему сбрасывают буфер.
+        partial_word = (typing_key and bool(self.buffer.current_word())
+                        and not self._lost_input)
+        # Поколение опроса может вырасти само по себе (событие окна/поллинга),
+        # не меняя поле и приложение: это не смена контекста, буфер сохраняем.
+        generation_only = (old_probe is self.probe and partial_word
+                           and old_field == snap.field and old_app == snap.app
+                           and old_protection == protection)
+        carry = (old_probe is self.probe and partial_word and snap.app is not None
+                 and protection is False and old_app in (None, snap.app))
+        if generation_only or carry:
+            self._provisional_binding = True
+            return True
         changed_field = (old_probe is self.probe and old_protection is not None
                          and protection is not None and old_field is not None
                          and snap.field is not None and old_field != snap.field)
@@ -708,6 +739,7 @@ class Controller:
             self._skip_word = self._lost_input
         else:
             self._skip_word |= bool(self.buffer.current_word()) or self._lost_input
+        self._provisional_binding = False
         self.buffer.reset()  # физически зажатые клавиши остаются учтены
         self.context.clear()
         self._hold_keys = None
@@ -1439,6 +1471,36 @@ class Controller:
                 or self._groups() is None
                 or not self._sync_focus())
 
+    def _refresh_focus_for_verified(self, expected, timeout: float = 0.6):
+        """Свежий снимок фокуса для проверяемой native-замены.
+
+        При входе в редактор ячейки кэш опроса может отставать; без свежего
+        поля native-протокол откажется, и слово потеряется. Ждём ограниченно
+        и только для неподтверждённой привязки.
+        """
+        probe = self.probe
+        try:
+            probe.poke()
+        except Exception:  # noqa: BLE001 — опрос не должен ронять ввод
+            return None
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                snap = probe.snapshot()
+            except Exception:  # noqa: BLE001 — неизвестный снимок не доказывает фокус
+                return None
+            same = (expected is None
+                    or expected.app is None
+                    or snap.app == expected.app)
+            if expected is not None and expected.window and snap.window:
+                same = snap.window == expected.window
+            if (snap.field is not None
+                    and snap.protection(self.clock()) is False and same):
+                return snap
+            self.pump()
+            self.sleep(0.02)
+        return None
+
     def _native_append_count(self) -> int | None:
         if not self.busy or self._busy_reset or self._operation_invalidated:
             return None
@@ -1533,12 +1595,21 @@ class Controller:
         if plan is None:
             log.warning("не могу набрать текст в группе %s", target_group)
             return False
+        plan.require_verified = self._provisional_binding
         original = self.keymap.decode(keys, group_before)
         if self.dry_run:
             log.info("[dry-run] %s: исправление текста", reason)
             return False
         plan.source_text = original + " " * tail
         plan.focus = self.probe.snapshot() if self.probe is not None else None
+        if plan.require_verified and self.probe is not None:
+            fresh = self._refresh_focus_for_verified(plan.focus)
+            if fresh is not None:
+                plan.focus = fresh
+                # Связка буфера должна указывать на то же поле, иначе _stop()
+                # в native-протоколе увидит «смену поля» и отменит исправление.
+                self._buffer_focus = (self.probe, fresh.generation, fresh.field,
+                                      fresh.app, fresh.protection(self.clock()))
         secret = secret or self._secret_focus()
         outcome = {} if outcome is None else outcome
         outcome["secret"] = secret
@@ -1589,6 +1660,14 @@ class Controller:
                 self.context.clear()
             lost = False
         if result == ABORTED and not interrupted:
+            if self._provisional_binding:
+                # Буфер собран при неподтверждённой привязке. Если слово уже
+                # закончилось пробелом (tail), пропускать следующее нельзя:
+                # его наберут в подтверждённом поле. Для незаконченного слова
+                # (жест без пробела) безопаснее дождаться границы.
+                if tail == 0:
+                    self._skip_word = True
+                self._provisional_binding = False
             # Экран не тронут: на нём прежнее слово и то, что человек
             # допечатал. Досылаем эти нажатия в буфер с тем состоянием
             # зажатых клавиш, что было на входе, — как будто исправления не было.

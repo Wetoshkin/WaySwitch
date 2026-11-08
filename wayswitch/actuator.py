@@ -63,6 +63,9 @@ class Plan:
     steps: list = field(default_factory=list)
     source_text: str | None = None
     focus: FocusSnapshot | None = None
+    # Привязка буфера к полю не была подтверждена до первого символа: писать
+    # клавишами нельзя, только проверяемая замена диапазона.
+    require_verified: bool = False
 
 
 class KeyTypist(Protocol):
@@ -445,6 +448,8 @@ def _execute_keys(plan: Plan, typist, run: _Run, key_delay: float, sleep,
             precheck_hold=False)
         if native_result is not _NATIVE_FALLBACK:
             return native_result
+        if plan.require_verified:
+            return ABORTED  # сомнительная привязка: клавишами чужой текст не трогаем
         for step in plan.steps:
             if status := interruption():
                 return status
@@ -549,6 +554,8 @@ def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: flo
             lambda step: _text_setup(step, typist, run, switch_timeout))
         if native_result is not _NATIVE_FALLBACK:
             return native_result
+        if plan.require_verified:
+            return ABORTED  # сомнительная привязка: клавишами чужой текст не трогаем
         for step in plan.steps:
             if run.aborted():
                 return ABORTED

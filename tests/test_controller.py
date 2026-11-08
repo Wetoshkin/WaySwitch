@@ -1055,3 +1055,208 @@ def test_password_field_after_idle_is_still_protected(env):
     type_text(env, "ghbdtn ")
     assert env["corrected"] == [] and env["typist"].events == []
     assert env["ctrl"].stats["corrections"] == 0
+
+
+
+# --- прямой ввод до появления подтверждённого поля (редактор ячейки Calc) ---
+
+
+class AppearingProbe(SafeProbe):
+    """Поле подтверждается не сразу: до первого символа его ещё нет."""
+
+    def __init__(self, clock):
+        super().__init__(clock)
+        self.visible = False
+
+    def snapshot(self):
+        field = (":1.1", "/org/a11y/atspi/accessible/1") if self.visible else None
+        return FocusSnapshot("editor", False, self.clock(), field=field, generation=1)
+
+    def poke(self):
+        pass
+
+
+class NativeTypist(RecordingTypist):
+    def __init__(self):
+        super().__init__()
+        self.native = []
+
+    def replace_span(self, focus, source, target, begin, stop):
+        if not begin():
+            return None
+        from wayswitch.editable import SpanResult
+
+        self.native.append((source, target))
+        return SpanResult("done", True)
+
+
+def test_direct_typing_keeps_buffer_and_uses_verified_span(env):
+    probe = AppearingProbe(env["clock"])
+    native = NativeTypist()
+    ctrl = env["ctrl"]
+    ctrl.set_probe(probe)
+    ctrl.typist = env["typist"] = native
+    type_text(env, "g")  # поле ещё не подтверждено
+    probe.visible = True
+    type_text(env, "hbdtn ")
+    assert native.native == [("ghbdtn ", "привет ")]
+    assert native.taps() == []
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+
+
+def test_direct_typing_without_native_never_writes_keys(env):
+    probe = AppearingProbe(env["clock"])
+    env["ctrl"].set_probe(probe)
+    type_text(env, "g")
+    probe.visible = True
+    type_text(env, "hbdtn ")
+    assert env["typist"].events == []
+    assert env["backend"].set_calls == []
+    assert env["corrected"] == []
+
+
+
+class TwoFieldsProbe(SafeProbe):
+    """Поле сначала A, затем тот же app, но новый field B (редактор пересоздан)."""
+
+    def __init__(self, clock):
+        super().__init__(clock)
+        self.second = False
+
+    def snapshot(self):
+        field = (":1.1", "/field-b") if self.second else (":1.1", "/field-a")
+        return FocusSnapshot("editor", False, self.clock(), field=field, generation=2)
+
+    def poke(self):
+        pass
+
+
+def test_recreated_field_keeps_buffer_and_uses_verified_span(env):
+    probe = TwoFieldsProbe(env["clock"])
+    native = NativeTypist()
+    ctrl = env["ctrl"]
+    ctrl.set_probe(probe)
+    ctrl.typist = env["typist"] = native
+    type_text(env, "g")  # поле A
+    probe.second = True  # редактор пересоздан: field B
+    type_text(env, "hbdtn ")
+    assert native.native == [("ghbdtn ", "привет ")]
+    assert native.taps() == []
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+
+
+def test_recreated_field_without_native_never_writes_keys(env):
+    probe = TwoFieldsProbe(env["clock"])
+    env["ctrl"].set_probe(probe)
+    type_text(env, "g")
+    probe.second = True
+    type_text(env, "hbdtn ")
+    assert env["typist"].events == []
+    assert env["backend"].set_calls == []
+    assert env["corrected"] == []
+
+
+
+class GenerationProbe(SafeProbe):
+    """Поколение растёт, пока поле не подтверждено; затем появляется поле."""
+
+    def __init__(self, clock):
+        super().__init__(clock)
+        self.generation = 0
+        self.confirmed = False
+
+    def snapshot(self):
+        if self.confirmed:
+            return FocusSnapshot("editor", False, self.clock(),
+                                 field=(":1.1", "/confirmed"), generation=self.generation)
+        return FocusSnapshot(None, False, self.clock(), generation=self.generation)
+
+    def bump(self):
+        """Событие окна/поллинга без смены поля."""
+        self.generation += 1
+
+    def poke(self):
+        pass
+
+
+def test_generation_bump_during_typing_keeps_buffer_and_uses_verified_span(env):
+    probe = GenerationProbe(env["clock"])
+    native = NativeTypist()
+    ctrl = env["ctrl"]
+    ctrl.set_probe(probe)
+    ctrl.typist = env["typist"] = native
+    type_text(env, "g")
+    probe.bump()
+    type_text(env, "hbdtn")
+    probe.confirmed = True
+    probe.bump()
+    type_text(env, " ")
+    assert native.native == [("ghbdtn ", "привет ")]
+    assert native.taps() == []
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+
+
+def test_generation_bump_without_native_never_writes_keys(env):
+    probe = GenerationProbe(env["clock"])
+    env["ctrl"].set_probe(probe)
+    type_text(env, "g")
+    probe.bump()
+    type_text(env, "hbdtn")
+    probe.confirmed = True
+    probe.bump()
+    type_text(env, " ")
+    assert env["typist"].events == []
+    assert env["backend"].set_calls == []
+    assert env["corrected"] == []
+
+
+
+class LateFieldProbe(SafeProbe):
+    """Поле появляется только во время pump() при ожидании свежего снимка."""
+
+    def __init__(self, clock):
+        super().__init__(clock)
+        self.confirmed = False
+        self.generation = 1
+
+    def snapshot(self):
+        if self.confirmed:
+            return FocusSnapshot("editor", False, self.clock(),
+                                 field=(":1.1", "/late"), generation=self.generation)
+        return FocusSnapshot("editor", False, self.clock(), generation=self.generation)
+
+    def bump(self):
+        self.generation += 1
+
+    def show(self):
+        self.confirmed = True
+
+    def poke(self):
+        pass
+
+
+def test_late_field_is_bound_before_verified_span(env):
+    probe = LateFieldProbe(env["clock"])
+    native = NativeTypist()
+    ctrl = env["ctrl"]
+    ctrl.set_probe(probe)
+    ctrl.typist = env["typist"] = native
+    ctrl.pump = probe.show
+    type_text(env, "g")
+    probe.bump()
+    type_text(env, "hbdtn ")
+    assert native.native == [("ghbdtn ", "привет ")]
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+
+
+
+def test_boundary_triggered_abort_does_not_skip_next_confirmed_word(env):
+    probe = AppearingProbe(env["clock"])
+    env["ctrl"].set_probe(probe)
+    type_text(env, "g")
+    probe.visible = True
+    type_text(env, "hbdtn ")  # слово в сомнительной привязке: native нет -> отказ
+    assert env["corrected"] == [] and env["typist"].events == []
+    type_text(env, "ghbdtn ")  # подтверждённое поле: обычная клавиатурная замена
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+    assert env["typist"].taps()
