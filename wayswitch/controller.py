@@ -1611,7 +1611,8 @@ class Controller:
         if plan is None:
             log.warning("не могу набрать текст в группе %s", target_group)
             return False
-        plan.require_verified = self._provisional_binding
+        # До границы слова человек продолжает печатать: клавиатурная замена не атомарна.
+        plan.require_verified = self._provisional_binding or reason in {"early", "url-early"}
         original = self.keymap.decode(keys, group_before)
         if self.dry_run:
             log.info("[dry-run] %s: исправление текста", reason)
@@ -1630,7 +1631,7 @@ class Controller:
         self._busy_reset = False
         started = self.clock()
         try:
-            if plan.require_verified and self.probe is not None:
+            if self._provisional_binding and self.probe is not None:
                 fresh = self._refresh_focus_for_verified(plan.focus)
                 if fresh is not None:
                     plan.focus = fresh

@@ -2,7 +2,17 @@
 
 import pytest
 
-from tests.fakes import RU, US, FakeBackend, RecordingTypist, SafeProbe, keys_for_text, make_keymap
+from tests.fakes import (
+    RU,
+    US,
+    FakeBackend,
+    RecordingTextTypist,
+    RecordingTypist,
+    SafeProbe,
+    keys_for_text,
+    make_keymap,
+)
+from tests.test_controller import NativeTypist
 from wayswitch import a11y
 from wayswitch import config as cfgmod
 from wayswitch import keycodes as kc
@@ -34,11 +44,11 @@ class SelectionProbe(SafeProbe):
                                   field=self.field, generation=self.generation)
 
 
-def make(real, group, config=None, selection="", monkeypatch=None):
+def make(real, group, config=None, selection="", monkeypatch=None, native=False):
     km, models = real
     backend = SelBackend(current=group)
     backend.selection = selection
-    typist, corrected = RecordingTypist(), []
+    typist, corrected = NativeTypist() if native else RecordingTypist(), []
     ctrl = Controller(config or Config(), km, Detector(km, models), backend, typist,
                       on_corrected=lambda o, f, m: corrected.append((o, f, m)),
                       probe=SelectionProbe())
@@ -216,9 +226,28 @@ def test_joint_two_capitals_uses_text_typist_with_original_source(real):
 
 # --- ранний триггер ----------------------------------------------------------
 
-def test_early_switch_on_fourth_letter(real):
+@pytest.mark.parametrize("transport", ["keys", "text"])
+def test_keyboard_early_prefix_waits_for_completed_word(real, transport):
     km = real[0]
     ctrl, backend, typist, corrected = make(real, US)
+    if transport == "text":
+        ctrl.typist = typist = RecordingTextTypist()
+    for key in keys_for_text(km, "ghbd", US):
+        press(ctrl, key.code)
+    assert not corrected and not backend.set_calls
+    assert not (typist.calls if transport == "text" else typist.events)
+    for key in keys_for_text(km, "tn ", US):
+        press(ctrl, key.code)
+    assert corrected == [("ghbdtn", "привет", False)]
+    if transport == "text":
+        assert typist.calls == [("backspace", 7), ("type", "привет ")]
+    else:
+        assert typed(km, typist, RU) == "привет "
+
+
+def test_early_switch_on_fourth_letter(real):
+    km = real[0]
+    ctrl, backend, typist, corrected = make(real, US, native=True)
     for key in keys_for_text(km, "ghbd", US):
         press(ctrl, key.code)
     assert corrected == [("ghbd", "прив", False)]
@@ -227,7 +256,8 @@ def test_early_switch_on_fourth_letter(real):
     for key in keys_for_text(km, "ет ", RU):
         press(ctrl, key.code)
     assert len(corrected) == 1
-    assert typed(km, typist, RU).endswith("прив")
+    assert typist.native == [("ghbd", "прив")]
+    assert not typist.taps()
 
 
 def test_early_switch_respects_setting_and_careful_mode(real):
@@ -348,7 +378,7 @@ def test_manual_revert_after_early_switch_counts_as_undo(real):
     km = real[0]
     cfg = Config()
     cfg.general.learn_after_undos = 1
-    ctrl, backend, _t, corrected = make(real, US, cfg)
+    ctrl, backend, _t, corrected = make(real, US, cfg, native=True)
     ctrl.schedule = lambda fn: fn()
     for key in keys_for_text(km, "ghbd", US):
         press(ctrl, key.code)
@@ -396,7 +426,7 @@ def _early_then_revert(ctrl, km, clock_step=None):
 
 def test_early_revert_before_space_learns_with_default_two_undos(real):
     km = real[0]
-    ctrl, backend, _t, corrected = make(real, US)
+    ctrl, backend, _t, corrected = make(real, US, native=True)
     ctrl.schedule = lambda fn: fn()
     clock = {"t": 100.0}
     ctrl.clock = lambda: clock["t"]
@@ -417,7 +447,7 @@ def test_next_word_with_same_start_is_not_an_undo(real):
     km = real[0]
     cfg = Config()
     cfg.general.learn_after_undos = 1
-    ctrl, backend, _t, _c = make(real, US, cfg)
+    ctrl, backend, _t, _c = make(real, US, cfg, native=True)
     ctrl.schedule = lambda fn: fn()
     for key in keys_for_text(km, "ghbd", US):
         press(ctrl, key.code)
@@ -436,7 +466,7 @@ def test_translit_quotes_stay_quotes():
 
 def test_early_revert_after_space_learns_with_default_two_undos(real):
     km = real[0]
-    ctrl, backend, _t, _c = make(real, US)
+    ctrl, backend, _t, _c = make(real, US, native=True)
     ctrl.schedule = lambda fn: fn()
     clock = {"t": 100.0}
     ctrl.clock = lambda: clock["t"]
