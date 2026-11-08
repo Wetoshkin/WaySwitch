@@ -333,20 +333,27 @@ undo, a password field, screen locking and VT changes. The Nix package was built
 and checked on Linux; a live NixOS graphical session has not been tested.
 
 Writer checks cover both directions, undo after continued typing, automatic
-capitalization and two consecutive words. Calc verification remains
-incomplete: the last separate manual-correction run saved a duplicate word.
-The combined changes need another live check; see the project status. Chrome checks cover
+capitalization and two consecutive words. With the fixes after 1.1.2,
+Calc on GNOME 51.1 passed eight automatic and eight manual corrections:
+F2 and direct input, slow and fast typing. See the project status. Chrome checks cover
 ordinary fields, editable page elements, passwords and readonly fields.
 The original eXpress message editor was tested in an isolated environment
 without sending messages; an authenticated chat has not been tested.
 
 Firefox Flatpak checks on Bazzite cover input, textarea, contenteditable and the
-address bar. Telegram was checked in an ordinary field before login; its
-authenticated message editor remains untested. ONLYOFFICE Desktop Editors 10.0.0
+address bar. With the fixes after 1.1.2, native Telegram 7.4.1 on GNOME 51.1
+passed both directions in an authenticated message composer, without sending
+messages. This does not verify the Telegram Flatpak composer. ONLYOFFICE Desktop Editors 10.0.0
 (Flatpak on Bazzite) did not expose an AT-SPI field tree on the tested setup;
 automatic correction was not confirmed. In a separate control using the official
 DEB on Ubuntu, the AT-SPI connection worked, but the document and Find controls
 did not expose editable fields even with screen-reader support enabled.
+
+GridCraft 0.13.0 Flatpak needs access to the accessibility bus:
+`flatpak override --user --talk-name=org.a11y.Bus ai.storyteller.gridcraft`.
+Save your workbooks and fully restart GridCraft after this change.
+With this permission, an isolated instance passed automatic correction in
+both directions. The native WaySwitch service is also required.
 
 When retyping uses virtual key presses, observed physical input stops further
 changes and can leave a partial correction. A physical key can still arrive
