@@ -1196,8 +1196,17 @@ def test_kde_unsupported_role_only_when_live_metadata_is_safe(kde_native, change
 
 def test_kde_calc_uses_readback_proof_without_text_changed_events(kde_native):
     kde_native.focus = kde_native.focus._replace(window="doc — LibreOffice Calc")
-    kde_native.tree.silent_events = True
+    tree = kde_native.tree
+    tree.silent_events = True
     kde_native.stopped.append = lambda: 0
+
+    # Calc может присылать события, не совпадающие с нашим диапазоном/длиной.
+    def unreliable_events():
+        tree.events.append(("delete", 0, 6))
+        tree.events.append(("insert", 0, 6))
+
+    tree.after_insert = unreliable_events
+    tree.after_delete = unreliable_events
     assert kde_replace(kde_native) == editable.SpanResult("done", True)
     assert kde_native.tree.text == "Test " + TARGET
     assert kde_native.tree.writes == [("insert", 5, TARGET), ("delete", 12, 19)]

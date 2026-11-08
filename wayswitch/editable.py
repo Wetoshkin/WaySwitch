@@ -266,13 +266,11 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
             else:
                 return False
             changes = events[first:]
-            if _edits(changes, before, after, start, kind, size, initial_count, current_count):
-                return True
-            if eventless and not changes:
-                # Calc не присылает object:text-changed для редактора ячейки.
-                # Доказываем результат точным чтением диапазона (проверено выше)
-                # и изменением счётчика ровно на длину нашей операции, без
-                # физического ввода между чтениями.
+            if eventless:
+                # Редактор Calc не даёт достоверных object:text-changed: события
+                # могут отсутствовать или не совпадать с диапазоном. Доказываем
+                # результат точным чтением диапазона (проверено выше), счётчиком
+                # ровно на длину операции и отсутствием физического ввода.
                 if not safe() or stopped():
                     return False
                 final_count = tree.character_count(node)
@@ -281,6 +279,8 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
                 return (physical_base is not None and n2 is not None
                         and last_physical == physical_base
                         and final_count == expected and safe() and not stopped())
+            if _edits(changes, before, after, start, kind, size, initial_count, current_count):
+                return True
             # Lost outside-span notifications need independent kernel input and caret proof.
             return (physical_base is not None and n2 is not None
                     and _append_edits(changes, start, len(source), len(target), kind,
