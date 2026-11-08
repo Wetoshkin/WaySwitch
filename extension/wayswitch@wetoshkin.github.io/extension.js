@@ -50,7 +50,7 @@ const IFACE_XML = `
 </node>`;
 // Версия протокола: демон сверяет её и просит перелогиниться, если Shell
 // держит старую копию расширения (на Wayland оно перезагружается только так).
-const PROTOCOL_VERSION = 3;
+const PROTOCOL_VERSION = 4;
 
 // GNOME 51 убрал Clutter.get_default_backend() — берём бэкенд у контекста
 // сцены (get_backend() есть с GNOME 48), а старый путь оставляем для 46–47.

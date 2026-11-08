@@ -28,7 +28,7 @@ assert.deepEqual(Array.from(context.extension.GetFocusedApp()),
     ['jetbrains-idea', 'com.jetbrains.IntelliJ-IDEA']);
 
 assert.equal(typeof context.extension.GetFocusedContext, 'function');
-assert.equal(context.extension.GetVersion(), 3);
+assert.equal(context.extension.GetVersion(), 4);
 const plainContext = () => JSON.parse(JSON.stringify(context.extension.GetFocusedContext()));
 context.global.display.focus_window.get_pid = () => 1234;
 assert.deepEqual(plainContext(), [

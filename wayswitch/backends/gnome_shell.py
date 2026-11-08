@@ -12,6 +12,7 @@ from wayswitch.keymap import LayoutSpec
 BUS_NAME = "io.github.Wetoshkin.WaySwitch.Shell"
 OBJECT_PATH = "/io/github/Wetoshkin/WaySwitch/Shell"
 INTERFACE = "io.github.Wetoshkin.WaySwitch.Shell"
+TYPING_PROTOCOL_VERSION = 4
 
 
 def shell_extension_present() -> bool:
@@ -183,3 +184,12 @@ class ShellTypist:
 
     def type_text(self, text: str) -> None:
         self._backend.type_text(text)
+
+
+def make_typist(backend, keys, mode):
+    if mode == "extension" and (extension_version() or 0) >= TYPING_PROTOCOL_VERSION:
+        return ShellTypist(backend, keys=keys)
+    from wayswitch.editable import try_replace
+
+    keys.replace_span = try_replace
+    return keys
