@@ -69,6 +69,8 @@ class Tree:
         self.after_insert = lambda: None
         self.after_delete = lambda: None
         self.insert_event_start = self.delete_event_start = None
+        # Calc не присылает object:text-changed для редактора ячейки.
+        self.silent_events = False
 
     def state(self, node):
         assert node == FIELD
@@ -111,8 +113,9 @@ class Tree:
             self.text = self.text[:start] + text + self.text[start:]
             if self.position >= start:
                 self.position += len(text)
-            offset = start if self.insert_event_start is None else self.insert_event_start
-            self.events.append(("insert", offset, len(text)))
+            if not self.silent_events:
+                offset = start if self.insert_event_start is None else self.insert_event_start
+                self.events.append(("insert", offset, len(text)))
         self.after_insert()
         if self.insert_error:
             raise self.insert_error
@@ -126,8 +129,9 @@ class Tree:
         self.text = self.text[:start] + self.text[end:]
         self.position = self.position - (end - start) if self.position >= end else min(
             self.position, start)
-        offset = start if self.delete_event_start is None else self.delete_event_start
-        self.events.append(("delete", offset, end - start))
+        if not self.silent_events:
+            offset = start if self.delete_event_start is None else self.delete_event_start
+            self.events.append(("delete", offset, end - start))
         self.after_delete()
         return self.delete_reply
 
@@ -1190,10 +1194,30 @@ def test_kde_unsupported_role_only_when_live_metadata_is_safe(kde_native, change
     assert not kde_native.tree.reads and not kde_native.tree.writes
 
 
-def test_kde_calc_window_never_uses_writer_span(kde_native):
+def test_kde_calc_uses_readback_proof_without_text_changed_events(kde_native):
     kde_native.focus = kde_native.focus._replace(window="doc — LibreOffice Calc")
-    assert kde_replace(kde_native) is None
-    assert not kde_native.tree.reads and not kde_native.tree.writes and not kde_native.committed
+    kde_native.tree.silent_events = True
+    kde_native.stopped.append = lambda: 0
+    assert kde_replace(kde_native) == editable.SpanResult("done", True)
+    assert kde_native.tree.text == "Test " + TARGET
+    assert kde_native.tree.writes == [("insert", 5, TARGET), ("delete", 12, 19)]
+    assert kde_native.committed == [True]
+
+
+def test_kde_calc_external_change_without_events_is_refused(kde_native):
+    kde_native.focus = kde_native.focus._replace(window="doc — LibreOffice Calc")
+    tree = kde_native.tree
+    tree.silent_events = True
+    kde_native.stopped.append = lambda: 0
+
+    def external_append():
+        tree.text += "X"
+        tree.position += 1
+
+    tree.after_insert = external_append
+    assert kde_replace(kde_native) == editable.SpanResult("failed", True)
+    assert all(operation[0] != "delete" for operation in tree.writes)
+    assert SOURCE in tree.text
 
 
 def test_kde_unknown_window_keeps_keyboard_transport(kde_native):

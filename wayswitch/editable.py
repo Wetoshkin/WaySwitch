@@ -250,6 +250,8 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
                 return SpanResult("aborted")
         anchor_count, anchor_caret = count, caret
 
+        eventless = _libreoffice_component(focus) == "calc"
+
         def confirmed(first, before, after, kind, size, initial_count):
             if not safe():
                 return False
@@ -266,6 +268,19 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
             changes = events[first:]
             if _edits(changes, before, after, start, kind, size, initial_count, current_count):
                 return True
+            if eventless and not changes:
+                # Calc не присылает object:text-changed для редактора ячейки.
+                # Доказываем результат точным чтением диапазона (проверено выше)
+                # и изменением счётчика ровно на длину нашей операции, без
+                # физического ввода между чтениями.
+                if not safe() or stopped():
+                    return False
+                final_count = tree.character_count(node)
+                last_physical = _physical_count(stopped)
+                expected = initial_count + (size if kind == "insert" else -size)
+                return (physical_base is not None and n2 is not None
+                        and last_physical == physical_base
+                        and final_count == expected and safe() and not stopped())
             # Lost outside-span notifications need independent kernel input and caret proof.
             return (physical_base is not None and n2 is not None
                     and _append_edits(changes, start, len(source), len(target), kind,
@@ -322,20 +337,27 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
         return SpanResult("failed", attempted)
 
 
-def _writer_window(focus) -> bool:
-    """Активное окно — именно Writer: на KDE app_ids недоступны.
-
-    Неизвестное/другое окно (например, Calc) не разрешает нативный span и
-    оставляет прежний клавиатурный путь: там нет вставки без удаления.
-    """
+def _libreoffice_component(focus) -> str | None:
+    """Компонент по имени активного окна: на KDE app_ids недоступны."""
     window = getattr(focus, "window", None)
-    return (isinstance(window, str)
-            and "libreoffice writer" in window.casefold())
+    if not isinstance(window, str):
+        return None
+    name = window.casefold()
+    if "libreoffice writer" in name:
+        return "writer"
+    if "libreoffice calc" in name:
+        return "calc"
+    return None
+
+
+def _writer_window(focus) -> bool:
+    return _libreoffice_component(focus) == "writer"
 
 
 def _kde_identity(focus) -> bool:
     return (isinstance(focus, a11y.FocusSnapshot) and type(focus.app) is str
-            and focus.app.casefold() in KDE_APPS and _writer_window(focus))
+            and focus.app.casefold() in KDE_APPS
+            and _libreoffice_component(focus) is not None)
 
 
 def _kde_field(field) -> bool:
