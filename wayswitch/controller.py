@@ -1466,6 +1466,32 @@ class Controller:
                 or self._groups() is None
                 or not self._sync_focus())
 
+    def _refresh_focus_for_verified(self, expected_app, timeout: float = 0.6):
+        """Свежий снимок фокуса для проверяемой native-замены.
+
+        При входе в редактор ячейки кэш опроса может отставать; без свежего
+        поля native-протокол откажется, и слово потеряется. Ждём ограниченно
+        и только для неподтверждённой привязки.
+        """
+        probe = self.probe
+        try:
+            probe.poke()
+        except Exception:  # noqa: BLE001 — опрос не должен ронять ввод
+            return None
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                snap = probe.snapshot()
+            except Exception:  # noqa: BLE001 — неизвестный снимок не доказывает фокус
+                return None
+            if (snap.field is not None
+                    and snap.protection(self.clock()) is False
+                    and (expected_app is None or snap.app == expected_app)):
+                return snap
+            self.pump()
+            self.sleep(0.02)
+        return None
+
     def _native_append_count(self) -> int | None:
         if not self.busy or self._busy_reset or self._operation_invalidated:
             return None
@@ -1567,6 +1593,11 @@ class Controller:
             return False
         plan.source_text = original + " " * tail
         plan.focus = self.probe.snapshot() if self.probe is not None else None
+        if plan.require_verified and self.probe is not None:
+            fresh = self._refresh_focus_for_verified(
+                plan.focus.app if plan.focus is not None else None)
+            if fresh is not None:
+                plan.focus = fresh
         secret = secret or self._secret_focus()
         outcome = {} if outcome is None else outcome
         outcome["secret"] = secret
