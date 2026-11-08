@@ -798,7 +798,8 @@ def kde_native(monkeypatch):
     tree = KdeTree(events)
     context = a11y.ShellContext()
     monkeypatch.setattr(a11y, "query_shell_context", lambda: context)
-    focus = a11y.FocusSnapshot("soffice.bin", False, time.monotonic(), (), FIELD)
+    focus = a11y.FocusSnapshot("soffice.bin", False, time.monotonic(), (), FIELD,
+                               window="doc — LibreOffice Writer")
     connection = SimpleNamespace(close_sync=lambda _cancellable: None)
 
     @contextmanager
@@ -1189,6 +1190,18 @@ def test_kde_unsupported_role_only_when_live_metadata_is_safe(kde_native, change
     assert not kde_native.tree.reads and not kde_native.tree.writes
 
 
+def test_kde_calc_window_never_uses_writer_span(kde_native):
+    kde_native.focus = kde_native.focus._replace(window="doc — LibreOffice Calc")
+    assert kde_replace(kde_native) is None
+    assert not kde_native.tree.reads and not kde_native.tree.writes and not kde_native.committed
+
+
+def test_kde_unknown_window_keeps_keyboard_transport(kde_native):
+    kde_native.focus = kde_native.focus._replace(window=None)
+    assert kde_replace(kde_native) is None
+    assert not kde_native.tree.reads and not kde_native.tree.writes and not kde_native.committed
+
+
 def test_kde_non_libreoffice_returns_none_without_native_connection(kde_native, monkeypatch):
     def forbidden():
         raise AssertionError("No native connection for another KDE app")
@@ -1202,7 +1215,8 @@ def test_kde_non_libreoffice_returns_none_without_native_connection(kde_native, 
 def test_gnome_entry_still_requires_writer_app_id_for_kde_style_focus(monkeypatch):
     calls = []
     monkeypatch.setattr(a11y, "_new_a11y_connection", lambda: calls.append(True))
-    focus = a11y.FocusSnapshot("soffice.bin", False, time.monotonic(), (), FIELD)
+    focus = a11y.FocusSnapshot("soffice.bin", False, time.monotonic(), (), FIELD,
+                               window="doc — LibreOffice Writer")
     assert editable.try_replace(focus, SOURCE, TARGET, lambda: True, lambda: False) is None
     assert calls == []
 

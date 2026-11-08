@@ -322,9 +322,20 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
         return SpanResult("failed", attempted)
 
 
+def _writer_window(focus) -> bool:
+    """Активное окно — именно Writer: на KDE app_ids недоступны.
+
+    Неизвестное/другое окно (например, Calc) не разрешает нативный span и
+    оставляет прежний клавиатурный путь: там нет вставки без удаления.
+    """
+    window = getattr(focus, "window", None)
+    return (isinstance(window, str)
+            and "libreoffice writer" in window.casefold())
+
+
 def _kde_identity(focus) -> bool:
     return (isinstance(focus, a11y.FocusSnapshot) and type(focus.app) is str
-            and focus.app.casefold() in KDE_APPS)
+            and focus.app.casefold() in KDE_APPS and _writer_window(focus))
 
 
 def _kde_field(field) -> bool:

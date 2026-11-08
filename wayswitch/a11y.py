@@ -74,6 +74,9 @@ class FocusSnapshot(NamedTuple):
     app_ids: tuple[str, ...] = ()
     field: tuple[str, str] | None = None
     generation: int = 0
+    # Имя активного окна: нужно, чтобы отличить компонент LibreOffice
+    # (Writer от Calc) на KDE, где app_ids недоступны.
+    window: str | None = None
 
     def age(self, now: float) -> float:
         return max(0.0, now - self.taken_at)
@@ -486,7 +489,14 @@ def find_focus(tree, root, focused_pid: int = 0) -> FocusSnapshot:
         if _state_focused(state):
             field = _caret_field(tree, node, parents, remaining, depth)
             if field is not None:
-                return FocusSnapshot(app_name, field[1], field=field[0])
+                window_name = None
+                try:
+                    name = tree._property(window, ACC, "Name")
+                    window_name = name if isinstance(name, str) else None
+                except Exception:  # noqa: BLE001 — имя окна лишь уточняет компонент
+                    window_name = None
+                return FocusSnapshot(app_name, field[1], field=field[0],
+                                     window=window_name)
             if native_phase:
                 unverified_focus.add(node)
         if depth < MAX_DEPTH:
