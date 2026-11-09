@@ -159,7 +159,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Инструменты сборки AppImage
-        run: sudo apt-get update && sudo apt-get install -y python3 dpkg squashfs-tools
+        run: sudo apt-get update && sudo apt-get install -y python3 dpkg squashfs-tools xvfb python3-pyatspi scrot
       - name: Сборка .AppImage
         run: python3 tools/build_appimage.py build/appimage
       - name: Проверка значка в готовом AppImage
@@ -167,6 +167,17 @@ jobs:
           cd build/appimage
           ./WaySwitch-Settings-x86_64.AppImage --appimage-extract .DirIcon > /dev/null
           cmp squashfs-root/.DirIcon ../../packaging/icons/io.github.Wetoshkin.WaySwitch.png
+      - name: Первый запуск готового AppImage под C
+        run: |
+          xvfb-run -a -s "-screen 0 1280x900x24" dbus-run-session -- \
+            python3 tests/appimage_locale_smoke.py \
+              build/appimage/WaySwitch-Settings-x86_64.AppImage build/appimage-smoke
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wayswitch-appimage-smoke
+          path: build/appimage-smoke/
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:
           name: wayswitch-appimage
