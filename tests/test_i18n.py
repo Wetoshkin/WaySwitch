@@ -116,6 +116,8 @@ def _markup_tags(message: str) -> Counter:
     ({"LANG": "ru_RU.UTF-8", "LC_ALL": ""}, "ru"),
     ({"LANG": "en_US.UTF-8", "LANGUAGE": "ru"}, "ru"),
     ({"LANG": "ru_RU.UTF-8", "LANGUAGE": "en:ru"}, "en"),
+    ({"LANG": "en_US.UTF-8", "LANGUAGE": "C:ru"}, "en"),
+    ({"LANG": "en_US.UTF-8", "LANGUAGE": "POSIX:ru"}, "en"),
     ({"LANG": "ru_RU.UTF-8", "LANGUAGE": "fr:ru"}, "ru"),
     ({"LANG": "C", "LANGUAGE": "ru"}, "en"),
     ({"LC_ALL": "C.UTF-8", "LANGUAGE": "ru"}, "en"),

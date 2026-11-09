@@ -82,6 +82,8 @@ def select_language(environ: Mapping[str, str] | None = None) -> str:
     """
     for candidate in locale_candidates(environ):
         language = _language_of(candidate)
+        if language in ("C", "POSIX"):
+            return SOURCE_LANGUAGE
         if language == SOURCE_LANGUAGE or language in SUPPORTED_LANGUAGES:
             return language
     return SOURCE_LANGUAGE
