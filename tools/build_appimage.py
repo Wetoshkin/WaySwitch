@@ -146,6 +146,9 @@ def main() -> None:
     (appdir / "AppRun").chmod(0o755)
     icon = ROOT / "packaging/icons/io.github.Wetoshkin.WaySwitch.svg"
     shutil.copyfile(icon, appdir / f"{APPIMAGE_ID}.svg")
+    png = icon.with_suffix(".png")
+    shutil.copyfile(png, appdir / f"{APPIMAGE_ID}.png")
+    shutil.copyfile(png, appdir / ".DirIcon")
     desktop = (ROOT / f"packaging/flatpak/{FLATPAK_ID}.desktop").read_text()
     (appdir / f"{APPIMAGE_ID}.desktop").write_text(
         desktop.replace(FLATPAK_ID, APPIMAGE_ID).replace("Exec=wayswitch-gui", "Exec=AppRun"))

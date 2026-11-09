@@ -5,6 +5,8 @@ import importlib.util
 import io
 import json
 import re
+import struct
+import sys
 import urllib.error
 from pathlib import Path
 
@@ -119,6 +121,39 @@ def test_common_licenses_have_a_verified_source():
     source = lock["common_licenses"]
     assert source["file"].startswith("base-files_")
     assert source["url"].startswith("https://") and len(source["sha256"]) == 64
+
+
+def test_appdir_has_png_directory_icon_matching_desktop(tmp_path, monkeypatch):
+    module = builder()
+    output = tmp_path / "build"
+    appdir = output / "WaySwitch.AppDir"
+    monkeypatch.setattr(sys, "argv", ["build_appimage.py", str(output)])
+    monkeypatch.setattr(module, "fetch_verified", lambda _url, target, _hash:
+                        target.write_bytes(b"verified dependency"))
+
+    def run(command, **_kwargs):
+        if command[0] == "dpkg-deb":
+            target = Path(command[-1])
+            if target != appdir:
+                (target / "usr/share/common-licenses").mkdir(parents=True)
+            else:
+                for name in ("usr/lib/python3.12/urllib/request.py",
+                             "usr/share/ca-certificates/mozilla/test.crt"):
+                    path = target / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(b"dependency")
+        elif command[0] == "mksquashfs":
+            Path(command[2]).write_bytes(b"squashfs")
+
+    monkeypatch.setattr(module.subprocess, "run", run)
+    module.main()
+    directory_icon = (appdir / ".DirIcon").read_bytes()
+    assert directory_icon[:8] == b"\x89PNG\r\n\x1a\n"
+    assert directory_icon[12:16] == b"IHDR"
+    assert struct.unpack(">II", directory_icon[16:24]) == (256, 256)
+    desktop = (appdir / f"{module.APPIMAGE_ID}.desktop").read_text()
+    name = re.search(r"^Icon=(.+)$", desktop, re.M).group(1)
+    assert (appdir / f"{name}.png").read_bytes() == directory_icon
 
 
 def test_ubuntu_inputs_use_a_single_immutable_snapshot():
