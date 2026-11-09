@@ -100,6 +100,12 @@ The installer checks the system before making changes.
 **NixOS:** use the separate [package and system module guide](docs/nixos.md).
 The command below is for other distributions.
 
+**Before installing**
+
+- The udev rule allows any program running with the active local user's permissions to read keyboard events.
+- Corrections run locally. The settings window keeps the correction history in memory, and typed words stay out of the logs. Word exceptions, including those learned after you undo corrections, are saved in `~/.config/wayswitch/exceptions.txt`.
+- The installer downloads files from GitHub. In builds with a built-in update checker, the settings window checks GitHub Releases once a day or on request. GitHub receives your IP address and WaySwitch version. Typed text stays on your device. You can turn off automatic checks in Preferences.
+
 1. Open a terminal (in KDE it is **Konsole**).
 2. Paste the command with <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> and press <kbd>Enter</kbd>:
 
