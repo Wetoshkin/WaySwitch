@@ -404,6 +404,13 @@ WaySwitch на паузе. Посмотреть все жесты в окне �
 Всё настраивается мышью, файл конфигурации править не нужно. Изменения
 применяются сразу.
 
+**Язык интерфейса.** Окно, уведомления, значок и модуль Waybar выбирают язык
+при запуске по `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG`. Русская локаль
+даёт русский интерфейс; английская, `C`, `C.UTF-8`, `POSIX`, неизвестная или
+отсутствующая — английский исходный. Для `C`/`POSIX` переменная `LANGUAGE`
+не включает русский каталог. Виджет Plasma использует системный язык KDE.
+Локализация ещё не вошла в опубликованный релиз.
+
 **GNOME, COSMIC, Xfce, MATE, Budgie, LXQt, KDE.** Откройте «WaySwitch» из
 меню приложений (в Xfce, LXQt и MATE он есть и в центре настроек). В окне —
 состояние, поле для проверки и последние исправления; параметры — в меню
@@ -773,6 +780,7 @@ python -m ruff check .
 | Задача | Команда |
 |---|---|
 | пересобрать словари | `python tools/build_data.py` |
+| пересобрать перевод | `msgfmt --check --check-format --no-hash -o wayswitch/locale/ru/LC_MESSAGES/wayswitch.mo wayswitch/locale/ru/LC_MESSAGES/wayswitch.po` |
 | собрать `.deb` | `bash tools/build_deb.sh` |
 | собрать `.rpm` | `bash tools/build_rpm.sh` |
 | собрать пакет Arch | `cd packaging/arch && makepkg -si` |

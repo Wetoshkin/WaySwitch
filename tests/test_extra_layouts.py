@@ -197,7 +197,7 @@ def test_selected_text_conversion_uses_nonzero_pair(monkeypatch):
 @pytest.mark.parametrize("desktop", ["gnome", "kde", "sway", "hyprland", "cosmic",
                                      "umbriel", "xfce", "cinnamon"])
 @pytest.mark.parametrize("ids", [("de", "ru", "us"), ("us",), ("de", "fr", "pl", "ru", "us")])
-def test_doctor_layout_policy_does_not_block_setup(desktop, ids, monkeypatch):
+def test_doctor_layout_policy_does_not_block_setup(desktop, ids, monkeypatch, ru_locale):
     from wayswitch import doctor
     from wayswitch.backends import (
         compositor,
@@ -250,7 +250,7 @@ def test_doctor_layout_policy_does_not_block_setup(desktop, ids, monkeypatch):
                for r in texts.onboarding_rows([scope]))
 
 
-def test_gui_does_not_offer_manual_edits_on_unsupported_source():
+def test_gui_does_not_offer_manual_edits_on_unsupported_source(ru_locale):
     from wayswitch.gui import texts
 
     env = environment(current=0)

@@ -38,6 +38,30 @@ def test_script_runs_get_sh_and_waits():
     assert "--uninstall" in terminal.manual_command(True)
 
 
+def test_failure_message_is_echoed_as_shell_source():
+    """Текст ошибки должен попасть во внутренний sh как команда echo."""
+    assert terminal.message_command("не удалось") == "\necho 'не удалось'"
+    assert terminal.message_command("a; rm -rf x") == "\necho 'a; rm -rf x'"
+    script = terminal.script(False)
+    assert "|| echo " in script and "else echo " in script
+
+
+@pytest.mark.skipif(shutil.which("sh") is None or shutil.which("dash") is None,
+                    reason="нужен POSIX sh")
+@pytest.mark.parametrize("partial", [False, True])
+def test_curl_failure_prints_message_without_executing_it(tmp_path, monkeypatch, partial):
+    marker = tmp_path / "executed"
+    monkeypatch.setattr(terminal, "_", lambda message: (
+        f"touch {marker}" if message == terminal.NO_NETWORK else message))
+    prefix = "printf 'printf partial'; " if partial else ""
+    script = "curl() { " + prefix + "return 1; }\n" + terminal.script(False)
+    result = subprocess.run(["dash", "-c", script], input="\n", capture_output=True,
+                            text=True, cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert str(marker) in result.stdout
+    assert not marker.exists()
+
+
 @pytest.mark.skipif(shutil.which("sh") is None or shutil.which("dash") is None,
                     reason="нужен POSIX sh")
 def test_script_is_valid_posix_sh():

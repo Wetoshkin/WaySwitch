@@ -15,6 +15,8 @@ import shlex
 import shutil
 from collections.abc import Callable
 
+from wayswitch.i18n import gettext as _
+
 GET_SH_URL = "https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/get.sh"
 
 # Терминалы и как передать им команду: «--» / «-e» / «-x» / просто аргументами.
@@ -58,24 +60,35 @@ PREFERRED = {
 # пустота после ошибки curl.
 # Начинается с перевода строки: если загрузка оборвалась посреди строки,
 # сообщение не склеится с её обрывком.
-NO_NETWORK = ('\necho; echo "Не удалось скачать WaySwitch с GitHub. Проверьте, что '
-              'интернет работает, и нажмите кнопку ещё раз."')
-NO_CURL = ('echo "Нужна программа curl. Установите её через «Центр приложений» '
-           '(или: sudo apt install curl / sudo dnf install curl) и нажмите кнопку ещё раз."')
+NO_NETWORK = ('\nCould not download WaySwitch from GitHub. Check that the internet '
+              'connection works and press the button again.')
+NO_CURL = ('The curl program is required. Install it from the application center '
+           '(or: sudo apt install curl / sudo dnf install curl) and press the button again.')
+TITLE_UPDATE = "Updating WaySwitch"
+TITLE_REMOVE = "Removing WaySwitch"
+PRESS_ENTER = "Press Enter to close this window. "
+
+
+def message_command(message: str) -> str:
+    """Команда печати сообщения для внутреннего sh."""
+    # Перевод строки отделяет команду от частично скачанного скрипта.
+    return "\necho " + shlex.quote(message)
 
 
 def script(uninstall: bool) -> str:
     """Скрипт для терминала: скачать get.sh, запустить, дождаться Enter."""
     args = " -s -- --uninstall" if uninstall else ""
-    title = "Удаление WaySwitch" if uninstall else "Обновление WaySwitch"
+    title = _(TITLE_REMOVE if uninstall else TITLE_UPDATE)
+    no_network = message_command(_(NO_NETWORK))
+    no_curl = message_command(_(NO_CURL))
     return (
-        f'printf "\\n  {title}\\n\\n"; '
+        f'printf "\\n  %s\\n\\n" {shlex.quote(title)}; '
         f'URL={shlex.quote(GET_SH_URL)}; '
         'if command -v curl >/dev/null 2>&1; then '
-        f'curl -fsSL "$URL" || echo {shlex.quote(NO_NETWORK)}; '
-        f'else echo {shlex.quote(NO_CURL)}; fi'
+        f'curl -fsSL "$URL" || echo {shlex.quote(no_network)}; '
+        f'else echo {shlex.quote(no_curl)}; fi'
         f' | sh{args}; '
-        'printf "\\nНажмите Enter, чтобы закрыть это окно. "; read _'
+        f'printf "\\n%s " {shlex.quote(_(PRESS_ENTER))}; read _'
     )
 
 

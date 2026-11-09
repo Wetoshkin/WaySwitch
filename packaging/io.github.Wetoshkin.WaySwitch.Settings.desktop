@@ -1,15 +1,19 @@
 [Desktop Entry]
 Type=Application
 Name=WaySwitch
-GenericName=Исправление раскладки
-Comment=Исправление слов, набранных не в той раскладке (ru/en)
+Name[ru]=WaySwitch
+GenericName=Keyboard layout correction
+GenericName[ru]=Исправление раскладки
+Comment=Fixes words typed in the wrong layout (ru/en)
+Comment[ru]=Исправление слов, набранных не в той раскладке (ru/en)
 Exec=wayswitch-gui
 Icon=io.github.Wetoshkin.WaySwitch
 Terminal=false
 # Settings + разделы центров настроек: Xfce (X-XFCE-SettingsDialog), LXQt и
 # MATE показывают такие записи в своих центрах настроек.
 Categories=Settings;DesktopSettings;HardwareSettings;X-XFCE-SettingsDialog;X-XFCE-HardwareSettings;X-LXQt;X-MATE-Personal;
-Keywords=раскладка;клавиатура;исправление;layout;keyboard;punto;caramba;switcher;
+Keywords=layout;keyboard;correction;punto;caramba;switcher;
+Keywords[ru]=раскладка;клавиатура;исправление;layout;keyboard;punto;caramba;switcher;
 # Должно совпадать с APP_ID окна (wayswitch/gui/app.py) и с именем этого файла:
 # иначе GNOME не связывает запущенное окно с записью и рисует заглушку.
 StartupWMClass=io.github.Wetoshkin.WaySwitch.Settings

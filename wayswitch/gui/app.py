@@ -11,12 +11,13 @@ from __future__ import annotations
 import logging
 import sys
 
-from wayswitch import __version__, updates
+from wayswitch import __version__, i18n, updates
 from wayswitch import config as cfgmod
 from wayswitch.gui import autostart, portable, texts
 from wayswitch.gui.daemon_proxy import DaemonProxy
 from wayswitch.gui.dialogs import REPO_URL  # noqa: F401 — реэкспорт для тестов
 from wayswitch.gui.tray import StatusNotifier
+from wayswitch.i18n import gettext as _
 
 # Своё имя, отдельное от демона (io.github.Wetoshkin.WaySwitch): с общим GApplication
 # пытается зарегистрироваться на уже занятом имени, не находит там org.gtk.Actions
@@ -51,12 +52,13 @@ def parse_gui_args(argv: list[str]) -> bool:
 def update_text(release, checked: bool) -> str:
     """Подпись строки «Проверить сейчас» в Параметрах → Система."""
     if portable.is_system_packaged():
-        return portable.PACKAGED_UPDATE_TEXT
+        return _(portable.PACKAGED_UPDATE_TEXT)
     if release is not None:
-        return f"Доступна версия {release.version} (сейчас {__version__})"
+        return _("Version {version} available (currently {current})").format(
+            version=release.version, current=__version__)
     if checked:
-        return f"Установлена последняя версия ({__version__})"
-    return f"Версия {__version__}"
+        return _("Up to date ({version})").format(version=__version__)
+    return _("Version {version}").format(version=__version__)
 
 
 def _open_uri(uri: str) -> None:
@@ -82,6 +84,9 @@ def notify_selection_result(send_notification, result) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Язык фиксируется до создания окон и переведённых подписей. Каталог
+    # читается один раз; сам язык по-прежнему вычисляется из окружения.
+    i18n.init()
     import gi
 
     gi.require_version("Gtk", "4.0")
@@ -243,11 +248,11 @@ def main(argv: list[str] | None = None) -> int:
                 self._main.render_status(status)
 
         def _notify_stopped(self):
-            note = Gio.Notification.new("Исправление перестало работать")
-            note.set_body("Служба WaySwitch остановилась. Откройте WaySwitch, чтобы "
-                          "запустить её снова и посмотреть журнал.")
+            note = Gio.Notification.new(_("Correction stopped working"))
+            note.set_body(_("The WaySwitch service stopped. Open WaySwitch to start it "
+                            "again and look at the log."))
             note.set_default_action("app.show-window")
-            note.add_button("Открыть", "app.show-window")
+            note.add_button(_("Open"), "app.show-window")
             self.send_notification("stopped", note)
 
         def _on_corrected(self, original, fixed, manual):
@@ -313,17 +318,18 @@ def main(argv: list[str] | None = None) -> int:
             run_in_thread(lambda: updates.check(__version__, force=force), finished)
 
         def _notify_update(self, release):
-            note = Gio.Notification.new(f"Вышла WaySwitch {release.version}")
-            note.set_body("Нажмите «Обновить» — откроются инструкции для окна и службы."
-                          if portable.package_kind() else
-                          "Нажмите «Обновить» — откроется терминал, там нужно будет ввести пароль.")
+            note = Gio.Notification.new(_("WaySwitch {version} is available").format(
+                version=release.version))
+            note.set_body(_("Press “Update” to open the instructions for the window and "
+                            "the service.") if portable.package_kind() else
+                          _("Press “Update” to open a terminal and enter your password."))
             note.set_default_action("app.show-window")
-            note.add_button("Обновить", "app.run-update")
+            note.add_button(_("Update"), "app.run-update")
             self.send_notification("update", note)
 
         def update_text(self, checked: bool = False) -> str:
             if getattr(self, "update_error", False):
-                return "Не удалось проверить: нет связи с GitHub"
+                return _("Could not check: no connection to GitHub")
             return update_text(self.update, checked or self._update_checked)
 
         def open_release(self):

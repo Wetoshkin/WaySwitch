@@ -19,6 +19,7 @@ def test_desktop_entry():
     text = tray_desktop_text()
     assert "[Desktop Entry]" in text and "Exec=wayswitch-gui --tray" in text
     assert "X-GNOME-Autostart-enabled=true" in text
+    assert "Comment[ru]=Значок WaySwitch в верхней панели" in text
 
 
 def test_tray_autostart_migrates_legacy_name(tmp_path, monkeypatch):
@@ -36,7 +37,7 @@ def test_tray_autostart_migrates_legacy_name(tmp_path, monkeypatch):
     assert (tmp_path / "autostart" / autostart.DESKTOP_NAME).exists()
 
 
-def test_menu_layout_reflects_status():
+def test_menu_layout_reflects_status(ru_locale):
     items = {i.ident: i for i in menu_layout(None)}
     assert items["settings"].enabled and not items["pause"].enabled
     assert "Не запущен" in items["summary"].label
@@ -45,13 +46,20 @@ def test_menu_layout_reflects_status():
     assert items["auto"].toggle is True
 
 
+def test_menu_layout_reflects_status_in_english(en_locale):
+    items = {i.ident: i for i in menu_layout(None)}
+    assert "Not running" in items["summary"].label
+    items = {i.ident: i for i in menu_layout({"paused": True, "auto_correct": True})}
+    assert items["pause"].label == "Resume" and items["auto"].label == "Auto-correction"
+
+
 def test_menu_layout_shows_update():
     idents = [i.ident for i in menu_layout({"auto_correct": True}, update="2.1.0")]
     assert "update" in idents
     assert "update" not in [i.ident for i in menu_layout({"auto_correct": True})]
 
 
-def test_selection_menu_requires_confirmed_backend_capability():
+def test_selection_menu_requires_confirmed_backend_capability(ru_locale):
     for status in (None, {}, {"selection_supported": False}):
         item = next(i for i in menu_layout(status) if i.ident == "fix_selection")
         assert not item.enabled
@@ -59,6 +67,11 @@ def test_selection_menu_requires_confirmed_backend_capability():
     item = next(i for i in menu_layout({"selection_supported": True})
                 if i.ident == "fix_selection")
     assert item.enabled and item.label == "Исправить выделенное"
+
+
+def test_selection_menu_english_fallback(en_locale):
+    item = next(i for i in menu_layout(None) if i.ident == "fix_selection")
+    assert item.label == "Fix selection (unavailable)"
 
 
 # --- уведомление о неподтверждённом исправлении выделенного -----------------------
@@ -118,7 +131,7 @@ def test_selection_feedback_notifies_once_per_failed_action(monkeypatch):
     assert len(sent) == 3
 
 
-def test_selection_feedback_wording_does_not_guess_or_claim_unchanged():
+def test_selection_feedback_wording_does_not_guess_or_claim_unchanged(ru_locale):
     feedback = texts.selection_feedback(None)
     assert feedback == texts.selection_feedback((False,))
     text = feedback.title + " " + feedback.body
@@ -132,6 +145,13 @@ def test_selection_feedback_wording_does_not_guess_or_claim_unchanged():
         assert claim not in text
 
 
+def test_selection_feedback_english_wording(en_locale):
+    feedback = texts.selection_feedback(None)
+    assert feedback.title == "Could not confirm the correction"
+    assert "Check the text in the field" in feedback.body
+    assert "assigned key" in feedback.body
+
+
 def test_tray_fix_selection_reports_result():
     source = (GUI / "app.py").read_text(encoding="utf-8")
     assert '"fix_selection": self._fix_selection' in source
@@ -143,7 +163,7 @@ def test_tray_fix_selection_reports_result():
     assert "self.send_notification" in code and "FixSelection" in code
 
 
-def test_cosmic_unlock_confirmation_has_actionable_gui_state():
+def test_cosmic_unlock_confirmation_has_actionable_gui_state(ru_locale):
     status = {"lock_confirmation_required": True, "locked": False, "paused": False}
     view = texts.status_view(status)
     assert "Подтвердите" in view.title
@@ -199,6 +219,46 @@ def test_portable_startup_does_not_migrate_native_autostart(monkeypatch):
         assert calls == ([True] if kind is None else [])
 
 
+@pytest.mark.parametrize("error", [
+    "config",
+    "oserror",
+])
+def test_preferences_save_error_keeps_original_text(monkeypatch, ru_locale, error):
+    """_flush не должен затенять переводчик аргументом *_."""
+    import sys
+    import types
+
+    from wayswitch import config as cfgmod
+    from wayswitch.gui import preferences
+
+    gi = types.ModuleType("gi")
+    repository = types.ModuleType("gi.repository")
+    repository.GLib = types.SimpleNamespace(SOURCE_REMOVE=False,
+                                            source_remove=lambda _source: None)
+    monkeypatch.setitem(sys.modules, "gi", gi)
+    monkeypatch.setitem(sys.modules, "gi.repository", repository)
+    monkeypatch.setattr(cfgmod, "load", lambda: cfgmod.Config())
+    exc = (cfgmod.ConfigError("плохое значение") if error == "config"
+           else OSError("диск переполнен"))
+
+    def fail(_cfg):
+        raise exc
+
+    monkeypatch.setattr(cfgmod, "save", fail)
+    instance = object.__new__(preferences.Preferences)
+    instance._save_source = 0
+    instance._dirty = {("general", "auto_correct"): True}
+    instance._replace = False
+    instance.cfg = cfgmod.Config()
+    instance._saved = cfgmod.Config()
+    instance.toasts = []
+    instance.toast = lambda text, *args, **kwargs: instance.toasts.append(text)
+    instance._load_correction = lambda: None
+    instance._load_system = lambda: None
+    assert instance._flush() is False
+    assert instance.toasts == [f"Не удалось сохранить: {exc}"]
+
+
 def test_gui_app_id_does_not_clash_with_daemon():
     """Общее D-Bus-имя с демоном не даёт окну настроек открыться."""
     from wayswitch.dbus_service import BUS_NAME
@@ -213,16 +273,24 @@ def test_repo_url_points_to_github():
     assert REPO_URL.startswith("https://github.com/Wetoshkin/WaySwitch")
 
 
-def test_update_text():
+def test_update_text(ru_locale):
     from wayswitch.updates import Release
 
     assert "2.1.0" in update_text(Release("2.1.0", "u"), checked=True)
     assert "последняя" in update_text(None, checked=True)
 
 
+def test_update_text_english(en_locale):
+    from wayswitch.updates import Release
+
+    assert "2.1.0" in update_text(Release("2.1.0", "u"), checked=True)
+    assert "Up to date" in update_text(None, checked=True)
+
+
 @pytest.mark.parametrize("checked", [False, True])
 @pytest.mark.parametrize("release", [None, "9.9.9"])
-def test_packaged_update_status_never_claims_latest(monkeypatch, tmp_path, checked, release):
+def test_packaged_update_status_never_claims_latest(monkeypatch, tmp_path, checked, release,
+                                                    ru_locale):
     from wayswitch.gui import portable
     from wayswitch.updates import Release
 
@@ -299,19 +367,31 @@ def test_onboarding_preserves_update_preference_when_packaged(monkeypatch, tmp_p
 
 # --- тексты -----------------------------------------------------------------------
 
-def test_plural():
+def test_plural(ru_locale):
     assert [texts.plural(n, "слово", "слова", "слов") for n in (1, 2, 5, 11, 21, 22, 112)] \
         == ["слово", "слова", "слов", "слов", "слово", "слова", "слов"]
 
 
-def test_format_units():
+def test_plural_english(en_locale):
+    assert [texts.plural(n, "word", "words", "words") for n in (1, 2, 5, 21)] \
+        == ["word", "words", "words", "words"]
+
+
+def test_format_units(ru_locale):
     assert texts.format_seconds(5.0) == "5 с"
     assert texts.format_seconds(0.5) == "0,5 с"
     assert texts.format_seconds(0) == "нет"
     assert texts.format_ms(30) == "30 мс"
 
 
-def test_status_view_human_words():
+def test_format_units_english(en_locale):
+    assert texts.format_seconds(5.0) == "5 s"
+    assert texts.format_seconds(0.5) == "0.5 s"
+    assert texts.format_seconds(0) == "none"
+    assert texts.format_ms(30) == "30 ms"
+
+
+def test_status_view_human_words(ru_locale):
     view = texts.status_view({"active": True, "auto_correct": True, "backend": "shell",
                               "layout": "ru"})
     assert view.kind == "on" and view.title == "Исправление включено"
@@ -324,6 +404,14 @@ def test_status_view_human_words():
             assert word not in (v.title + v.subtitle).lower()
 
 
+def test_status_view_english(en_locale):
+    view = texts.status_view({"active": True, "auto_correct": True, "backend": "shell",
+                              "layout": "ru"})
+    assert view.kind == "on" and view.title == "Correction is on"
+    assert "Russian" in view.subtitle and "GNOME Shell" in view.subtitle
+    assert texts.status_view(None).title == "WaySwitch is not running"
+
+
 def test_status_view_states():
     assert texts.status_view(None).kind == "off"
     assert texts.status_view({"paused": True}).kind == "paused"
@@ -332,7 +420,7 @@ def test_status_view_states():
     assert texts.status_view({"active": False, "auto_correct": True}).kind == "manual"
 
 
-def test_tray_summary():
+def test_tray_summary(ru_locale):
     assert texts.tray_summary(None) == "Не запущен"
     text = texts.tray_summary({"corrections_total": 40, "manual_total": 8})
     assert "48 слов" in text
@@ -349,7 +437,7 @@ def test_history_keeps_newest_first_and_limit():
     assert len(h) == 0
 
 
-def test_onboarding_rows_map_doctor_checks():
+def test_onboarding_rows_map_doctor_checks(ru_locale):
     checks = [Check("Сессия Wayland", True, "GNOME", key="wayland"),
               Check("Две раскладки", True, "us, ru", key="layouts"),
               Check("Клавиатуры читаются", False, "нет доступа", key="keyboards"),
@@ -364,7 +452,7 @@ def test_onboarding_rows_map_doctor_checks():
     assert not texts.onboarding_blocking([r for r in rows if r.state != "fail"])
 
 
-def test_onboarding_shows_unknown_focus_without_blocking():
+def test_onboarding_shows_unknown_focus_without_blocking(ru_locale):
     checks = [Check("Сессия Wayland", True, "KDE Plasma", key="wayland"),
               Check("Служба AT-SPI", True, required=False),
               Check("Активное приложение", False, required=False, key="focus")]
@@ -380,9 +468,15 @@ def test_onboarding_shows_unknown_focus_without_blocking():
 
 # --- клавиша жеста ------------------------------------------------------------------
 
-def test_gesture_human_names():
+def test_gesture_human_names(ru_locale):
     assert gesture_keys.human_name("leftctrl") == "Левый Ctrl"
     assert gesture_keys.human_name("rightalt") == "Правый Alt"
+    assert gesture_keys.human_name("f7") == "F7"
+
+
+def test_gesture_human_names_english(en_locale):
+    assert gesture_keys.human_name("leftctrl") == "Left Ctrl"
+    assert gesture_keys.human_name("rightalt") == "Right Alt"
     assert gesture_keys.human_name("f7") == "F7"
 
 
@@ -396,7 +490,7 @@ def test_gesture_capture():
     assert gesture_keys.capture(KEY_A)[0] == "reject"
 
 
-def test_gesture_rows_follow_config():
+def test_gesture_rows_follow_config(ru_locale):
     from wayswitch import config as cfgmod
     from wayswitch.gui.dialogs import gesture_rows
 

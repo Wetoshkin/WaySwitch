@@ -60,6 +60,7 @@ udevadm control --reload-rules >/dev/null 2>&1 || :
 /usr/lib/modules-load.d/wayswitch.conf
 /usr/lib/systemd/user/wayswitch.service
 /usr/share/wayswitch/
+/usr/share/locale/ru/LC_MESSAGES/wayswitch.mo
 %dir /usr/share/gnome-shell
 %dir /usr/share/gnome-shell/extensions
 /usr/share/gnome-shell/extensions/wayswitch@wetoshkin.github.io/

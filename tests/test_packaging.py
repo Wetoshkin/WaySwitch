@@ -202,3 +202,33 @@ def test_package_epoch_survives_version_renumbering():
     pkgbuild = (ROOT / "arch/PKGBUILD").read_text(encoding="utf-8")
     assert "\tepoch = 1\n" in srcinfo(pkgbuild)
     assert (repo / "packaging/arch/.SRCINFO").read_text(encoding="utf-8") == srcinfo(pkgbuild)
+
+
+def test_ru_catalog_is_shipped_in_every_package_format():
+    """Один домен wayswitch.mo: внутри Python и в стандартном share/locale."""
+    repo = ROOT.parent
+    pyproject = (repo / "pyproject.toml").read_text(encoding="utf-8")
+    assert "locale/*/LC_MESSAGES/*.mo" in pyproject
+    assert "locale/*/LC_MESSAGES/*.po" in pyproject
+
+    for name in ("stage.sh",):
+        text = (repo / "tools" / name).read_text(encoding="utf-8")
+        assert "/usr/share/locale/ru/LC_MESSAGES/wayswitch.mo" in text
+    installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+    assert "/usr/local/share/locale/ru/LC_MESSAGES/wayswitch.mo" in installer
+    uninstaller = (ROOT / "uninstall.sh").read_text(encoding="utf-8")
+    assert "/usr/local/share/locale/ru/LC_MESSAGES/wayswitch.mo" in uninstaller
+    assert "rm -rf /usr/local/share/locale" not in uninstaller
+
+    appimage = (repo / "tools" / "build_appimage.py").read_text(encoding="utf-8")
+    assert "usr/share/locale/ru/LC_MESSAGES" in appimage
+    flatpak = (ROOT / "flatpak" / "io.github.Wetoshkin.WaySwitch.Gui.json").read_text(
+        encoding="utf-8")
+    assert "/app/share/locale/ru/LC_MESSAGES/wayswitch.mo" in flatpak
+    nix = (ROOT / "nix" / "package.nix").read_text(encoding="utf-8")
+    assert "wayswitch/locale/ru/LC_MESSAGES/wayswitch.mo" in nix
+    assert "$out/share/locale/ru/LC_MESSAGES/wayswitch.mo" in nix
+    rpm = (ROOT / "rpm" / "wayswitch.spec").read_text(encoding="utf-8")
+    assert "/usr/share/locale/ru/LC_MESSAGES/wayswitch.mo" in rpm
+    assert (repo / "wayswitch/locale/ru/LC_MESSAGES/wayswitch.mo").is_file()
+    assert (repo / "wayswitch/locale/ru/LC_MESSAGES/wayswitch.po").is_file()

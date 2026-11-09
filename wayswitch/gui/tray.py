@@ -12,6 +12,7 @@ from collections.abc import Callable
 from typing import NamedTuple
 
 from wayswitch.gui import portable, texts
+from wayswitch.i18n import gettext as _
 
 log = logging.getLogger("wayswitch.gui")
 
@@ -110,23 +111,24 @@ def menu_layout(status: dict | None, update: str | None = None) -> list[MenuItem
     pause_enabled = running and not bool(status and status.get("lock_confirmation_required")
                                         and status.get("locked"))
     items = [
-        MenuItem("summary", "WaySwitch — " + texts.tray_summary(status), False),
+        MenuItem("summary", _("WaySwitch — {summary}").format(
+            summary=texts.tray_summary(status)), False),
         MenuItem("sep1", kind="separator"),
-        MenuItem("auto", "Автоисправление", running, toggle=auto),
-        MenuItem("pause", "Возобновить" if paused else "Пауза", pause_enabled,
+        MenuItem("auto", _("Auto-correction"), running, toggle=auto),
+        MenuItem("pause", _("Resume") if paused else _("Pause"), pause_enabled,
                  icon="media-playback-start-symbolic" if paused
                  else "media-playback-pause-symbolic"),
-        MenuItem("fix_selection", "Исправить выделенное" if selection_supported
-                 else "Исправить выделенное (недоступно)", selection_supported,
+        MenuItem("fix_selection", _("Fix selection") if selection_supported
+                 else _("Fix selection (unavailable)"), selection_supported,
                  icon="edit-select-all-symbolic"),
         MenuItem("sep2", kind="separator"),
     ]
     if update:
-        items.append(MenuItem("update", f"Обновить до {update}…",
+        items.append(MenuItem("update", _("Update to {version}…").format(version=update),
                               icon="software-update-available-symbolic"))
     items += [
-        MenuItem("settings", "Открыть WaySwitch", icon="window-new-symbolic"),
-        MenuItem("quit", "Выйти", icon="application-exit-symbolic"),
+        MenuItem("settings", _("Open WaySwitch"), icon="window-new-symbolic"),
+        MenuItem("quit", _("Quit"), icon="application-exit-symbolic"),
     ]
     return items
 

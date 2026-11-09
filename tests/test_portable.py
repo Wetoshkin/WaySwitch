@@ -110,13 +110,48 @@ def test_shared_portable_metadata_does_not_claim_sandbox_confinement():
     assert "this sandbox" not in meta
 
 
+@pytest.mark.parametrize("language,expected_update", [
+    ("en", "For a local .flatpak"),
+    ("ru", "Для локального .flatpak"),
+])
+def test_flatpak_instructions_keep_shell_command_exact(
+        language, expected_update, monkeypatch, locale_env):
+    """Перевод не должен форматировать {64} внутри grep-команды."""
+    monkeypatch.setenv("FLATPAK_ID", portable.FLATPAK_ID)
+    locale_env(LANG="en_US.UTF-8" if language == "en" else "ru_RU.UTF-8")
+    update = portable.instructions("update")
+    assert portable.FLATPAK_UPDATE_COMMAND in update
+    assert "^[0-9a-fA-F]{64} [ *]WaySwitch-Settings[.]flatpak$" in update
+    assert "flatpak update io.github.Wetoshkin.WaySwitch.Gui" in update
+    assert expected_update in update
+    assert "{64}" in update
+    for action, marker in (("setup", "wayswitch doctor"),
+                           ("remove", "--uninstall")):
+        text = portable.instructions(action)
+        assert marker in text
+        assert "{command}" not in text
+
+
+def test_flatpak_update_is_english_in_c_locale_and_keeps_grep(
+        monkeypatch, locale_env):
+    """Исходный дефект: LC_ALL=C + LANGUAGE=ru + .format(id=...)."""
+    monkeypatch.setenv("FLATPAK_ID", portable.FLATPAK_ID)
+    locale_env(LC_ALL="C", LANGUAGE="ru")
+    text = portable.instructions("update")
+    assert text.startswith("Window update:")
+    assert portable.FLATPAK_UPDATE_COMMAND in text
+    assert "^[0-9a-fA-F]{64} [ *]WaySwitch-Settings[.]flatpak$" in text
+    assert "{64}" in text
+    assert "{command}" not in text
+
+
 @pytest.mark.parametrize("case", ["valid", "corrupt", "missing-record"])
 def test_displayed_flatpak_update_verifies_only_target_and_gates_install(
         shell, tmp_path, monkeypatch, case):
     import hashlib
 
     monkeypatch.setenv("FLATPAK_ID", portable.FLATPAK_ID)
-    commands = portable.instructions("update").split("выполните:\n\n", 1)[1].split("\n\n", 1)[0]
+    commands = portable.FLATPAK_UPDATE_COMMAND
     payload = b"verified local bundle"
     bundle = tmp_path / "WaySwitch-Settings.flatpak"
     bundle.write_bytes(b"corrupt bundle" if case == "corrupt" else payload)

@@ -6,20 +6,35 @@ import os
 from pathlib import Path
 
 from wayswitch.gui.terminal import manual_command
+from wayswitch.i18n import gettext as _
 
 FLATPAK_ID = "io.github.Wetoshkin.WaySwitch.Gui"
 APPIMAGE_ID = "io.github.Wetoshkin.WaySwitch.AppImage"
 NATIVE_ID = "io.github.Wetoshkin.WaySwitch.Settings"
 RELEASES_URL = "https://github.com/Wetoshkin/WaySwitch/releases"
-PACKAGED_UPDATE_TEXT = "Обновления через пакетный менеджер"
+# Английский исходный текст; перевод берётся при показе.
+PACKAGED_UPDATE_TEXT = "Updates through the package manager"
+# Команды и регулярное выражение не переводятся: {64} внутри значения не
+# должно попасть в str.format шаблона перевода.
+FLATPAK_UPDATE_COMMAND = (
+    "grep -E '^[0-9a-fA-F]{64} [ *]WaySwitch-Settings[.]flatpak$' SHA256SUMS |\n"
+    "sha256sum -c - &&\n"
+    "flatpak install --user --or-update ./WaySwitch-Settings.flatpak"
+)
+FLATPAK_UPDATE_TEMPLATE = (
+    "For a local .flatpak: download the new WaySwitch-Settings.flatpak and "
+    "SHA256SUMS from the same release. In the download folder run:\n\n"
+    "{command}\n\n"
+    "For a repository install (for example Flathub): flatpak update {id}"
+)
 SETUP = (
-    "Это окно настроек. Исправление и жесты выполняет отдельная служба WaySwitch "
-    "на основной системе. Установите нативный пакет из Releases или выполните "
-    "в терминале основной системы:\n\n" + manual_command(False) +
-    "\n\nУстановщик запросит пароль для правил клавиатуры. Затем выйдите из сеанса "
-    "и войдите снова и запустите:\n\nsystemctl --user enable --now wayswitch.service"
-    "\nwayswitch doctor\n\nНа Bazzite используется rpm-ostree; после установки нужен "
-    "перезапуск. Не выдавайте переносимому окну права устройств через Flatseal."
+    "This is the settings window. Correction and gestures are performed by a separate "
+    "WaySwitch service on the host system. Install the native package from Releases "
+    "or run in a terminal on the host system:\n\n" + manual_command(False) +
+    "\n\nThe installer will ask for the password for keyboard rules. Then sign out and "
+    "sign in again, and run:\n\nsystemctl --user enable --now wayswitch.service"
+    "\nwayswitch doctor\n\nOn Bazzite, rpm-ostree is used; a reboot is required after "
+    "installation. Do not grant the portable window device access through Flatseal."
 )
 
 
@@ -47,44 +62,44 @@ def application_id() -> str:
 
 def instructions(action: str = "setup") -> str:
     if action == "update":
-        gui = (("Для локального .flatpak: скачайте новый WaySwitch-Settings.flatpak и "
-                "SHA256SUMS из того же релиза. В каталоге загрузки выполните:\n\n"
-                "grep -E '^[0-9a-fA-F]{64} [ *]WaySwitch-Settings[.]flatpak$' SHA256SUMS |\n"
-                "sha256sum -c - &&\n"
-                "flatpak install --user --or-update ./WaySwitch-Settings.flatpak\n\n"
-                f"Для установки из репозитория (например, Flathub): flatpak update {FLATPAK_ID}")
-               if package_kind() == "flatpak" else
-               "Скачайте новый AppImage из Releases, проверьте SHA256SUMS, "
-               "закройте окно и замените файл AppImage.")
-        return ("Обновление окна:\n\n" + gui + "\n\nОтдельно обновите нативную службу "
-                "в терминале основной системы:\n\n" + manual_command(False) +
-                "\n\nПосле обновления расширения GNOME войдите в сеанс заново.")
+        gui = _(FLATPAK_UPDATE_TEMPLATE).format(
+            command=FLATPAK_UPDATE_COMMAND, id=FLATPAK_ID) \
+            if package_kind() == "flatpak" else \
+            _("Download the new AppImage from Releases, verify SHA256SUMS, close the "
+              "window and replace the AppImage file.")
+        return (_("Window update:\n\n") + gui +
+                _("\n\nUpdate the native service separately in a terminal on the host "
+                  "system:\n\n") + manual_command(False) +
+                _("\n\nAfter updating the GNOME extension, sign in again."))
     if action == "remove":
-        gui = (f"flatpak uninstall {FLATPAK_ID}" if package_kind() == "flatpak" else
-               "Закройте окно и удалите файл AppImage.")
-        return ("Удаление окна:\n\n" + gui + "\n\nСлужба продолжит исправлять слова. "
-                "Чтобы отдельно удалить её, выполните в терминале основной системы:\n\n" +
-                manual_command(True) + "\n\nОбщие настройки ~/.config/wayswitch сохраняются.")
-    return SETUP
+        gui = (_("flatpak uninstall {id}").format(id=FLATPAK_ID)
+               if package_kind() == "flatpak" else
+               _("Close the window and delete the AppImage file."))
+        return (_("Window removal:\n\n") + gui +
+                _("\n\nThe service will keep correcting words. To remove it separately, "
+                  "run in a terminal on the host system:\n\n") +
+                manual_command(True) +
+                _("\n\nShared settings in ~/.config/wayswitch are kept."))
+    return _(SETUP)
 
 
 def connection_report(status: dict | None) -> str:
     if status is None:
-        return "D-Bus: disconnected\n\n" + SETUP
+        return "D-Bus: disconnected\n\n" + _(SETUP)
     return (f"Package: {package_kind()}\nD-Bus: connected\n" +
             "\n".join(f"{k}: {v}" for k, v in sorted(status.items())) +
-            "\n\nДиагностика нативной службы: wayswitch doctor\n"
-            "Журнал: journalctl --user -u wayswitch.service -n 200 --no-pager")
+            _("\n\nNative service diagnostics: wayswitch doctor\n"
+              "Log: journalctl --user -u wayswitch.service -n 200 --no-pager"))
 
 
 def show_instructions(parent, action: str = "setup"):
     from gi.repository import Adw, Gdk, Gio
 
     text = instructions(action)
-    dialog = Adw.AlertDialog(heading="WaySwitch: окно и нативная служба", body=text)
-    dialog.add_response("close", "Закрыть")
+    dialog = Adw.AlertDialog(heading=_("WaySwitch: window and native service"), body=text)
+    dialog.add_response("close", _("Close"))
     dialog.add_response("releases", "Releases")
-    dialog.add_response("copy", "Скопировать инструкции")
+    dialog.add_response("copy", _("Copy instructions"))
     dialog.set_close_response("close")
 
     def response(_dialog, selected):

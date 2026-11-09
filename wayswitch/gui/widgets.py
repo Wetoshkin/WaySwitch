@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from wayswitch.i18n import gettext as _
+
 
 def keycap(text: str, large: bool = False):
     """Надпись в виде клавиши: «Shift», «Левый Ctrl»."""
@@ -59,12 +61,14 @@ class StepRow:
         self.label = Gtk.Label(valign=Gtk.Align.CENTER, width_chars=6, xalign=1.0)
         self.label.add_css_class("numeric")
         box = Gtk.Box(spacing=6, valign=Gtk.Align.CENTER)
-        self.minus = Gtk.Button(icon_name="list-remove-symbolic", tooltip_text="Меньше")
-        self.plus = Gtk.Button(icon_name="list-add-symbolic", tooltip_text="Больше")
+        self.minus = Gtk.Button(icon_name="list-remove-symbolic", tooltip_text=_("Less"))
+        self.plus = Gtk.Button(icon_name="list-add-symbolic", tooltip_text=_("More"))
         for button, sign in ((self.minus, -1), (self.plus, 1)):
             button.add_css_class("circular")
-            button.update_property([Gtk.AccessibleProperty.LABEL],
-                                   [f"{title}: {'меньше' if sign < 0 else 'больше'}"])
+            button.update_property(
+                [Gtk.AccessibleProperty.LABEL],
+                [_("{title}: less").format(title=title) if sign < 0
+                 else _("{title}: more").format(title=title)])
             button.connect("clicked", lambda _b, s=sign: self._bump(s))
             box.append(button)
         self.row.add_suffix(self.label)

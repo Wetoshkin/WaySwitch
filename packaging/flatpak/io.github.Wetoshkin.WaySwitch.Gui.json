@@ -19,6 +19,7 @@
       "install -d /app/share/wayswitch /app/bin",
       "cp -r wayswitch /app/share/wayswitch/",
       "find /app/share/wayswitch -name __pycache__ -type d -exec rm -rf {} +",
+      "install -Dm644 wayswitch/locale/ru/LC_MESSAGES/wayswitch.mo /app/share/locale/ru/LC_MESSAGES/wayswitch.mo",
       "install -m755 wayswitch-gui /app/bin/wayswitch-gui",
       "install -Dm644 io.github.Wetoshkin.WaySwitch.Gui.desktop /app/share/applications/io.github.Wetoshkin.WaySwitch.Gui.desktop",
       "install -Dm644 io.github.Wetoshkin.WaySwitch.Gui.metainfo.xml /app/share/metainfo/io.github.Wetoshkin.WaySwitch.Gui.metainfo.xml",

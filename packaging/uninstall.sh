@@ -52,6 +52,10 @@ owned_by_package /etc/xdg/autostart/wayswitch-session.desktop \
 rm -rf /usr/local/share/wayswitch
 rm -f /usr/local/share/icons/hicolor/symbolic/apps/io.github.Wetoshkin.WaySwitch-symbolic.svg
 rm -f /usr/local/share/icons/hicolor/symbolic/apps/io.github.Wetoshkin.WaySwitch-paused-symbolic.svg
+# Удаляем только свой домен: чужие каталоги и переводы в share/locale не трогаем.
+rm -f /usr/local/share/locale/ru/LC_MESSAGES/wayswitch.mo
+rmdir /usr/local/share/locale/ru/LC_MESSAGES 2>/dev/null || true
+rmdir /usr/local/share/locale/ru 2>/dev/null || true
 
 # Мост доступности: вернуть значение, которое было до установки.
 if [ -f "$STATE/a11y-prev-$SUDO_USER" ] && [ "$MIGRATE" = 1 ]; then

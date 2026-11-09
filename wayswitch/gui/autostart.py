@@ -33,7 +33,9 @@ def _autostart_dir() -> Path:
 def tray_desktop_text() -> str:
     return "\n".join([
         "[Desktop Entry]", "Type=Application", "Name=WaySwitch",
-        "Comment=Значок WaySwitch в верхней панели", "Exec=wayswitch-gui --tray",
+        "Comment=WaySwitch icon in the top bar",
+        "Comment[ru]=Значок WaySwitch в верхней панели",
+        "Exec=wayswitch-gui --tray",
         "Icon=io.github.Wetoshkin.WaySwitch", "Terminal=false", "X-GNOME-Autostart-enabled=true",
         "X-GNOME-Autostart-Delay=3", "",
     ])
@@ -97,8 +99,8 @@ def _tray_entry(path: Path, *, generated_only: bool = False) -> bool | None:
                 or command[1:] not in ([], ["--tray"])):
             return None
         if generated_only:
-            keys = {"Type", "Name", "Comment", "Exec", "Icon", "Terminal", "Hidden",
-                    "X-GNOME-Autostart-enabled", "X-GNOME-Autostart-Delay"}
+            keys = {"Type", "Name", "Comment", "Comment[ru]", "Exec", "Icon", "Terminal",
+                    "Hidden", "X-GNOME-Autostart-enabled", "X-GNOME-Autostart-Delay"}
             if (set(values) - keys or desktop.sections() != ["Desktop Entry"]
                     or command != ["wayswitch-gui", "--tray"]
                     or values.get("Terminal", "false") != "false"
