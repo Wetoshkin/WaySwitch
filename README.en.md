@@ -262,10 +262,26 @@ on Silverblue and Kinoite — after a reboot). Preferences → System → **Remo
 | `journalctl --user -u wayswitch -n 50` | the latest log lines |
 | `wayswitch dry-run` | detector decisions without touching the screen |
 
-Passing the mandatory checks does not confirm that the focused field is accessible.
-If the active application is unknown, run `sleep 5; wayswitch doctor` and focus a
-normal text field in the target application during that delay. Protected automatic
-correction waits for verified focus; the manual gesture remains available.
+### Reporting a missed correction
+
+1. Open the application where the correction was missed and find the text field
+   where it happened.
+2. In a terminal in the same graphical session, run `wayswitch doctor --delay 5`
+   using the WaySwitch installation on the host.
+   Within five seconds, switch back to the application, click the ordinary text
+   field and leave it focused until the check finishes. You do not need to type.
+3. Return to the terminal and paste the whole report into the issue. Include the
+   application name, a sample word and what happened after you pressed Space.
+   Review the output for personal paths before posting.
+
+The active application line describes the field detected during the check. The
+last section shows the running daemon's auto-correction setting, any pause or
+other restriction, the backend and the layout. It also says if the daemon cannot
+be reached. The report omits the field contents and window title.
+
+If your installed version reports that `--delay` is unknown, run
+`sleep 5; wayswitch doctor; wayswitch status --json` and switch back to the
+field within five seconds. Older versions print daemon status separately.
 
 A word was fixed by mistake — press <kbd>Shift</kbd> <kbd>Shift</kbd> right
 away. Still stuck — [open an issue](https://github.com/Wetoshkin/WaySwitch/issues/new)

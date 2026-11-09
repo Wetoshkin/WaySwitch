@@ -171,7 +171,50 @@ def focus_status() -> tuple[bool, str]:
         detail += f"; ID окна: {names}"
     if not snap.app:
         return False, detail + "; защита полей паролей не подтверждена, автоисправление ждёт фокуса"
-    return True, detail
+    if snap.password:
+        return False, detail + "; защищённый ввод (например, пароль или терминал)"
+    return True, detail + "; распознано обычное поле ввода"
+
+
+def daemon_status() -> tuple[bool, str]:
+    from wayswitch.cli import call_daemon
+    from wayswitch.config import BACKEND_PREFS
+
+    try:
+        status, = call_daemon("GetStatus")
+    except Exception:  # noqa: BLE001 — в отчёт не попадают сообщения чужой службы D-Bus
+        return False, "Демон недоступен по D-Bus, состояние автоисправления неизвестно"
+    if not isinstance(status, dict):
+        return False, "Некорректный ответ демона, состояние автоисправления неизвестно"
+
+    backend = status.get("backend")
+    if backend not in BACKEND_PREFS:
+        backend = "неизвестен"
+    layouts = {"ru": "русская", "latin": "латинская", "other": "другая"}
+    layout = layouts.get(str(status.get("layout")), "не определена")
+    details = [f"Бэкенд: {backend}, раскладка: {layout}"]
+    auto = status.get("auto_correct")
+    if auto is False:
+        details.append("Автоисправление выключено в настройках (auto_correct = false)")
+    elif auto is True:
+        details.append("Автоисправление включено в настройках")
+
+    flags = ("auto_correct", "active", "paused", "locked", "lock_confirmation_required",
+             "dry_run", "layout_supported")
+    complete = all(isinstance(status.get(flag), bool) for flag in flags)
+    blockers = [message for key, value, message in (
+        ("paused", True, "демон на паузе"),
+        ("locked", True, "сеанс заблокирован"),
+        ("lock_confirmation_required", True, "требуется возобновление после разблокировки"),
+        ("dry_run", True, "режим наблюдения (dry-run), исправления не печатаются"),
+        ("layout_supported", False, "текущая раскладка не поддерживается или не определена"),
+    ) if status.get(key) is value]
+    if not complete:
+        blockers.append("ответ демона неполный, состояние автоисправления неизвестно")
+    elif auto and not blockers and not status["active"]:
+        blockers.append("бэкенд не поддерживает автоматическое исправление")
+    details.extend(blockers)
+    return auto is True and not blockers, ". ".join(details)
 
 
 def run_checks() -> list[Check]:
@@ -201,12 +244,14 @@ def run_checks() -> list[Check]:
                          "без достоверного фокуса защищённое автоисправление ждёт; "
                          "ручное исправление доступно", required=False))
     focus_hint = ("установите курсор в обычное текстовое поле нужного приложения "
-                  "после запуска «sleep 5; wayswitch doctor»")
+                  "после запуска «wayswitch doctor --delay 5» и оставьте его там до конца проверки")
     if desktop == GNOME:
         focus_hint += ("; ID окна GNOME появится после обновления расширения "
                        "и нового входа в сеанс")
     checks.append(_check("Активное приложение (без текста и заголовка окна)", focus_status,
                          focus_hint, required=False, key="focus"))
+    checks.append(_check("Автоисправление в запущенном демоне", daemon_status, "",
+                         required=False, key="daemon"))
 
     cosmic_map = None
     umbriel_specs = None
@@ -476,6 +521,7 @@ def run_checks() -> list[Check]:
 
 def format_report(checks: list[Check]) -> str:
     lines = []
+    daemon_line = ""
     for c in checks:
         # Необязательное — не крестиком: на исправной системе их бывает
         # несколько, и человек решил бы, что всё сломано.
@@ -483,7 +529,10 @@ def format_report(checks: list[Check]) -> str:
         line = f"{mark} {c.name}"
         if c.hint:
             line += f"\n    {c.hint}"
-        lines.append(line)
+        if c.key == "daemon":
+            daemon_line = line
+        else:
+            lines.append(line)
     bad = [c for c in checks if not c.ok and c.required]
     lines.append("")
     if bad:
@@ -491,8 +540,10 @@ def format_report(checks: list[Check]) -> str:
     else:
         lines.append("Обязательные проверки пройдены.")
         if any(c.key == "focus" and not c.ok for c in checks):
-            lines.append("Защищённое автоисправление не подтверждено: "
-                         "нужен достоверный фокус в поле ввода.")
+            lines.append("Защищённое автоисправление не подтверждено для выбранного поля. "
+                         "См. строку «Активное приложение».")
+    if daemon_line:
+        lines.append(daemon_line)
     return "\n".join(lines)
 
 

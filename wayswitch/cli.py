@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 from wayswitch import __version__
@@ -19,7 +20,10 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--config", type=Path)
     dry = sub.add_parser("dry-run", help="демон в режиме наблюдения (verbose, без действий)")
     dry.add_argument("--config", type=Path)
-    sub.add_parser("doctor", help="проверить окружение")
+    doctor = sub.add_parser("doctor", help="проверить окружение и состояние демона")
+    doctor.add_argument("--delay", type=int, default=0, metavar="СЕКУНДЫ",
+                        help="подождать перед проверкой, чтобы вы успели поставить "
+                             "курсор в нужное поле (по умолчанию 0)")
     sub.add_parser("devices", help="список устройств ввода")
     sub.add_parser("pause", help="приостановить исправления")
     sub.add_parser("resume", help="возобновить")
@@ -185,7 +189,8 @@ def _devices() -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ns = build_parser().parse_args(argv)
+    parser = build_parser()
+    ns = parser.parse_args(argv)
     if ns.command == "version":
         print(f"wayswitch {__version__}")
         return 0
@@ -198,7 +203,18 @@ def main(argv: list[str] | None = None) -> int:
     if ns.command == "doctor":
         from wayswitch.doctor import exit_code, format_report, run_checks
 
+        if ns.delay < 0:
+            parser.error("--delay: число секунд должно быть неотрицательным")
+        if ns.delay:
+            print(f"Проверка начнётся через {ns.delay} с. Поставьте курсор в обычное поле "
+                  "нужной программы и оставьте его там до конца проверки.",
+                  file=sys.stderr, flush=True)
+            try:
+                time.sleep(ns.delay)
+            except OverflowError:
+                parser.error("--delay: слишком большое число секунд")
         checks = run_checks()
+        print(f"WaySwitch {__version__}")
         print(format_report(checks))
         return exit_code(checks)
     if ns.command == "devices":
