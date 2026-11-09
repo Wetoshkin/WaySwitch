@@ -135,6 +135,12 @@ def main() -> None:
     fetch_verified(lock["runtime"]["url"], runtime, lock["runtime"]["sha256"])
     shutil.copytree(ROOT / "wayswitch", appdir / "usr/share/wayswitch/wayswitch",
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    # Python читает каталог из пакета, а стандартный share/locale нужен для
+    # единообразного пути с KI18n и другими сборками.
+    locale = appdir / "usr/share/locale/ru/LC_MESSAGES"
+    locale.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(ROOT / "wayswitch/locale/ru/LC_MESSAGES/wayswitch.mo",
+                    locale / "wayswitch.mo")
     for name in ("LICENSE", "DATA-LICENSE"):
         source = ROOT / ("LICENSE" if name == "LICENSE" else "wayswitch/data/LICENSE")
         dest = appdir / "usr/share/licenses/wayswitch" / name

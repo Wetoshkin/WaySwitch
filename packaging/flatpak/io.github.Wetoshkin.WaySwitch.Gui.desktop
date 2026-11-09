@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
 Name=WaySwitch Settings
-Name[ru]=РќР°СЃС‚СЂРѕР№РєРё WaySwitch
+Name[ru]=Настройки WaySwitch
 Comment=Settings for the native WaySwitch keyboard correction service
-Comment[ru]=РќР°СЃС‚СЂРѕР№РєРё РЅР°С‚РёРІРЅРѕР№ СЃР»СѓР¶Р±С‹ РёСЃРїСЂР°РІР»РµРЅРёСЏ СЂР°СЃРєР»Р°РґРєРё WaySwitch
+Comment[ru]=Настройки нативной службы исправления раскладки WaySwitch
 Exec=wayswitch-gui
 Icon=io.github.Wetoshkin.WaySwitch.Gui
 Terminal=false

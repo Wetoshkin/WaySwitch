@@ -14,15 +14,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from wayswitch.gui.texts import BACKEND_HUMAN, layout_human, plural
+from wayswitch.gui.texts import BACKEND_HUMAN, layout_human, status_view
+from wayswitch.i18n import gettext as _
+from wayswitch.i18n import ngettext
 
 # Сколько секунд модуль показывает последнее исправление.
 FLASH_SEC = 1.5
 
 LAYOUT_SHORT = {"ru": "RU", "latin": "EN"}
-
-BACKEND_SHORT = dict(BACKEND_HUMAN, sway="через Sway IPC", hyprland="через Hyprland IPC")
-
 
 @dataclass(frozen=True)
 class Flash:
@@ -34,25 +33,23 @@ class Flash:
 
 
 def tooltip(status: dict) -> str:
-    backend = BACKEND_SHORT.get(str(status.get("backend") or ""), "")
-    lines = ["WaySwitch — " + ("на паузе" if status.get("paused") else
-                               "ожидание ru/en" if status.get("layout_supported") is False else
-                               "исправление включено" if status.get("active")
-                               else "только вручную")]
-    where = "Раскладка: " + layout_human(status.get("layout"))
+    backend = _(BACKEND_HUMAN.get(str(status.get("backend") or ""), ""))
+    lines = ["WaySwitch — " + status_view(status).title]
+    where = _("Layout: {layout}").format(layout=layout_human(status.get("layout")))
     if backend:
-        where += " · " + backend.replace("через ", "")
+        where += " · " + backend
     lines.append(where)
     auto = int(status.get("corrections_total", 0) or 0)
     manual = int(status.get("manual_total", 0) or 0)
-    lines.append(f"За сеанс: {auto} автоматически, {manual} вручную")
+    lines.append(_("This session: {auto} automatic, {manual} manual").format(
+        auto=auto, manual=manual))
     return "\n".join(lines)
 
 
 def waybar_payload(status: dict | None, flash: Flash | None = None) -> dict:
     """Строка для Waybar по состоянию демона и последнему событию."""
     if status is None:
-        return {"text": "WaySwitch", "tooltip": "WaySwitch не запущен", "class": "off",
+        return {"text": "WaySwitch", "tooltip": _("WaySwitch is not running"), "class": "off",
                 "alt": "off"}
     layout = LAYOUT_SHORT.get(str(status.get("layout") or ""), "··")
     if status.get("paused"):
@@ -62,7 +59,8 @@ def waybar_payload(status: dict | None, flash: Flash | None = None) -> dict:
         return {"text": f"{flash.original} → {flash.fixed}", "tooltip": tooltip(status),
                 "class": "fixed", "alt": "fixed"}
     if flash is not None and flash.kind == "undone":
-        return {"text": f"{flash.fixed} — запомнено", "tooltip": tooltip(status),
+        return {"text": _("{word} — remembered").format(word=flash.fixed),
+                "tooltip": tooltip(status),
                 "class": "undone", "alt": "undone"}
     return {"text": layout, "tooltip": tooltip(status), "class": "on", "alt": "on"}
 
@@ -70,13 +68,12 @@ def waybar_payload(status: dict | None, flash: Flash | None = None) -> dict:
 def status_line(status: dict | None) -> str:
     """Одна строка для `wayswitch status` по-человечески."""
     if status is None:
-        return "WaySwitch не запущен"
+        return _("WaySwitch is not running")
     total = int(status.get("corrections_total", 0) or 0) + int(status.get("manual_total", 0) or 0)
-    state = "на паузе" if status.get("paused") else \
-        "ожидание ru/en" if status.get("layout_supported") is False else \
-        "исправление включено" if status.get("active") else "только вручную"
-    return (f"WaySwitch: {state}; раскладка {layout_human(status.get('layout'))}; "
-            f"{total} {plural(total, 'исправление', 'исправления', 'исправлений')} за сеанс")
+    summary = ngettext("{count} correction this session", "{count} corrections this session",
+                       total).format(count=total)
+    where = _("Layout: {layout}").format(layout=layout_human(status.get("layout")))
+    return f"WaySwitch: {status_view(status).title}; {where}; {summary}"
 
 
 WAYBAR_CONFIG = """\

@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from wayswitch.i18n import gettext as _
 from wayswitch.keycodes import (
     GESTURE_KEY_NAMES,
     KEY_BACKSPACE,
@@ -18,10 +19,10 @@ from wayswitch.keycodes import (
 )
 
 _SIDES = {
-    "leftctrl": "Левый Ctrl", "rightctrl": "Правый Ctrl",
-    "leftshift": "Левый Shift", "rightshift": "Правый Shift",
-    "leftalt": "Левый Alt", "rightalt": "Правый Alt",
-    "leftmeta": "Левый Super", "rightmeta": "Правый Super",
+    "leftctrl": "Left Ctrl", "rightctrl": "Right Ctrl",
+    "leftshift": "Left Shift", "rightshift": "Right Shift",
+    "leftalt": "Left Alt", "rightalt": "Right Alt",
+    "leftmeta": "Left Super", "rightmeta": "Right Super",
 }
 _PLAIN = {
     "capslock": "CapsLock", "numlock": "NumLock", "scrolllock": "ScrollLock",
@@ -37,7 +38,7 @@ def human_name(name: str) -> str:
     """leftctrl → «Левый Ctrl», f7 → «F7»."""
     name = name.lower()
     if name in _SIDES:
-        return _SIDES[name]
+        return _(_SIDES[name])
     if name in _PLAIN:
         return _PLAIN[name]
     if name.startswith("f") and name[1:].isdigit():
@@ -67,4 +68,4 @@ def capture(evdev_code: int) -> tuple[str, str]:
     name = key_name(evdev_code)
     if is_allowed(name):
         return "key", name
-    return "reject", "Эта клавиша не подойдёт: её нажатие печатает текст"
+    return "reject", _("This key will not work: pressing it types text")

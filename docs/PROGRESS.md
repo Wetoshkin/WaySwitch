@@ -34,6 +34,39 @@
   значению `Icon=` desktop-файла. PNG получен из существующего SVG.
   [Замечание каталога AppImage](https://github.com/AppImage/appimage.github.io/pull/11355).
 
+## Локализация интерфейса (не опубликовано)
+
+- GTK-окно, трей, диалоги, первый запуск, Waybar и виджет Plasma используют один
+  домен `wayswitch`; английские msgid — исходный язык и fallback. Виджет
+  Plasma переводится через KI18n, остальное — через stdlib gettext.
+- Язык выбирается при запуске: `ru`/`ru_RU` даёт русский; `en`, `C`,
+  `C.UTF-8`, `POSIX`, неизвестная или отсутствующая локаль — английский.
+  Порядок переменных GTK/Waybar — `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG`;
+  для `C`/`POSIX` переменная `LANGUAGE` не включает русский каталог. В Plasma
+  язык задаёт KDE; дополнительный QML-модуль новых Frameworks не требуется.
+- Каталог `wayswitch/locale/ru/LC_MESSAGES/wayswitch.mo` входит в wheel,
+  AppImage, Flatpak, deb/rpm/Arch и Nix, а для KI18n устанавливается в
+  стандартный `share/locale`. Пересборка — только стандартным GNU msgfmt:
+  `msgfmt --check --check-format --no-hash -o wayswitch/locale/ru/LC_MESSAGES/wayswitch.mo wayswitch/locale/ru/LC_MESSAGES/wayswitch.po`.
+- Автоматические тесты проверяют оба языка, приоритет locale-переменных,
+  свежий процесс, формы 1/2/5/11/12/14/21/22/25, placeholders/markup и
+  покрытие каталога. Временных пропусков для отсутствующих переводов нет.
+  Полный `python -m pytest -q` на Windows и `python -m ruff check .` прошли.
+- Собран wheel, перевод из самого пакета проверен под `C` и `ru_RU.UTF-8`.
+  На GTK4/libadwaita запущены первый запуск и главное окно на обоих языках;
+  получены снимки этих экранов. Проверены команды ошибки загрузки, включая
+  частичный ответ curl, в POSIX shell.
+- Полный Linux pytest, Ruff, проверка окончательного PO/MO через GNU msgfmt
+  и сборки AppImage/Flatpak/deb/rpm/Arch/Nix прошли в
+  [CI локализации](https://github.com/Wetoshkin/WaySwitch/actions/runs/42584837323).
+  Источники Arch сверены с деревом Python-пакета и закреплены по SHA256.
+- Готовый AppImage запущен под Xvfb в отдельном D-Bus-сеансе с `LC_ALL=C`
+  и `LANGUAGE=ru`. AT-SPI подтвердил английские подписи первого запуска;
+  проверены значок и снимок окна. CI сохраняет снимок, журнал и SHA256 файла.
+- Живой виджет Plasma и размещение текста во всех диалогах настроек отдельно
+  не проверены. Публикация локализации и повторная приёмка каталогом AppImage
+  не выполнены; опубликованная 1.1.3 этих изменений не содержит.
+
 ## Проверки
 
 Полный pytest, Ruff и Node-проверки расширения проходят. Точные результаты

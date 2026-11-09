@@ -234,6 +234,13 @@ start systemd user services: without uwsm, add `exec wayswitch run` (Sway) or
 (labwc / Wayfire) WaySwitch reads the layouts from the compositor's XKB
 settings — see the Russian README for snippets.
 
+**Interface language.** The window, notifications, panel icon and Waybar module
+choose the language at startup from `LANGUAGE`, `LC_ALL`, `LC_MESSAGES` and
+`LANG`. A Russian locale gives the Russian interface; English, `C`, `C.UTF-8`,
+`POSIX`, an unknown or an unset locale give English (the source language).
+For `C`/`POSIX`, `LANGUAGE` does not enable the Russian catalog. The Plasma
+widget uses KDE's system language. Localization is not in a published release yet.
+
 ## Updating
 
 The GitHub namespace changes the extension, application and portable package IDs.
@@ -385,7 +392,8 @@ Packages: `bash tools/build_deb.sh`, `bash tools/build_rpm.sh`,
 `cd packaging/arch && makepkg -si`. Portable GUI builds:
 `bash tools/build_flatpak.sh build/flatpak` with GNOME SDK/Platform 50;
 `python3 tools/build_appimage.py build/appimage` on x86_64 Linux with
-squashfs-tools and dpkg-deb.
+squashfs-tools and dpkg-deb. Rebuild the translation with GNU gettext:
+`msgfmt --check --check-format --no-hash -o wayswitch/locale/ru/LC_MESSAGES/wayswitch.mo wayswitch/locale/ru/LC_MESSAGES/wayswitch.po`.
 
 The Flatpak is distributed through GitHub Releases and is not published on Flathub.
 Its required native host service needs individual consideration by Flathub reviewers.

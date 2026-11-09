@@ -168,6 +168,10 @@ install -m 644 "$SRC/packaging/icons/io.github.Wetoshkin.WaySwitch-paused-symbol
 # GNOME не связывает запущенное окно с ярлыком и рисует заглушку вместо значка.
 install -m 644 "$SRC/packaging/io.github.Wetoshkin.WaySwitch.Settings.desktop" \
     /usr/local/share/applications/io.github.Wetoshkin.WaySwitch.Settings.desktop
+# Один каталог для GTK-окна и виджета Plasma: KI18n ищет домен wayswitch
+# в стандартном share/locale.
+install -Dm644 "$SRC/wayswitch/locale/ru/LC_MESSAGES/wayswitch.mo" \
+    /usr/local/share/locale/ru/LC_MESSAGES/wayswitch.mo
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
     gtk-update-icon-cache -f -t "$ICONS" >/dev/null 2>&1 || true
 fi

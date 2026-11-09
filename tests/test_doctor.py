@@ -209,7 +209,7 @@ def test_extension_state_distinguishes_cases():
     assert st(installed=True, enabled=True, running=True, version=4) == "ok"
 
 
-def test_old_extension_does_not_block_onboarding():
+def test_old_extension_does_not_block_onboarding(ru_locale):
     from wayswitch.gui import texts
 
     ok, key, required, text = doctor.EXTENSION_STATES["outdated"]

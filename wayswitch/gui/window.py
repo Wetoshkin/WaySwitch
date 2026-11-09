@@ -10,6 +10,7 @@ from __future__ import annotations
 from wayswitch import config as cfgmod
 from wayswitch.gui import autostart, dialogs, portable, texts
 from wayswitch.gui.widgets import boxed_list, clear_list, flat_icon_button
+from wayswitch.i18n import gettext as _
 
 STATUS_ICONS = {
     "on": "object-select-symbolic",
@@ -55,20 +56,20 @@ class MainWindow:
         header = Adw.HeaderBar()
         menu = Gio.Menu()
         section = Gio.Menu()
-        section.append("Параметры", "app.preferences")
-        section.append("Жесты и клавиши", "app.shortcuts")
-        section.append("О WaySwitch", "app.about")
+        section.append(_("Settings"), "app.preferences")
+        section.append(_("Gestures and keys"), "app.shortcuts")
+        section.append(_("About WaySwitch"), "app.about")
         menu.append_section(None, section)
         tail = Gio.Menu()
-        tail.append("Выйти", "app.quit")
+        tail.append(_("Quit"), "app.quit")
         menu.append_section(None, tail)
         menu_button = Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu,
-                                     primary=True, tooltip_text="Главное меню")
-        menu_button.update_property([Gtk.AccessibleProperty.LABEL], ["Главное меню"])
+                                     primary=True, tooltip_text=_("Main menu"))
+        menu_button.update_property([Gtk.AccessibleProperty.LABEL], [_("Main menu")])
         header.pack_end(menu_button)
         toolbar.add_top_bar(header)
 
-        self.update_banner = Adw.Banner(button_label="Обновить")
+        self.update_banner = Adw.Banner(button_label=_("Update"))
         self.update_banner.connect("button-clicked", lambda *_: self.app.run_update())
         toolbar.add_top_bar(self.update_banner)
 
@@ -124,9 +125,10 @@ class MainWindow:
         texts_box.append(self.status_title)
         texts_box.append(self.status_subtitle)
         top.append(texts_box)
-        self.status_switch = Gtk.Switch(valign=Gtk.Align.CENTER, tooltip_text="Пауза (Ctrl+P)")
+        self.status_switch = Gtk.Switch(valign=Gtk.Align.CENTER,
+                                        tooltip_text=_("Pause (Ctrl+P)"))
         self.status_switch.update_property([Gtk.AccessibleProperty.LABEL],
-                                           ["Исправление включено"])
+                                           [_("Correction is on")])
         self._switch_handler = self.status_switch.connect("notify::active",
                                                           self._on_switch)
         top.append(self.status_switch)
@@ -139,8 +141,8 @@ class MainWindow:
         grid.add_css_class("ws-stats")
         self.stat_labels = {}
         col = 0
-        for key, caption in (("corrections_total", "автоматически"),
-                             ("manual_total", "вручную"), ("undo_total", "отменено")):
+        for key, caption in (("corrections_total", _("automatic")),
+                             ("manual_total", _("manual")), ("undo_total", _("undone"))):
             if col:
                 grid.attach(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL), col, 0, 1, 1)
                 col += 1
@@ -163,14 +165,14 @@ class MainWindow:
         from gi.repository import Adw, Gtk
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        box.append(_heading("Проверка", "Включите английскую раскладку, наберите ghbdtn и "
-                                        "нажмите пробел."))
+        box.append(_heading(_("Test"), _("Switch to the English layout, type ghbdtn and "
+                                         "press Space.")))
         listing = boxed_list()
-        self.test_entry = Adw.EntryRow(title="Попробуйте здесь")
+        self.test_entry = Adw.EntryRow(title=_("Try here"))
         self.test_entry.add_css_class("ws-test-entry")
         self.layout_badge = Gtk.Label(valign=Gtk.Align.CENTER)
         self.layout_badge.add_css_class("ws-keycap")
-        self.layout_badge.set_tooltip_text("Текущая раскладка")
+        self.layout_badge.set_tooltip_text(_("Current layout"))
         self.test_entry.add_suffix(self.layout_badge)
         listing.append(self.test_entry)
         box.append(listing)
@@ -186,10 +188,10 @@ class MainWindow:
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         head = Gtk.Box(margin_bottom=8)
-        title = Gtk.Label(label="Последние исправления", xalign=0.0, hexpand=True)
+        title = Gtk.Label(label=_("Recent corrections"), xalign=0.0, hexpand=True)
         title.add_css_class("heading")
         head.append(title)
-        self.clear_button = Gtk.Button(label="Очистить")
+        self.clear_button = Gtk.Button(label=_("Clear"))
         self.clear_button.add_css_class("flat")
         self.clear_button.connect("clicked", lambda *_: self._clear_history())
         head.append(self.clear_button)
@@ -197,9 +199,9 @@ class MainWindow:
         self.history_box = boxed_list()
         box.append(self.history_box)
         note = Gtk.Label(
-            label="Кнопка «↶» запоминает слово: WaySwitch больше не будет его исправлять. "
-                  "Если слово исправилось зря — сразу нажмите жест исправления (по "
-                  "умолчанию дважды Shift), и оно вернётся.",
+            label=_("The “↶” button remembers a word: WaySwitch will not correct it again. "
+                    "If a word was corrected by mistake — press the correction gesture "
+                    "right away (double Shift by default), and it will come back."),
             xalign=0.0, wrap=True, margin_top=10, margin_start=2)
         note.add_css_class("dim-label")
         note.add_css_class("caption")
@@ -210,30 +212,31 @@ class MainWindow:
         from gi.repository import Adw, Gtk
 
         page = Adw.StatusPage(icon_name="system-shutdown-symbolic",
-                              title="WaySwitch не запущен",
-                              description="Слова сейчас не исправляются. Нажмите "
-                                          "«Запустить». Если не поможет — перезагрузите "
-                                          "компьютер.")
+                              title=_("WaySwitch is not running"),
+                              description=_("Words are not being corrected right now. "
+                                            "Press “Start”. If that does not help, restart "
+                                            "the computer."))
         if portable.package_kind():
-            page.set_title("Нативная служба не подключена")
-            page.set_description("Это окно настроек. Для исправления и жестов нужна отдельная "
-                                 "служба на основной системе. Установите её и проверьте запуск.")
+            page.set_title(_("Native service is not connected"))
+            page.set_description(_("This is the settings window. Correction and gestures "
+                                   "need a separate service on the host system. Install it "
+                                   "and check that it starts."))
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10,
                       halign=Gtk.Align.CENTER)
-        start = Gtk.Button(label="Запустить")
+        start = Gtk.Button(label=_("Start"))
         if portable.package_kind():
-            start.set_label("Установить / запустить службу")
+            start.set_label(_("Install / start the service"))
         start.add_css_class("pill")
         start.add_css_class("suggested-action")
         start.connect("clicked", lambda *_: self._start_service())
-        journal = Gtk.Button(label="Показать журнал")
+        journal = Gtk.Button(label=_("Show log"))
         journal.add_css_class("pill")
         journal.connect("clicked", lambda *_: dialogs.journal_dialog(self.window))
         box.append(start)
         box.append(journal)
         listing = boxed_list()
         listing.set_margin_top(18)
-        self.off_autostart = Adw.SwitchRow(title="Запускать при входе в систему")
+        self.off_autostart = Adw.SwitchRow(title=_("Start at sign-in"))
         self.off_autostart.connect("notify::active", lambda r, _p: autostart.set_service_enabled(
             r.get_active()) if r.get_active() != autostart.is_service_enabled() else None)
         listing.append(self.off_autostart)
@@ -268,14 +271,14 @@ class MainWindow:
         self.status_switch.set_sensitive(view.switch_sensitive)
         self.status_switch.update_property(
             [Gtk.AccessibleProperty.LABEL],
-            ["Исправление включено" if view.switch_active else "Исправление на паузе"])
+            [_("Correction is on") if view.switch_active else _("Correction is paused")])
         for key, label in self.stat_labels.items():
             label.set_label(str(int(status.get(key, 0) or 0)))
         alphabet = status.get("layout")
         self.layout_badge.set_label({"ru": "RU", "latin": "EN"}.get(alphabet, "··"))
 
         if view.kind == "paused" and self._last_kind != "paused":
-            toast = Adw.Toast(title="Исправление приостановлено", button_label="Возобновить",
+            toast = Adw.Toast(title=_("Correction paused"), button_label=_("Resume"),
                               timeout=0)
             toast.connect("button-clicked", lambda *_: self.app.proxy.call("Resume"))
             self._pause_toast = toast
@@ -299,15 +302,14 @@ class MainWindow:
         from gi.repository import GLib
 
         if not autostart.start_service():
-            self.toast("Не получилось запустить. Перезагрузите компьютер и откройте "
-                       "WaySwitch снова")
+            self.toast(_("Could not start. Restart the computer and open WaySwitch again"))
             return
 
         def check():
             # Служба могла стартовать и сразу выйти (например, не нашла,
             # чем переключать раскладку): подсказать, где искать причину.
             if self.app.proxy.status is None:
-                self.toast("WaySwitch не запустился. Причина — в журнале", "Журнал",
+                self.toast(_("WaySwitch did not start. The reason is in the log"), _("Log"),
                            lambda: dialogs.journal_dialog(self.window))
             return GLib.SOURCE_REMOVE
 
@@ -326,7 +328,8 @@ class MainWindow:
         if release is None:
             self.update_banner.set_revealed(False)
             return
-        self.update_banner.set_title(f"Вышла версия {release.version}")
+        self.update_banner.set_title(_("Version {version} is available").format(
+            version=release.version))
         self.update_banner.set_revealed(True)
 
     # --- история -----------------------------------------------------------------
@@ -334,7 +337,8 @@ class MainWindow:
     def on_corrected(self, original: str, fixed: str, manual: bool) -> None:
         if self.test_entry.has_focus() or self.test_entry.get_focus_child() is not None:
             self.test_result.set_label(
-                f"✓ Исправлено: {original} → {fixed}. Раскладка переключена.")
+                _("✓ Fixed: {original} → {fixed}. Layout switched.").format(
+                    original=original, fixed=fixed))
             self.test_result.set_visible(True)
             self.test_entry.add_css_class("fixed")
             from gi.repository import GLib
@@ -353,15 +357,15 @@ class MainWindow:
         entries = list(self.app.history)
         self.clear_button.set_sensitive(bool(entries))
         if not entries:
-            empty = Adw.ActionRow(title="Пока ничего не исправлено",
-                                  subtitle="Исправления этого сеанса появятся здесь")
+            empty = Adw.ActionRow(title=_("Nothing corrected yet"),
+                                  subtitle=_("Corrections from this session will appear here"))
             self.history_box.append(empty)
             return
         for entry in entries:
             esc = GLib.markup_escape_text
             if entry.kind == "excluded":
                 row = Adw.ActionRow(title=esc(entry.original),
-                                    subtitle="Больше не исправляется")
+                                    subtitle=_("No longer corrected"))
             else:
                 title = (f'<span font_family="monospace" strikethrough="true" alpha="60%">'
                          f'{esc(entry.original)}</span>  →  {esc(entry.fixed)}')
@@ -369,8 +373,8 @@ class MainWindow:
             row.set_title_lines(1)
             icon = Gtk.Image(icon_name=HISTORY_ICONS[entry.kind])
             icon.add_css_class("dim-label")
-            icon.set_tooltip_text({"auto": "Автоматически", "manual": "Вручную",
-                                   "excluded": "В исключениях"}[entry.kind])
+            icon.set_tooltip_text({"auto": _("Automatic"), "manual": _("Manual"),
+                                   "excluded": _("Excluded")}[entry.kind])
             row.add_prefix(icon)
             clock = Gtk.Label(label=entry.clock(), valign=Gtk.Align.CENTER)
             clock.add_css_class("dim-label")
@@ -378,7 +382,8 @@ class MainWindow:
             row.add_suffix(clock)
             if entry.kind != "excluded":
                 row.add_suffix(flat_icon_button(
-                    "edit-undo-symbolic", f"Больше не исправлять «{entry.original}»",
+                    "edit-undo-symbolic",
+                    _("Do not correct “{word}” again").format(word=entry.original),
                     lambda e=entry: self._exclude(e)))
             self.history_box.append(row)
 
@@ -394,7 +399,8 @@ class MainWindow:
             self.app.proxy.call("Reload")
             self.render_history()
 
-        self.toast(f"«{entry.original}» больше не исправляется", "Отменить", undo)
+        self.toast(_("“{word}” is no longer corrected").format(word=entry.original),
+                   _("Undo"), undo)
 
     def _clear_history(self) -> None:
         self.app.history.clear()

@@ -1,0 +1,1472 @@
+# Russian translation of the WaySwitch GUI and KDE plasmoid.
+# Source strings are English msgids. Rebuild the MO with GNU gettext:
+#   msgfmt --check --check-format --no-hash \
+#     -o wayswitch/locale/ru/LC_MESSAGES/wayswitch.mo \
+#     wayswitch/locale/ru/LC_MESSAGES/wayswitch.po
+msgid ""
+msgstr ""
+"Project-Id-Version: WaySwitch 1.1.3\n"
+"Report-Msgid-Bugs-To: https://github.com/Wetoshkin/WaySwitch/issues\n"
+"PO-Revision-Date: 2026-11-09 00:00+0000\n"
+"Last-Translator: WaySwitch contributors\n"
+"Language-Team: Russian\n"
+"Language: ru\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+msgid "This session: {auto} automatic, {manual} manual"
+msgstr "За сеанс: {auto} автоматически, {manual} вручную"
+
+msgid "{word} — remembered"
+msgstr "{word} — запомнено"
+
+msgid "{count} correction this session"
+msgid_plural "{count} corrections this session"
+msgstr[0] "{count} исправление за сеанс"
+msgstr[1] "{count} исправления за сеанс"
+msgstr[2] "{count} исправлений за сеанс"
+
+# 1
+msgid "\n\nAfter updating the GNOME extension, sign in again."
+msgstr "\n\nПосле обновления расширения GNOME войдите в сеанс заново."
+
+# 2
+msgid "\n\nNative service diagnostics: wayswitch doctor\nLog: journalctl --user -u wayswitch.service -n 200 --no-pager"
+msgstr "\n\nДиагностика нативной службы: wayswitch doctor\nЖурнал: journalctl --user -u wayswitch.service -n 200 --no-pager"
+
+# 3
+msgid "\n\nShared settings in ~/.config/wayswitch are kept."
+msgstr "\n\nОбщие настройки ~/.config/wayswitch сохраняются."
+
+# 4
+msgid "\n\nThe service will keep correcting words. To remove it separately, run in a terminal on the host system:\n\n"
+msgstr "\n\nСлужба продолжит исправлять слова. Чтобы отдельно удалить её, выполните в терминале основной системы:\n\n"
+
+# 5
+msgid "\n\nUpdate the native service separately in a terminal on the host system:\n\n"
+msgstr "\n\nОтдельно обновите нативную службу в терминале основной системы:\n\n"
+
+# 6
+msgid "\nCould not download WaySwitch from GitHub. Check that the internet connection works and press the button again."
+msgstr "\nНе удалось скачать WaySwitch с GitHub. Проверьте, что интернет работает, и нажмите кнопку ещё раз."
+
+# 7
+msgid " (GNOME only for now)"
+msgstr " (пока только в GNOME)"
+
+# 8
+msgid " · version {version} available"
+msgstr " · есть версия {version}"
+
+# 9
+msgid "125 → сто двадцать пять for the selected number"
+msgstr "125 → сто двадцать пять — для выделенного числа"
+
+# 10
+msgid "<p>Version {version} is available. Update with the “Update” button in the main window or in Settings → System.</p>"
+msgstr "<p>Вышла версия {version}. Обновить — кнопкой «Обновить» в главном окне или в Параметрах → Система.</p>"
+
+# 11
+msgid "A terminal will open: confirm the removal and enter your password"
+msgstr "Откроется терминал: подтвердите удаление и введите пароль"
+
+# 12
+msgid "A terminal window will open: confirm the removal there and enter the password for your account. Settings will remain in case you reinstall."
+msgstr "Откроется окно терминала: там нужно будет подтвердить удаление и ввести пароль от вашей учётной записи. Настройки останутся на случай переустановки."
+
+# 13
+msgid "A word in the other layout is changed as soon as it is typed"
+msgstr "Слово в чужой раскладке меняется, как только оно набрано"
+
+# 14
+msgid "About WaySwitch"
+msgstr "О WaySwitch"
+
+# 15
+msgid "Accidental Caps Lock"
+msgstr "Нечаянный Caps Lock"
+
+# 16
+msgid "Add Russian and English layouts in the system settings. You do not need to remove others. Until the ru/en pair appears, correction is unavailable"
+msgstr "Добавьте русскую и английскую раскладки в настройках системы. Другие удалять не нужно. До появления пары ru/en исправления недоступны"
+
+# 17
+msgid "Add a word"
+msgstr "Добавить слово"
+
+# 18
+msgid "Add application"
+msgstr "Добавить приложение"
+
+# 19
+msgid "Add application…"
+msgstr "Добавить приложение…"
+
+# 20
+msgid "Advanced"
+msgstr "Дополнительно"
+
+# 21
+msgid "After Backspace, arrows and a manual layout switch"
+msgstr "После Backspace, стрелок и ручной смены раскладки"
+
+# 22
+msgid "After signing in and unlocking, turn the switch on to resume correction"
+msgstr "После входа и разблокировки включите переключатель, чтобы возобновить исправление"
+
+# 23
+msgid "All settings will return to their defaults. Exception lists will remain."
+msgstr "Все параметры вернутся к исходным. Списки исключений останутся."
+
+# 24
+msgid "Already excluded"
+msgstr "Уже в исключениях"
+
+# 25
+msgid "Applications"
+msgstr "Приложения"
+
+# 26
+msgid "Ask GitHub once a day"
+msgstr "Раз в сутки спрашивать GitHub"
+
+# 27
+msgid "Ask GitHub once a day whether a new version exists. Nothing else is sent"
+msgstr "Раз в сутки спрашивать GitHub, вышла ли новая версия. Больше ничего не отправляется"
+
+# 28
+msgid "Auto-correction"
+msgstr "Автоисправление"
+
+# 29
+msgid "Auto-correction is off. The manual gesture is available, history is hidden"
+msgstr "Автозамена отключена. Ручной жест доступен, история скрыта"
+
+# 30
+msgid "Automatic"
+msgstr "Автоматически"
+
+# 31
+msgid "Automatically"
+msgstr "Автоматически"
+
+# 32
+msgid "Available"
+msgstr "Доступно"
+
+# 33
+msgid "Back"
+msgstr "Назад"
+
+# 34
+msgid "Bold"
+msgstr "Смелая"
+
+# 35
+msgid "Both languages and a working layout switch are required"
+msgstr "Нужны оба языка и доступное переключение"
+
+# 36
+msgid "COSMIC"
+msgstr "COSMIC"
+
+# 37
+msgid "Cancel"
+msgstr "Отмена"
+
+# 38
+msgid "Cannot use this key: it is already assigned to another action"
+msgstr "Нельзя: эта клавиша уже занята другим действием"
+
+# 39
+msgid "Cautious"
+msgstr "Осторожная"
+
+# 40
+msgid "Check"
+msgstr "Проверить"
+
+# 41
+msgid "Check again"
+msgstr "Проверить снова"
+
+# 42
+msgid "Check now"
+msgstr "Проверить сейчас"
+
+# 43
+msgid "Check the text in the field: the correction may have been applied partially. A single-line selection in a regular editable field works best. Calling from the menu can move focus — you can press the assigned key instead."
+msgstr "Проверьте текст в поле: исправление могло выполниться частично. Подходит выделение в одну строку в обычном редактируемом поле. Вызов из меню может менять фокус — можно нажать назначенную клавишу."
+
+# 44
+msgid "Checking…"
+msgstr "Проверяю…"
+
+# 45
+msgid "Clear"
+msgstr "Очистить"
+
+# 46
+msgid "Close"
+msgstr "Закрыть"
+
+# 47
+msgid "Close the window and delete the AppImage file."
+msgstr "Закройте окно и удалите файл AppImage."
+
+# 48
+msgid "Collecting information…"
+msgstr "Сбор сведений…"
+
+# 49
+msgid "Compositor shortcut"
+msgstr "Сочетание клавиш композитора"
+
+# 50
+msgid "Configured on the host system"
+msgstr "Настраивается на основной системе"
+
+# 51
+msgid "Configured on the host system, see the service instructions"
+msgstr "Настраивается на основной системе, см. инструкцию службы"
+
+# 52
+msgid "Confirm COSMIC sign-in"
+msgstr "Подтвердите вход в COSMIC"
+
+# 53
+msgid "Connected over D-Bus"
+msgstr "Подключена по D-Bus"
+
+# 54
+msgid "Continue"
+msgstr "Продолжить"
+
+# 55
+msgid "Copy"
+msgstr "Скопировать"
+
+# 56
+msgid "Copy command"
+msgstr "Скопировать команду"
+
+# 57
+msgid "Copy instructions"
+msgstr "Скопировать инструкции"
+
+# 58
+msgid "Correct automatically by the counter"
+msgstr "Исправлять автоматически по счётчику"
+
+# 59
+msgid "Correcting · {count} {words} this session"
+msgstr "Исправляет · {count} {words} за сеанс"
+
+# 60
+msgid "Correction"
+msgstr "Исправление"
+
+# 61
+msgid "Correction is on"
+msgstr "Исправление включено"
+
+# 62
+msgid "Correction is paused"
+msgstr "Исправление на паузе"
+
+# 63
+msgid "Correction key"
+msgstr "Клавиша исправления"
+
+# 64
+msgid "Correction paused"
+msgstr "Исправление приостановлено"
+
+# 65
+msgid "Correction stopped working"
+msgstr "Исправление перестало работать"
+
+# 66
+msgid "Correction will continue after you sign in"
+msgstr "Исправление продолжится после входа"
+
+# 67
+msgid "Corrections can be typed"
+msgstr "Можно печатать исправления"
+
+# 68
+msgid "Corrections from this session will appear here"
+msgstr "Исправления этого сеанса появятся здесь"
+
+# 69
+msgid "Could not check: no connection to GitHub"
+msgstr "Не удалось проверить: нет связи с GitHub"
+
+# 70
+msgid "Could not confirm the correction"
+msgstr "Исправление не удалось подтвердить"
+
+# 71
+msgid "Could not enable it: the extension is not installed"
+msgstr "Не удалось включить: расширение не установлено"
+
+# 72
+msgid "Could not open a terminal. Open one yourself (Windows logo key → “Terminal”), paste the command with Ctrl+Shift+V and press Enter:\n\n{command}"
+msgstr "Не удалось открыть терминал. Откройте его сами (клавиша с логотипом Windows → «Терминал»), вставьте команду сочетанием Ctrl+Shift+V и нажмите Enter:\n\n{command}"
+
+# 73
+msgid "Could not save: {error}"
+msgstr "Не удалось сохранить: {error}"
+
+# 74
+msgid "Could not start. Restart the computer and open WaySwitch again"
+msgstr "Не получилось запустить. Перезагрузите компьютер и откройте WaySwitch снова"
+
+# 75
+msgid "Current layout"
+msgstr "Текущая раскладка"
+
+# 76
+msgid "Currently: {backend}"
+msgstr "Сейчас: {backend}"
+
+# 77
+msgid "Delay between characters"
+msgstr "Задержка между символами"
+
+# 78
+msgid "Dictionaries"
+msgstr "Словари"
+
+# 79
+msgid "Dictionary data — CC-BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/"
+msgstr "Данные словарей — CC-BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/"
+
+# 80
+msgid "Disabled"
+msgstr "Выключен"
+
+# 81
+msgid "Do not correct “{word}” again"
+msgstr "Больше не исправлять «{word}»"
+
+# 82
+msgid "Done"
+msgstr "Готово"
+
+# 83
+msgid "Double Shift"
+msgstr "Двойной Shift"
+
+# 84
+msgid "Download the new AppImage from Releases, verify SHA256SUMS, close the window and replace the AppImage file."
+msgstr "Скачайте новый AppImage из Releases, проверьте SHA256SUMS, закройте окно и замените файл AppImage."
+
+# 85
+msgid "Enable"
+msgstr "Включить"
+
+# 86
+msgid "Enable the GNOME Shell extension — the layout will switch without delay"
+msgstr "Включите расширение GNOME Shell — раскладка будет переключаться без задержки"
+
+# 87
+msgid "Enabled"
+msgstr "Включено"
+
+# 88
+msgid "Enabled, but GNOME will load the new version only after signing in again. You can continue and sign out later"
+msgstr "Включено, но GNOME загрузит новую версию только после нового входа. Можно продолжить и выйти из сеанса позже"
+
+# 89
+msgid "English"
+msgstr "английская"
+
+# 90
+msgid "English (UK)"
+msgstr "English (UK)"
+
+# 91
+msgid "English (US)"
+msgstr "English (US)"
+
+# 92
+msgid "Esc — cancel · Backspace — no key"
+msgstr "Esc — отмена · Backspace — без клавиши"
+
+# 93
+msgid "Everything is ready."
+msgstr "Всё готово к работе."
+
+# 94
+msgid "Exceptions"
+msgstr "Исключения"
+
+# 95
+msgid "Excluded"
+msgstr "В исключениях"
+
+# 96
+msgid "Extension keys"
+msgstr "Клавишами расширения"
+
+# 97
+msgid "First install and start the native service on the host system."
+msgstr "Сначала установите и запустите нативную службу на основной системе."
+
+# 98
+msgid "Fix manually"
+msgstr "Исправить вручную"
+
+# 99
+msgid "Fix on Space"
+msgstr "Исправлять на пробеле"
+
+# 100
+msgid "Fix selection"
+msgstr "Исправить выделенное"
+
+# 101
+msgid "Fix selection (unavailable)"
+msgstr "Исправить выделенное (недоступно)"
+
+# 102
+msgid "Fix the items marked in red — WaySwitch will work after that."
+msgstr "Осталось исправить отмеченное красным — после этого WaySwitch заработает."
+
+# 103
+msgid "Fixes words typed in the wrong layout on Wayland: GNOME, KDE Plasma, Sway, Hyprland, Xfce, MATE, Budgie, LXQt."
+msgstr "Исправляет слова, набранные не в той раскладке, на Wayland: GNOME, KDE Plasma, Sway, Hyprland, Xfce, MATE, Budgie, LXQt."
+
+# 104
+msgid "For a local .flatpak: download the new WaySwitch-Settings.flatpak and SHA256SUMS from the same release. In the download folder run:\n\n{command}\n\nFor a repository install (for example Flathub): flatpak update {id}"
+msgstr "Для локального .flatpak: скачайте новый WaySwitch-Settings.flatpak и SHA256SUMS из того же релиза. В каталоге загрузки выполните:\n\n{command}\n\nДля установки из репозитория (например, Flathub): flatpak update {id}"
+
+# 105
+msgid "For applications that lose fast input"
+msgstr "Для приложений, которые теряют быстрый ввод"
+
+# 106
+msgid "For panels with a tray: Waybar, ironbar, AGS"
+msgstr "Для панелей с треем: Waybar, ironbar, AGS"
+
+# 107
+msgid "Fragments for config.jsonc and style.css"
+msgstr "Фрагменты config.jsonc и style.css"
+
+# 108
+msgid "GNOME Shell extension"
+msgstr "Расширение GNOME Shell"
+
+# 109
+msgid "GNOME shortcut"
+msgstr "Сочетание клавиш GNOME"
+
+# 110
+msgid "Gesture"
+msgstr "Жест"
+
+# 111
+msgid "Gestures and keys"
+msgstr "Жесты и клавиши"
+
+# 112
+msgid "Glued words"
+msgstr "Слипшиеся слова"
+
+# 113
+msgid "How many times to undo a correction before WaySwitch stops touching the word"
+msgstr "Сколько раз отменить исправление слова, чтобы WaySwitch его больше не трогал"
+
+# 114
+msgid "How to type"
+msgstr "Чем печатать"
+
+# 115
+msgid "Hyprland IPC"
+msgstr "Hyprland IPC"
+
+# 116
+msgid "IBus"
+msgstr "IBus"
+
+# 117
+msgid "If WaySwitch missed a word"
+msgstr "Если WaySwitch пропустил слово"
+
+# 118
+msgid "In the Plasma system tray"
+msgstr "В системном лотке Plasma"
+
+# 119
+msgid "In the notification area of the panel"
+msgstr "В области уведомлений панели"
+
+# 120
+msgid "Increase it if the first letter is typed in the old layout"
+msgstr "Увеличьте, если первая буква печатается в старой раскладке"
+
+# 121
+msgid "Input field detection"
+msgstr "Распознавание поля ввода"
+
+# 122
+msgid "Install / start the service"
+msgstr "Установить / запустить службу"
+
+# 123
+msgid "Installation, autostart and diagnostics on the host"
+msgstr "Установка, автозапуск и диагностика на хосте"
+
+# 124
+msgid "Instructions"
+msgstr "Инструкция"
+
+# 125
+msgid "Instructions for the window and the separate native service"
+msgstr "Инструкции для окна и отдельной нативной службы"
+
+# 126
+msgid "Joined particles"
+msgstr "Слитные частицы"
+
+# 127
+msgid "KDE Plasma"
+msgstr "KDE Plasma"
+
+# 128
+msgid "Key"
+msgstr "Клавиша"
+
+# 129
+msgid "Key press"
+msgstr "Нажатие клавиши"
+
+# 130
+msgid "Keyboard access"
+msgstr "Доступ к клавиатуре"
+
+# 131
+msgid "Keyboard is readable"
+msgstr "Клавиатура читается"
+
+# 132
+msgid "Last word"
+msgstr "Последнее слово"
+
+# 133
+msgid "Layout switching"
+msgstr "Переключение раскладки"
+
+# 134
+msgid "Layout tracking"
+msgstr "Отслеживание раскладки"
+
+# 135
+msgid "Layout: %1"
+msgstr "Раскладка: %1"
+
+# 136
+msgid "Layout: {layout}"
+msgstr "Раскладка: {layout}"
+
+# 137
+msgid "Less"
+msgstr "Меньше"
+
+# 138
+msgid "Like a real keyboard"
+msgstr "Как настоящая клавиатура"
+
+# 139
+msgid "Loading…"
+msgstr "Загрузка…"
+
+# 140
+msgid "Log"
+msgstr "Журнал"
+
+# 141
+msgid "Log is empty"
+msgstr "Журнал пуст"
+
+# 142
+msgid "Log unavailable: {error}"
+msgstr "Журнал недоступен: {error}"
+
+# 143
+msgid "Main menu"
+msgstr "Главное меню"
+
+# 144
+msgid "Manual"
+msgstr "Вручную"
+
+# 145
+msgid "Manual gesture is off"
+msgstr "Ручной жест выключен"
+
+# 146
+msgid "Manual only"
+msgstr "Только вручную"
+
+# 147
+msgid "Match is case-insensitive and by part of the name: “telegram” also matches TelegramDesktop. Enter in the search field adds what is typed."
+msgstr "Совпадение ищется по части имени без учёта регистра: «telegram» подойдёт и для TelegramDesktop. Enter в поиске добавит то, что написано."
+
+# 148
+msgid "Method"
+msgstr "Способ"
+
+# 149
+msgid "More"
+msgstr "Больше"
+
+# 150
+msgid "Native WaySwitch service"
+msgstr "Нативная служба WaySwitch"
+
+# 151
+msgid "Native service"
+msgstr "Нативная служба"
+
+# 152
+msgid "Native service is not connected"
+msgstr "Нативная служба не подключена"
+
+# 153
+msgid "Needed to switch the layout. Click “Enable”, then sign out and sign in again"
+msgstr "Нужно, чтобы переключать раскладку. Нажмите «Включить», затем выйдите из сеанса и войдите снова"
+
+# 154
+msgid "No key chosen. Choose it in Settings → Correction → “Fix selection”"
+msgstr "Клавиша не выбрана. Выберите её в Параметрах → Исправление → «Исправить выделенное»"
+
+# 155
+msgid "No longer corrected"
+msgstr "Больше не исправляется"
+
+# 156
+msgid "No open applications visible"
+msgstr "Открытых программ не видно"
+
+# 157
+msgid "No reliable focus in an input field. Protected auto-correction is waiting; manual correction is available. Check a regular text field in the required app via “Troubleshooting”"
+msgstr "Нет достоверного фокуса в поле ввода. Защищённое автоисправление ждёт; ручное исправление доступно. Проверьте обычное текстовое поле нужного приложения через «Устранение неполадок»"
+
+# 158
+msgid "None"
+msgstr "Нет"
+
+# 159
+msgid "Normal"
+msgstr "Обычная"
+
+# 160
+msgid "Not installed. Reinstall WaySwitch with the same command you used before"
+msgstr "Не установлено. Переустановите WaySwitch той же командой, которой устанавливали"
+
+# 161
+msgid "Not running"
+msgstr "Не запущен"
+
+# 162
+msgid "Nothing corrected yet"
+msgstr "Пока ничего не исправлено"
+
+# 163
+msgid "Nothing found — Enter adds what is typed"
+msgstr "Ничего не найдено — Enter добавит написанное"
+
+# 164
+msgid "Notify about new versions"
+msgstr "Сообщать о новых версиях"
+
+# 165
+msgid "Number in words"
+msgstr "Число прописью"
+
+# 166
+msgid "One press converts the selected text to the other layout"
+msgstr "Одно нажатие переводит выделенный текст в другую раскладку"
+
+# 167
+msgid "One press corrects the last word"
+msgstr "Одно нажатие исправляет последнее слово"
+
+# 168
+msgid "Only for the GNOME Shell extension"
+msgstr "Только для расширения GNOME Shell"
+
+# 169
+msgid "Open"
+msgstr "Открыть"
+
+# 170
+msgid "Open WaySwitch"
+msgstr "Открыть WaySwitch"
+
+# 171
+msgid "Open settings"
+msgstr "Открыть настройки"
+
+# 172
+msgid "Open windows"
+msgstr "Открытые окна"
+
+# 173
+msgid "Panel"
+msgstr "Панель"
+
+# 174
+msgid "Password and terminal protection"
+msgstr "Защита паролей и терминалов"
+
+# 175
+msgid "Pause"
+msgstr "Пауза"
+
+# 176
+msgid "Pause (Ctrl+P)"
+msgstr "Пауза (Ctrl+P)"
+
+# 177
+msgid "Pause / resume"
+msgstr "Пауза / продолжить"
+
+# 178
+msgid "Pause after editing text"
+msgstr "Пауза после правки текста"
+
+# 179
+msgid "Pause and correction for "
+msgstr "Пауза и исправление для "
+
+# 180
+msgid "Pause correction?"
+msgstr "Приостановить исправление?"
+
+# 181
+msgid "Pause key"
+msgstr "Клавиша Pause"
+
+# 182
+msgid "Paused"
+msgstr "На паузе"
+
+# 183
+msgid "Press Enter to close this window. "
+msgstr "Нажмите Enter, чтобы закрыть это окно. "
+
+# 184
+msgid "Press a key to transliterate the selected text"
+msgstr "Нажмите клавишу для транслитерации выделенного текста"
+
+# 185
+msgid "Press a key to write the selected number in words"
+msgstr "Нажмите клавишу, которая напишет выделенное число прописью"
+
+# 186
+msgid "Press the key you will use to fix the last word"
+msgstr "Нажмите клавишу, которой будете исправлять последнее слово"
+
+# 187
+msgid "Press the key you will use to fix the selected text"
+msgstr "Нажмите клавишу, которой будете исправлять выделенный текст"
+
+# 188
+msgid "Press “Done” (or Enter) or choose another key"
+msgstr "Нажмите «Готово» (или Enter) или выберите другую клавишу"
+
+# 189
+msgid "Press “Update” to open a terminal and enter your password."
+msgstr "Нажмите «Обновить» — откроется терминал, там нужно будет ввести пароль."
+
+# 190
+msgid "Press “Update” to open the instructions for the window and the service."
+msgstr "Нажмите «Обновить» — откроются инструкции для окна и службы."
+
+# 191
+msgid "Punctuation"
+msgstr "Знаки препинания"
+
+# 192
+msgid "Quit"
+msgstr "Выйти"
+
+# 193
+msgid "Recent corrections"
+msgstr "Последние исправления"
+
+# 194
+msgid "Remember a word after undos"
+msgstr "Запомнить слово после отмен"
+
+# 195
+msgid "Remember two gestures"
+msgstr "Запомните два жеста"
+
+# 196
+msgid "Removal"
+msgstr "Удаление"
+
+# 197
+msgid "Remove"
+msgstr "Удалить"
+
+# 198
+msgid "Remove WaySwitch"
+msgstr "Удалить WaySwitch"
+
+# 199
+msgid "Remove WaySwitch?"
+msgstr "Удалить WaySwitch?"
+
+# 200
+msgid "Remove “{app}”"
+msgstr "Удалить «{app}»"
+
+# 201
+msgid "Remove “{word}”"
+msgstr "Удалить «{word}»"
+
+# 202
+msgid "Remove…"
+msgstr "Удалить…"
+
+# 203
+msgid "Removing WaySwitch"
+msgstr "Удаление WaySwitch"
+
+# 204
+msgid "Repeating the gesture within this time returns the word"
+msgstr "Повтор жеста в это время вернёт слово"
+
+# 205
+msgid "Reset"
+msgstr "Сбросить"
+
+# 206
+msgid "Reset all settings…"
+msgstr "Сбросить все параметры…"
+
+# 207
+msgid "Reset settings?"
+msgstr "Сбросить параметры?"
+
+# 208
+msgid "Restart the computer"
+msgstr "Перезагрузите компьютер"
+
+# 209
+msgid "Resume"
+msgstr "Возобновить"
+
+# 210
+msgid "Run in background"
+msgstr "Работать в фоне"
+
+# 211
+msgid "Run the command in a terminal"
+msgstr "Выполните команду в терминале"
+
+# 212
+msgid "Russian"
+msgstr "русская"
+
+# 213
+msgid "Russian (phonetic)"
+msgstr "Русская (фонетическая)"
+
+# 214
+msgid "Russian (typewriter)"
+msgstr "Русская (машинопись)"
+
+# 215
+msgid "Russian and English layouts"
+msgstr "Русская и английская раскладки"
+
+# 216
+msgid "Save your documents and restart the computer (or sign out and sign in again)"
+msgstr "Сохраните документы и перезагрузите компьютер (или выйдите из системы и войдите снова)"
+
+# 217
+msgid "Screen is locked"
+msgstr "Экран заблокирован"
+
+# 218
+msgid "Search or part of a window name"
+msgstr "Поиск или часть названия окна"
+
+# 219
+msgid "Selected text"
+msgstr "Выделенный текст"
+
+# 220
+msgid "Sensitivity"
+msgstr "Чувствительность"
+
+# 221
+msgid "Settings"
+msgstr "Параметры"
+
+# 222
+msgid "Settings reset"
+msgstr "Параметры сброшены"
+
+# 223
+msgid "Setup complete"
+msgstr "Настройка завершена"
+
+# 224
+msgid "Shift presses must be consecutive, without a pause. Gestures do not work on the lock screen. For selected text you can also assign any shortcut in the system settings: the command “wayswitch fix-selection”."
+msgstr "Нажатия Shift — подряд, без паузы. Жесты не работают на экране блокировки. Для выделенного текста можно назначить и любое сочетание в настройках системы: команда «wayswitch fix-selection»."
+
+# 225
+msgid "Shortcuts"
+msgstr "Горячие клавиши"
+
+# 226
+msgid "Show log"
+msgstr "Показать журнал"
+
+# 227
+msgid "Sign out"
+msgstr "Выйти из сеанса"
+
+# 228
+msgid "Sound on correction"
+msgstr "Звук при исправлении"
+
+# 229
+msgid "Start"
+msgstr "Запустить"
+
+# 230
+msgid "Start at sign-in"
+msgstr "Запускать при входе в систему"
+
+# 231
+msgid "Startup"
+msgstr "Запуск"
+
+# 232
+msgid "Stop"
+msgstr "Остановить"
+
+# 233
+msgid "Stop correction?"
+msgstr "Остановить исправление?"
+
+# 234
+msgid "Sway IPC"
+msgstr "Sway IPC"
+
+# 235
+msgid "Switch at the start of a word"
+msgstr "Переключать по началу слова"
+
+# 236
+msgid "Switch to the English layout, type ghbdtn and press Space."
+msgstr "Включите английскую раскладку, наберите ghbdtn и нажмите пробел."
+
+# 237
+msgid "System"
+msgstr "Система"
+
+# 238
+msgid "System check"
+msgstr "Проверка системы"
+
+# 239
+msgid "Test"
+msgstr "Проверка"
+
+# 240
+msgid "The WaySwitch service stopped. Open WaySwitch to start it again and look at the log."
+msgstr "Служба WaySwitch остановилась. Откройте WaySwitch, чтобы запустить её снова и посмотреть журнал."
+
+# 241
+msgid "The accessibility bridge is not responding — type the name into the search"
+msgstr "Мост доступности не отвечает — впишите название в поиск"
+
+# 242
+msgid "The check failed: {error}"
+msgstr "Проверка не выполнилась: {error}"
+
+# 243
+msgid "The curl program is required. Install it from the application center (or: sudo apt install curl / sudo dnf install curl) and press the button again."
+msgstr "Нужна программа curl. Установите её через «Центр приложений» (или: sudo apt install curl / sudo dnf install curl) и нажмите кнопку ещё раз."
+
+# 244
+msgid "The extension is enabled. If the layout does not switch, sign out and sign in again"
+msgstr "Расширение включено. Если раскладка не переключается — выйдите из системы и войдите снова"
+
+# 245
+msgid "The higher it is, the more often short and rare words are corrected"
+msgstr "Чем выше, тем чаще правит короткие и редкие слова"
+
+# 246
+msgid "The key for “{title}” was cleared: the new gesture uses it"
+msgstr "Клавиша «{title}» снята: она занята новым жестом"
+
+# 247
+msgid "The module shows the layout and corrections right in Waybar."
+msgstr "Модуль показывает раскладку и исправления прямо в Waybar."
+
+# 248
+msgid "The native service is connected. Settings and gestures are shared with the host system."
+msgstr "Нативная служба подключена. Настройки и жесты общие с основной системой."
+
+# 249
+msgid "The old X11 graphics mode is active. Sign out, click the gear icon on the sign-in screen and choose a session without “Xorg”"
+msgstr "Сейчас включён старый режим графики X11. Выйдите из системы, на экране входа нажмите на шестерёнку и выберите сеанс без «Xorg»"
+
+# 250
+msgid "The service log is read in a terminal on the host system:\n\njournalctl --user -u wayswitch.service -n 200 --no-pager\n\n"
+msgstr "Журнал службы читается в терминале основной системы:\n\njournalctl --user -u wayswitch.service -n 200 --no-pager\n\n"
+
+# 251
+msgid "The settings file is damaged — defaults are shown. It will be overwritten on the first change"
+msgstr "Файл настроек повреждён — показаны исходные значения. Он перезапишется при первом изменении"
+
+# 252
+msgid "The “↶” button remembers a word: WaySwitch will not correct it again. If a word was corrected by mistake — press the correction gesture right away (double Shift by default), and it will come back."
+msgstr "Кнопка «↶» запоминает слово: WaySwitch больше не будет его исправлять. Если слово исправилось зря — сразу нажмите жест исправления (по умолчанию дважды Shift), и оно вернётся."
+
+# 253
+msgid "These words are never corrected. Words whose correction you undid are added here too."
+msgstr "Эти слова никогда не исправляются. Сюда же попадают слова, исправление которых вы отменили."
+
+# 254
+msgid "This is the settings window. Correction and gestures are performed by a separate WaySwitch service on the host system. Install the native package from Releases or run in a terminal on the host system:\n\ncurl -fsSL https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/get.sh | sh\n\nThe installer will ask for the password for keyboard rules. Then sign out and sign in again, and run:\n\nsystemctl --user enable --now wayswitch.service\nwayswitch doctor\n\nOn Bazzite, rpm-ostree is used; a reboot is required after installation. Do not grant the portable window device access through Flatseal."
+msgstr "Это окно настроек. Исправление и жесты выполняет отдельная служба WaySwitch на основной системе. Установите нативный пакет из Releases или выполните в терминале основной системы:\n\ncurl -fsSL https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/get.sh | sh\n\nУстановщик запросит пароль для правил клавиатуры. Затем выйдите из сеанса и войдите снова и запустите:\n\nsystemctl --user enable --now wayswitch.service\nwayswitch doctor\n\nНа Bazzite используется rpm-ostree; после установки нужен перезапуск. Не выдавайте переносимому окну права устройств через Flatseal."
+
+# 255
+msgid "This is the settings window. Correction and gestures need a separate service on the host system. Install it and check that it starts."
+msgstr "Это окно настроек. Для исправления и жестов нужна отдельная служба на основной системе. Установите её и проверьте запуск."
+
+# 256
+msgid "This is the settings window. To correct the layout and use gestures, install the separate native WaySwitch service on the host system. The next step will check the connection and show the instructions."
+msgstr "Это окно настроек. Для исправления раскладки и жестов установите отдельную нативную службу WaySwitch на основной системе. Следующий шаг проверит подключение и покажет инструкции."
+
+# 257
+msgid "This key is already used for another action"
+msgstr "Эта клавиша уже занята другим действием"
+
+# 258
+msgid "This key pauses WaySwitch"
+msgstr "Эта клавиша ставит WaySwitch на паузу"
+
+# 259
+msgid "This key will not work: pressing it types text"
+msgstr "Эта клавиша не подойдёт: её нажатие печатает текст"
+
+# 260
+msgid "This session: %1 automatic, %2 manual"
+msgstr "За сеанс: %1 автоматически, %2 вручную"
+
+# 261
+msgid "This window has no access to the keyboard and does not replace the service"
+msgstr "Это окно не имеет доступа к клавиатуре и не заменяет службу"
+
+# 262
+msgid "Top bar icon"
+msgstr "Значок в верхней панели"
+
+# 263
+msgid "Transliteration"
+msgstr "Транслитерация"
+
+# 264
+msgid "Tray icon"
+msgstr "Значок в трее"
+
+# 265
+msgid "Try here"
+msgstr "Попробуйте здесь"
+
+# 266
+msgid "Turn it on in Settings → Correction"
+msgstr "Включите его в Параметрах → Исправление"
+
+# 267
+msgid "Two capitals at the start"
+msgstr "Две заглавные в начале"
+
+# 268
+msgid "Typed a word in the wrong layout — WaySwitch will fix it on Space and switch the layout."
+msgstr "Набрали слово не в той раскладке — WaySwitch исправит его на пробеле и переключит раскладку."
+
+# 269
+msgid "Umbriel IPC"
+msgstr "Umbriel IPC"
+
+# 270
+msgid "Undo"
+msgstr "Отменить"
+
+# 271
+msgid "Undo correction"
+msgstr "Отменить исправление"
+
+# 272
+msgid "Undo window"
+msgstr "Время на отмену"
+
+# 273
+msgid "Up to date ({version})"
+msgstr "Установлена последняя версия ({version})"
+
+# 274
+msgid "Update"
+msgstr "Обновить"
+
+# 275
+msgid "Update to {version}…"
+msgstr "Обновить до {version}…"
+
+# 276
+msgid "Updates"
+msgstr "Обновления"
+
+# 277
+msgid "Updates through the package manager"
+msgstr "Обновления через пакетный менеджер"
+
+# 278
+msgid "Updating WaySwitch"
+msgstr "Обновление WaySwitch"
+
+# 279
+msgid "Version {version}"
+msgstr "Версия {version}"
+
+# 280
+msgid "Version {version} available (currently {current})"
+msgstr "Доступна версия {version} (сейчас {current})"
+
+# 281
+msgid "Version {version} is available"
+msgstr "Вышла версия {version}"
+
+# 282
+msgid "Via systemd. If the session runs without it, add to the config: "
+msgstr "Через systemd. Если сеанс запущен без него — добавьте в конфиг "
+
+# 283
+msgid "Virtual keyboard"
+msgstr "Виртуальная клавиатура"
+
+# 284
+msgid "Wait after switching the layout"
+msgstr "Ожидание после смены раскладки"
+
+# 285
+msgid "Waiting for a Russian or English layout"
+msgstr "Ожидание русской или английской раскладки"
+
+# 286
+msgid "WaySwitch cannot correct right now: it cannot see which layout is active. You can fix a word with the gesture (double Shift by default)"
+msgstr "Сам WaySwitch сейчас не исправляет: не видно, какая раскладка включена. Исправить слово можно жестом (по умолчанию — дважды Shift)"
+
+# 287
+msgid "WaySwitch cannot switch the layout. Details: menu ☰ → “About WaySwitch” → “Troubleshooting”"
+msgstr "WaySwitch не может переключать раскладку. Подробности — в меню ☰ → «О WaySwitch» → «Устранение неполадок»"
+
+# 288
+msgid "WaySwitch corrects typing only between Russian and English layouts. Other sources can stay in the system: when one is selected, WaySwitch does not change the text"
+msgstr "WaySwitch исправляет ввод только между русской и английской раскладками. Другие источники можно оставить в системе: при их выборе WaySwitch не изменяет текст"
+
+# 289
+msgid "WaySwitch did not start. The reason is in the log"
+msgstr "WaySwitch не запустился. Причина — в журнале"
+
+# 290
+msgid "WaySwitch does not correct anything in these applications."
+msgstr "В этих приложениях WaySwitch ничего не исправляет."
+
+# 291
+msgid "WaySwitch does not correct anything — it is turned off in Settings. You can fix a word with the gesture (double Shift by default)"
+msgstr "Сам WaySwitch не исправляет — это выключено в Параметрах. Исправить слово можно жестом (по умолчанию — дважды Shift)"
+
+# 292
+msgid "WaySwitch is not running"
+msgstr "WaySwitch не запущен"
+
+# 293
+msgid "WaySwitch log"
+msgstr "Журнал WaySwitch"
+
+# 294
+msgid "WaySwitch {version} is available"
+msgstr "Вышла WaySwitch {version}"
+
+# 295
+msgid "WaySwitch — {summary}"
+msgstr "WaySwitch — {summary}"
+
+# 296
+msgid "WaySwitch: window and native service"
+msgstr "WaySwitch: окно и нативная служба"
+
+# 297
+msgid "Waybar module"
+msgstr "Модуль для Waybar"
+
+# 298
+msgid "Wayland session"
+msgstr "Сессия Wayland"
+
+# 299
+msgid "Welcome to WaySwitch"
+msgstr "Добро пожаловать в WaySwitch"
+
+# 300
+msgid "What to correct"
+msgstr "Что исправлять"
+
+# 301
+msgid "What's new"
+msgstr "Что нового"
+
+# 302
+msgid "Whole phrase"
+msgstr "Вся фраза"
+
+# 303
+msgid "Window"
+msgstr "Окно"
+
+# 304
+msgid "Window removal:\n\n"
+msgstr "Удаление окна:\n\n"
+
+# 305
+msgid "Window update:\n\n"
+msgstr "Обновление окна:\n\n"
+
+# 306
+msgid "Within {seconds} s, the word is remembered"
+msgstr "В течение {seconds} с, слово запоминается"
+
+# 307
+msgid "Without this, the manual gesture and “Fix selection” still work"
+msgstr "Без этого работают ручной жест и «Исправить выделенное»"
+
+# 308
+msgid "Word “{word}” removed"
+msgstr "Слово «{word}» удалено"
+
+# 309
+msgid "Words"
+msgstr "Слова"
+
+# 310
+msgid "Words are not being corrected right now"
+msgstr "Слова сейчас не исправляются"
+
+# 311
+msgid "Words are not being corrected right now."
+msgstr "Слова сейчас не исправляются."
+
+# 312
+msgid "Words are not being corrected right now. Press “Start”. If that does not help, restart the computer."
+msgstr "Слова сейчас не исправляются. Нажмите «Запустить». Если не поможет — перезагрузите компьютер."
+
+# 313
+msgid "Words are not corrected"
+msgstr "Слова не исправляются"
+
+# 314
+msgid "Words are not corrected. Turn it on when you are done."
+msgstr "Слова не исправляются. Включите, когда закончите."
+
+# 315
+msgid "Working languages"
+msgstr "Рабочие языки"
+
+# 316
+msgid "Works out of the box on Ubuntu. On other systems enable the “AppIndicator” extension in the Extensions app"
+msgstr "В Ubuntu работает сразу. В других системах нужно расширение «AppIndicator» — включите его в приложении «Расширения»"
+
+# 317
+msgid "You can close the window and WaySwitch will keep running in the background."
+msgstr "Окно можно закрыть, а WaySwitch продолжит работать в фоне."
+
+# 318
+msgid "You can continue. Circled items are optional and can be done later."
+msgstr "Можно продолжать. Отмеченное кружком — по желанию, можно сделать и позже."
+
+# 319
+msgid "You can continue. Protected auto-correction is not confirmed: reliable focus in an input field is required."
+msgstr "Можно продолжать. Защищённое автоисправление не подтверждено: нужен достоверный фокус в поле ввода."
+
+# 320
+msgid "Your compositor does not report which layout is active. WaySwitch counts layout-switch shortcut presses — this is wrong if you change the layout with the mouse."
+msgstr "Ваш композитор не сообщает, какая раскладка включена. WaySwitch считает нажатия сочетания переключения — это ошибается, если менять раскладку мышью."
+
+# 321
+msgid "automatic"
+msgstr "автоматически"
+
+# 322
+msgid "doctor failed: {error}"
+msgstr "doctor не выполнился: {error}"
+
+# 323
+msgid "first try"
+msgstr "с первого раза"
+
+# 324
+msgid "flatpak uninstall {id}"
+msgstr "flatpak uninstall {id}"
+
+# 325
+msgid "ghbd → прив in Writer/Calc; when retyping with keys — after Space"
+msgstr "ghbd → прив в Writer/Calc; при перепечатке клавишами — после пробела"
+
+# 326
+msgid "manual"
+msgstr "вручную"
+
+# 327
+msgid "ms"
+msgstr "мс"
+
+# 328
+msgid "none"
+msgstr "нет"
+
+# 329
+msgid "other (not supported)"
+msgstr "другая (не поддерживается)"
+
+# 330
+msgid "s"
+msgstr "с"
+
+# 331
+msgid "undone"
+msgstr "отменено"
+
+# 332
+msgid "unknown"
+msgstr "неизвестна"
+
+# 333
+msgid "via COSMIC"
+msgstr "через COSMIC"
+
+# 334
+msgid "via Hyprland IPC"
+msgstr "через Hyprland IPC"
+
+# 335
+msgid "via IBus"
+msgstr "через IBus"
+
+# 336
+msgid "via KDE Plasma"
+msgstr "через KDE Plasma"
+
+# 337
+msgid "via Sway IPC"
+msgstr "через Sway IPC"
+
+# 338
+msgid "via Umbriel"
+msgstr "через Umbriel"
+
+# 339
+msgid "via the GNOME Shell extension"
+msgstr "через расширение GNOME Shell"
+
+# 340
+msgid "via the compositor shortcut"
+msgstr "через сочетание клавиш композитора"
+
+# 341
+msgid "via the system shortcut"
+msgstr "через сочетание клавиш системы"
+
+# 342
+msgid "{app} added to exceptions"
+msgstr "{app} добавлен в исключения"
+
+# 343
+msgid "{app} removed from exceptions"
+msgstr "{app} удалён из исключений"
+
+# 344
+msgid "{detail}"
+msgstr "{detail}"
+
+# 345
+msgid "{n} time"
+msgid_plural "{n} times"
+msgstr[0] "{n} раз"
+msgstr[1] "{n} раза"
+msgstr[2] "{n} раз"
+
+# 346
+msgid "{title}: less"
+msgstr "{title}: меньше"
+
+# 347
+msgid "{title}: more"
+msgstr "{title}: больше"
+
+# 348
+msgid "{what}: copied to the clipboard"
+msgstr "{what}: скопировано в буфер обмена"
+
+# 349
+msgid "Привет ↔ Privet for the selected text"
+msgstr "Привет ↔ Privet — для выделенного текста"
+
+# 350
+msgid "пРИВЕТ → Привет, and Caps Lock is turned off"
+msgstr "пРИВЕТ → Привет, и Caps Lock выключается"
+
+# 351
+msgid "“{word}” is no longer corrected"
+msgstr "«{word}» больше не исправляется"
+
+# 352
+msgid "✓ Fixed: {original} → {fixed}. Layout switched."
+msgstr "✓ Исправлено: {original} → {fixed}. Раскладка переключена."
+
+# plural: word
+msgid "word"
+msgid_plural "words"
+msgstr[0] "слово"
+msgstr[1] "слова"
+msgstr[2] "слов"
+
+# physical key names
+msgid "Left Ctrl"
+msgstr "Левый Ctrl"
+
+msgid "Right Ctrl"
+msgstr "Правый Ctrl"
+
+msgid "Left Shift"
+msgstr "Левый Shift"
+
+msgid "Right Shift"
+msgstr "Правый Shift"
+
+msgid "Left Alt"
+msgstr "Левый Alt"
+
+msgid "Right Alt"
+msgstr "Правый Alt"
+
+msgid "Left Super"
+msgstr "Левый Super"
+
+msgid "Right Super"
+msgstr "Правый Super"

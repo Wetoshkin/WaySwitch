@@ -35,6 +35,11 @@ chmod 755 "$DEST/usr/bin/wayswitch" "$DEST/usr/bin/wayswitch-gui"
 
 install -Dm644 "$ROOT/packaging/60-wayswitch.rules" "$DEST/usr/lib/udev/rules.d/60-wayswitch.rules"
 install -Dm644 "$ROOT/packaging/migrate.py" "$DEST/usr/share/wayswitch/migrate.py"
+
+# Каталог KI18n для виджета Plasma. Тот же .mo лежит в пакете Python, поэтому
+# GTK-окно и QML показывают один и тот же перевод.
+install -Dm644 "$ROOT/wayswitch/locale/ru/LC_MESSAGES/wayswitch.mo" \
+    "$DEST/usr/share/locale/ru/LC_MESSAGES/wayswitch.mo"
 install -d "$DEST/usr/lib/modules-load.d"
 echo "uinput" > "$DEST/usr/lib/modules-load.d/wayswitch.conf"
 

@@ -13,6 +13,7 @@ from wayswitch import __version__
 from wayswitch import config as cfgmod
 from wayswitch.gui import gesture_keys, texts
 from wayswitch.gui.widgets import boxed_list, clear_list, keycap, keycaps, run_in_thread
+from wayswitch.i18n import gettext as _
 
 REPO_URL = "https://github.com/Wetoshkin/WaySwitch"
 
@@ -20,8 +21,7 @@ REPO_URL = "https://github.com/Wetoshkin/WaySwitch"
 # --- клавиша исправления -----------------------------------------------------------
 
 def key_capture_dialog(parent, current: str, on_done: Callable[[str | None], None],
-                       title: str = "Клавиша исправления",
-                       hint: str = "Нажмите клавишу, которой будете исправлять последнее слово"):
+                       title: str | None = None, hint: str | None = None):
     """«Нажмите клавишу» — как выбор сочетаний в Параметрах GNOME.
 
     on_done(имя) — выбрана клавиша; on_done(None) — Backspace, «без клавиши».
@@ -29,13 +29,15 @@ def key_capture_dialog(parent, current: str, on_done: Callable[[str | None], Non
     """
     from gi.repository import Adw, Gtk
 
+    title = title or _("Correction key")
+    hint = hint or _("Press the key you will use to fix the last word")
     dialog = Adw.Dialog(title=title, content_width=400)
     chosen = {"name": current}
     toolbar = Adw.ToolbarView()
     header = Adw.HeaderBar(show_end_title_buttons=False, show_start_title_buttons=False)
-    cancel = Gtk.Button(label="Отмена")
+    cancel = Gtk.Button(label=_("Cancel"))
     cancel.connect("clicked", lambda *_: dialog.close())
-    done = Gtk.Button(label="Готово")
+    done = Gtk.Button(label=_("Done"))
     done.add_css_class("suggested-action")
 
     def finish(*_):
@@ -56,7 +58,7 @@ def key_capture_dialog(parent, current: str, on_done: Callable[[str | None], Non
     hint_label.add_css_class("dim-label")
     cap = keycap(gesture_keys.human_name(current) if current else "…", large=True)
     cap.set_halign(Gtk.Align.CENTER)
-    note = Gtk.Label(label="Esc — отмена · Backspace — без клавиши")
+    note = Gtk.Label(label=_("Esc — cancel · Backspace — no key"))
     note.add_css_class("dim-label")
     note.add_css_class("caption")
     for widget in (icon, hint_label, cap, note):
@@ -76,7 +78,7 @@ def key_capture_dialog(parent, current: str, on_done: Callable[[str | None], Non
         elif verdict == "key":
             chosen["name"] = value
             cap.set_label(gesture_keys.human_name(value))
-            note.set_label("Нажмите «Готово» (или Enter) или выберите другую клавишу")
+            note.set_label(_("Press “Done” (or Enter) or choose another key"))
         elif verdict == "done":
             finish()
         else:
@@ -138,22 +140,22 @@ def add_app_dialog(parent, on_add: Callable[[str], None]):
 
     from wayswitch import a11y
 
-    dialog = Adw.Dialog(title="Добавить приложение", content_width=420, content_height=540)
+    dialog = Adw.Dialog(title=_("Add application"), content_width=420, content_height=540)
     toolbar = Adw.ToolbarView()
     toolbar.add_top_bar(Adw.HeaderBar())
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18, margin_top=6,
                   margin_bottom=24, margin_start=20, margin_end=20)
-    search = Gtk.SearchEntry(placeholder_text="Поиск или часть названия окна")
+    search = Gtk.SearchEntry(placeholder_text=_("Search or part of a window name"))
     box.append(search)
 
-    title = Gtk.Label(label="Открытые окна", xalign=0.0)
+    title = Gtk.Label(label=_("Open windows"), xalign=0.0)
     title.add_css_class("heading")
     box.append(title)
     listing = boxed_list()
     box.append(listing)
     footer = Gtk.Label(
-        label="Совпадение ищется по части имени без учёта регистра: «telegram» подойдёт "
-              "и для TelegramDesktop. Enter в поиске добавит то, что написано.",
+        label=_("Match is case-insensitive and by part of the name: “telegram” also "
+                "matches TelegramDesktop. Enter in the search field adds what is typed."),
         wrap=True, xalign=0.0)
     footer.add_css_class("dim-label")
     footer.add_css_class("caption")
@@ -178,18 +180,19 @@ def add_app_dialog(parent, on_add: Callable[[str], None]):
         excluded = [a.lower() for a in cfgmod.load_apps()]
         apps = [a for a in state["apps"] if not query or query in a.lower()]
         if not apps:
-            text = ("Мост доступности не отвечает — впишите название в поиск"
+            text = (_("The accessibility bridge is not responding — type the name into "
+                      "the search")
                     if state["error"] else
-                    "Ничего не найдено — Enter добавит написанное" if query else
-                    "Загрузка…" if state["error"] is None and not state["apps"] else
-                    "Открытых программ не видно")
+                    _("Nothing found — Enter adds what is typed") if query else
+                    _("Loading…") if state["error"] is None and not state["apps"] else
+                    _("No open applications visible"))
             listing.append(Adw.ActionRow(title=text))
             return
         for name in apps:
             already = name.lower() in excluded
             if already:
                 mark = Gtk.Image(icon_name="object-select-symbolic")
-                row = app_row(name, mark, "Уже в исключениях")
+                row = app_row(name, mark, _("Already excluded"))
                 row.set_sensitive(False)
             else:
                 plus = Gtk.Image(icon_name="list-add-symbolic")
@@ -224,19 +227,20 @@ def gesture_rows(cfg) -> list[tuple[str, str, list[str]]]:
 
     Чистая функция: зависит только от конфига.
     """
-    undo = f"В течение {int(cfg.general.undo_window_sec)} с, слово запоминается"
+    undo = _("Within {seconds} s, the word is remembered").format(
+        seconds=int(cfg.general.undo_window_sec))
     mode = cfg.gesture.manual
     if mode == "double_shift":
-        return [("Последнее слово", "", ["Shift", "Shift"]),
-                ("Вся фраза", "", ["Shift", "Shift", "Shift"]),
-                ("Отменить исправление", undo, ["Shift", "Shift"])]
+        return [(_("Last word"), "", ["Shift", "Shift"]),
+                (_("Whole phrase"), "", ["Shift", "Shift", "Shift"]),
+                (_("Undo correction"), undo, ["Shift", "Shift"])]
     if mode == "tap_key":
         key = gesture_keys.human_name(cfg.gesture.tap_key)
-        return [("Последнее слово", "", [key]),
-                ("Отменить исправление", undo, [key])]
+        return [(_("Last word"), "", [key]),
+                (_("Undo correction"), undo, [key])]
     if mode == "pause_key":
-        return [("Последнее слово", "", ["Pause"]),
-                ("Отменить исправление", undo, ["Pause"])]
+        return [(_("Last word"), "", ["Pause"]),
+                (_("Undo correction"), undo, ["Pause"])]
     return []
 
 
@@ -248,31 +252,32 @@ def selection_rows(cfg) -> list[tuple[str, str, list[str]]]:
     for field_name, title, *_rest in texts.SELECTION_KEY_ROWS[1:]:
         key = getattr(cfg.gesture, field_name)
         if key:
-            rows.append((title, "Выделенный текст", [gesture_keys.human_name(key)]))
+            rows.append((_(title), _("Selected text"), [gesture_keys.human_name(key)]))
     return rows
 
 
 def selection_row(cfg) -> tuple[str, str, list[str]]:
     """Строка «Выделенный текст» для «Жесты и клавиши»."""
     if cfg.gesture.selection_key:
-        return ("Выделенный текст", "", [gesture_keys.human_name(cfg.gesture.selection_key)])
-    return ("Выделенный текст", "Клавиша не выбрана. Выберите её в Параметрах → "
-            "Исправление → «Исправить выделенное»", [])
+        return (_("Selected text"), "",
+                [gesture_keys.human_name(cfg.gesture.selection_key)])
+    return (_("Selected text"), _("No key chosen. Choose it in Settings → "
+                                  "Correction → “Fix selection”"), [])
 
 
 def shortcuts_dialog(parent, cfg):
     from gi.repository import Adw
 
-    dialog = Adw.Dialog(title="Жесты и клавиши", content_width=460)
+    dialog = Adw.Dialog(title=_("Gestures and keys"), content_width=460)
     toolbar = Adw.ToolbarView()
     toolbar.add_top_bar(Adw.HeaderBar())
     page = Adw.PreferencesPage()
 
-    fix = Adw.PreferencesGroup(title="Исправление")
+    fix = Adw.PreferencesGroup(title=_("Correction"))
     rows = gesture_rows(cfg)
     if not rows:
-        fix.add(Adw.ActionRow(title="Ручной жест выключен",
-                              subtitle="Включите его в Параметрах → Исправление"))
+        fix.add(Adw.ActionRow(title=_("Manual gesture is off"),
+                              subtitle=_("Turn it on in Settings → Correction")))
     for title, subtitle, keys in [*rows, *selection_rows(cfg)]:
         row = Adw.ActionRow(title=title, subtitle=subtitle)
         if keys:
@@ -280,18 +285,19 @@ def shortcuts_dialog(parent, cfg):
         fix.add(row)
     page.add(fix)
 
-    window = Adw.PreferencesGroup(title="Окно")
-    for title, keys in (("Параметры", ["Ctrl", ","]), ("Пауза / продолжить", ["Ctrl", "P"]),
-                        ("Жесты и клавиши", ["Ctrl", "?"]), ("Выйти", ["Ctrl", "Q"])):
+    window = Adw.PreferencesGroup(title=_("Window"))
+    for title, keys in ((_("Settings"), ["Ctrl", ","]), (_("Pause / resume"), ["Ctrl", "P"]),
+                        (_("Gestures and keys"), ["Ctrl", "?"]), (_("Quit"), ["Ctrl", "Q"])):
         row = Adw.ActionRow(title=title)
         row.add_suffix(keycaps(keys))
         window.add(row)
     page.add(window)
 
     note = Adw.PreferencesGroup(
-        description="Нажатия Shift — подряд, без паузы. Жесты не работают на экране "
-                    "блокировки. Для выделенного текста можно назначить и любое сочетание "
-                    "в настройках системы: команда «wayswitch fix-selection».")
+        description=_("Shift presses must be consecutive, without a pause. Gestures do not "
+                      "work on the lock screen. For selected text you can also assign any "
+                      "shortcut in the system settings: the command "
+                      "“wayswitch fix-selection”."))
     page.add(note)
     toolbar.set_content(page)
     dialog.set_child(toolbar)
@@ -305,9 +311,9 @@ def read_journal(lines: int = 200) -> str:
     from wayswitch.gui import portable
 
     if portable.package_kind():
-        return ("Журнал службы читается в терминале основной системы:\n\n"
-                "journalctl --user -u wayswitch.service -n 200 --no-pager\n\n" +
-                portable.instructions())
+        return (_("The service log is read in a terminal on the host system:\n\n"
+                  "journalctl --user -u wayswitch.service -n 200 --no-pager\n\n")
+                + portable.instructions())
     import subprocess
 
     try:
@@ -315,22 +321,22 @@ def read_journal(lines: int = 200) -> str:
                               "--no-pager", "-o", "short-iso"],
                              capture_output=True, text=True, timeout=5)
     except (OSError, subprocess.SubprocessError) as exc:
-        return f"Журнал недоступен: {exc}"
-    return (out.stdout or out.stderr or "Журнал пуст").strip()
+        return _("Log unavailable: {error}").format(error=exc)
+    return (out.stdout or out.stderr or _("Log is empty")).strip()
 
 
 def journal_dialog(parent):
     from gi.repository import Adw, Gdk, Gtk
 
-    dialog = Adw.Dialog(title="Журнал WaySwitch", content_width=720, content_height=520)
+    dialog = Adw.Dialog(title=_("WaySwitch log"), content_width=720, content_height=520)
     toolbar = Adw.ToolbarView()
     header = Adw.HeaderBar()
-    copy = Gtk.Button(icon_name="edit-copy-symbolic", tooltip_text="Скопировать")
+    copy = Gtk.Button(icon_name="edit-copy-symbolic", tooltip_text=_("Copy"))
     header.pack_start(copy)
     toolbar.add_top_bar(header)
     view = Gtk.TextView(editable=False, monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR,
                         top_margin=12, bottom_margin=12, left_margin=12, right_margin=12)
-    view.get_buffer().set_text("Загрузка…")
+    view.get_buffer().set_text(_("Loading…"))
     scroller = Gtk.ScrolledWindow(vexpand=True)
     scroller.set_child(view)
     toolbar.set_content(scroller)
@@ -371,7 +377,7 @@ def debug_info() -> str:
         else:
             report = doctor.format_report(doctor.run_checks())
     except Exception as exc:  # noqa: BLE001
-        report = f"doctor не выполнился: {exc}"
+        report = _("doctor failed: {error}").format(error=exc)
     return "\n".join([f"WaySwitch {__version__}", f"Python {platform.python_version()}",
                       f"{platform.system()} {platform.release()}", "", report])
 
@@ -385,19 +391,20 @@ def about_dialog(parent, update=None):
         issue_url=f"{REPO_URL}/issues", license_type=Gtk.License.MIT_X11,
         copyright="© 2026 Илья Ветошкин",
         developers=["Илья Ветошкин https://github.com/Wetoshkin"],
-        comments="Исправляет слова, набранные не в той раскладке, на Wayland: GNOME, "
-                 "KDE Plasma, Sway, Hyprland, Xfce, MATE, Budgie, LXQt.",
-        debug_info="Сбор сведений…", debug_info_filename="wayswitch-debug.txt")
+        comments=_("Fixes words typed in the wrong layout on Wayland: GNOME, "
+                   "KDE Plasma, Sway, Hyprland, Xfce, MATE, Budgie, LXQt."),
+        debug_info=_("Collecting information…"), debug_info_filename="wayswitch-debug.txt")
     if update is not None:
         about.set_release_notes_version(update.version)
         about.set_release_notes(
-            f"<p>Вышла версия {update.version}. Обновить — кнопкой «Обновить» в "
-            "главном окне или в Параметрах → Система.</p>")
-    about.add_link("Что нового", f"{REPO_URL}/releases")
+            _("<p>Version {version} is available. Update with the “Update” button in the "
+              "main window or in Settings → System.</p>").format(version=update.version))
+    about.add_link(_("What's new"), f"{REPO_URL}/releases")
     about.add_legal_section(
-        "Словари", "© Hermit Dave, FrequencyWords (по корпусу OpenSubtitles)",
-        Gtk.License.CUSTOM, "Данные словарей — CC-BY-SA 4.0: "
-        "https://creativecommons.org/licenses/by-sa/4.0/")
+        _("Dictionaries"), "© Hermit Dave, FrequencyWords (OpenSubtitles corpus)",
+        Gtk.License.CUSTOM,
+        _("Dictionary data — CC-BY-SA 4.0: "
+          "https://creativecommons.org/licenses/by-sa/4.0/"))
     run_in_thread(debug_info, lambda text: about.set_debug_info(str(text)))
     about.present(parent)
     return about
@@ -411,14 +418,14 @@ def quit_dialog(parent, on_background: Callable[[], None], on_stop: Callable[[],
     from wayswitch.gui import portable
 
     dialog = Adw.AlertDialog(
-        heading="Приостановить исправление?" if portable.package_kind()
-        else "Остановить исправление?",
-        body="Окно можно закрыть, а WaySwitch продолжит работать в фоне.")
+        heading=_("Pause correction?") if portable.package_kind()
+        else _("Stop correction?"),
+        body=_("You can close the window and WaySwitch will keep running in the background."))
     # В узком диалоге кнопки идут снизу вверх в порядке добавления: так
     # «Работать в фоне» оказывается сверху, как в макете.
-    dialog.add_response("cancel", "Отмена")
-    dialog.add_response("stop", "Приостановить" if portable.package_kind() else "Остановить")
-    dialog.add_response("background", "Работать в фоне")
+    dialog.add_response("cancel", _("Cancel"))
+    dialog.add_response("stop", _("Pause") if portable.package_kind() else _("Stop"))
+    dialog.add_response("background", _("Run in background"))
     dialog.set_response_appearance("background", Adw.ResponseAppearance.SUGGESTED)
     dialog.set_response_appearance("stop", Adw.ResponseAppearance.DESTRUCTIVE)
     dialog.set_default_response("background")
@@ -441,12 +448,11 @@ def uninstall_dialog(parent, on_uninstall: Callable[[], None]):
     from gi.repository import Adw
 
     dialog = Adw.AlertDialog(
-        heading="Удалить WaySwitch?",
-        body="Откроется окно терминала: там нужно будет подтвердить удаление и ввести "
-             "пароль от вашей учётной записи. Настройки останутся на случай "
-             "переустановки.")
-    dialog.add_response("cancel", "Отмена")
-    dialog.add_response("uninstall", "Удалить")
+        heading=_("Remove WaySwitch?"),
+        body=_("A terminal window will open: confirm the removal there and enter the "
+               "password for your account. Settings will remain in case you reinstall."))
+    dialog.add_response("cancel", _("Cancel"))
+    dialog.add_response("uninstall", _("Remove"))
     dialog.set_response_appearance("uninstall", Adw.ResponseAppearance.DESTRUCTIVE)
     dialog.set_close_response("cancel")
     dialog.connect("response", lambda _d, r: on_uninstall() if r == "uninstall" else None)
@@ -459,12 +465,12 @@ def command_dialog(parent, command: str):
     from gi.repository import Adw, Gdk
 
     dialog = Adw.AlertDialog(
-        heading="Выполните команду в терминале",
-        body="Не удалось открыть терминал. Откройте его сами (клавиша с логотипом "
-             "Windows → «Терминал»), вставьте команду сочетанием Ctrl+Shift+V и "
-             f"нажмите Enter:\n\n{command}")
-    dialog.add_response("close", "Закрыть")
-    dialog.add_response("copy", "Скопировать команду")
+        heading=_("Run the command in a terminal"),
+        body=_("Could not open a terminal. Open one yourself (Windows logo key → "
+               "“Terminal”), paste the command with Ctrl+Shift+V and press Enter:"
+               "\n\n{command}").format(command=command))
+    dialog.add_response("close", _("Close"))
+    dialog.add_response("copy", _("Copy command"))
     dialog.set_response_appearance("copy", Adw.ResponseAppearance.SUGGESTED)
     dialog.set_close_response("close")
 
@@ -480,11 +486,11 @@ def command_dialog(parent, command: str):
 def reset_dialog(parent, on_reset: Callable[[], None]):
     from gi.repository import Adw
 
-    dialog = Adw.AlertDialog(heading="Сбросить параметры?",
-                             body="Все параметры вернутся к исходным. Списки исключений "
-                                  "останутся.")
-    dialog.add_response("cancel", "Отмена")
-    dialog.add_response("reset", "Сбросить")
+    dialog = Adw.AlertDialog(heading=_("Reset settings?"),
+                             body=_("All settings will return to their defaults. "
+                                    "Exception lists will remain."))
+    dialog.add_response("cancel", _("Cancel"))
+    dialog.add_response("reset", _("Reset"))
     dialog.set_response_appearance("reset", Adw.ResponseAppearance.DESTRUCTIVE)
     dialog.set_close_response("cancel")
     dialog.connect("response", lambda _d, r: on_reset() if r == "reset" else None)

@@ -39,6 +39,8 @@ python3Packages.buildPythonApplication {
       ../../wayswitch/data/en.words.gz
       ../../wayswitch/data/ru.ngrams.json.gz
       ../../wayswitch/data/en.ngrams.json.gz
+      ../../wayswitch/locale/ru/LC_MESSAGES/wayswitch.po
+      ../../wayswitch/locale/ru/LC_MESSAGES/wayswitch.mo
       ../60-wayswitch.rules
       ../wayswitch.service
       ../migrate.py
@@ -82,6 +84,8 @@ python3Packages.buildPythonApplication {
       "$out/share/icons/hicolor/symbolic/apps/io.github.Wetoshkin.WaySwitch-symbolic.svg"
     install -Dm644 packaging/icons/io.github.Wetoshkin.WaySwitch-paused-symbolic.svg \
       "$out/share/icons/hicolor/symbolic/apps/io.github.Wetoshkin.WaySwitch-paused-symbolic.svg"
+    install -Dm644 wayswitch/locale/ru/LC_MESSAGES/wayswitch.mo \
+      "$out/share/locale/ru/LC_MESSAGES/wayswitch.mo"
     mkdir -p "$out/share/gnome-shell/extensions" "$out/share/plasma/plasmoids"
     cp -r extension/wayswitch@wetoshkin.github.io "$out/share/gnome-shell/extensions/"
     cp -r packaging/kde/io.github.Wetoshkin.wayswitch "$out/share/plasma/plasmoids/"

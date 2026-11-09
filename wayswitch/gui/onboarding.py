@@ -18,6 +18,7 @@ from wayswitch import config as cfgmod
 from wayswitch.gui import autostart, dialogs, portable, texts
 from wayswitch.gui.preferences import enable_extension
 from wayswitch.gui.widgets import boxed_list, clear_list, keycaps, run_in_thread
+from wayswitch.i18n import gettext as _
 
 
 def flag_path():
@@ -66,9 +67,9 @@ def open_layout_settings() -> bool:
 ROW_ICONS = {"ok": ("object-select-symbolic", "success"),
              "fail": ("dialog-error-symbolic", "error"),
              "optional": ("radio-symbolic", "dim-label")}
-ACTIONS = {"logout": ("Выйти из сеанса", logout),
-           "extension": ("Включить", enable_extension),
-           "layouts": ("Открыть настройки", open_layout_settings)}
+ACTIONS = {"logout": ("Sign out", logout),
+           "extension": ("Enable", enable_extension),
+           "layouts": ("Open settings", open_layout_settings)}
 
 
 class Onboarding:
@@ -77,11 +78,11 @@ class Onboarding:
 
         self.app = app
         self.on_finish = on_finish
-        self.window = Adw.Window(application=app, title="Добро пожаловать в WaySwitch",
+        self.window = Adw.Window(application=app, title=_("Welcome to WaySwitch"),
                                  default_width=560, default_height=640)
         toolbar = Adw.ToolbarView()
         self.header = Adw.HeaderBar(show_title=False)
-        self.back = Gtk.Button(icon_name="go-previous-symbolic", tooltip_text="Назад")
+        self.back = Gtk.Button(icon_name="go-previous-symbolic", tooltip_text=_("Back"))
         self.back.connect("clicked", lambda *_: self._go(self._index() - 1))
         self.header.pack_start(self.back)
         toolbar.add_top_bar(self.header)
@@ -135,20 +136,21 @@ class Onboarding:
         from gi.repository import Gtk
 
         icon = Gtk.Image(icon_name="io.github.Wetoshkin.WaySwitch", pixel_size=128, margin_top=40)
-        title = Gtk.Label(label="Добро пожаловать в WaySwitch", wrap=True)
+        title = Gtk.Label(label=_("Welcome to WaySwitch"), wrap=True)
         title.add_css_class("title-1")
-        text = Gtk.Label(label="Набрали слово не в той раскладке — WaySwitch исправит его на "
-                               "пробеле и переключит раскладку.", wrap=True,
+        text = Gtk.Label(label=_("Typed a word in the wrong layout — WaySwitch will fix it "
+                                 "on Space and switch the layout."), wrap=True,
                          justify=Gtk.Justification.CENTER)
         text.add_css_class("dim-label")
         if portable.package_kind():
-            text.set_label("Это окно настроек. Для исправления раскладки и жестов установите "
-                           "отдельную нативную службу WaySwitch на основной системе. "
-                           "Следующий шаг проверит подключение и покажет инструкции.")
+            text.set_label(_("This is the settings window. To correct the layout and use "
+                             "gestures, install the separate native WaySwitch service on "
+                             "the host system. The next step will check the connection and "
+                             "show the instructions."))
         sample = Gtk.Label(use_markup=True, label=(
             '<span font_family="monospace" strikethrough="true" alpha="60%">ghbdtn</span>'
             '   →   <b>привет</b>'))
-        start = Gtk.Button(label="Начать", halign=Gtk.Align.CENTER)
+        start = Gtk.Button(label=_("Start"), halign=Gtk.Align.CENTER)
         start.add_css_class("pill")
         start.add_css_class("suggested-action")
         start.connect("clicked", lambda *_: self._go(1))
@@ -157,17 +159,17 @@ class Onboarding:
     def _checks(self):
         from gi.repository import Gtk
 
-        title = Gtk.Label(label="Проверка системы", margin_top=12)
+        title = Gtk.Label(label=_("System check"), margin_top=12)
         title.add_css_class("title-2")
-        self.checks_hint = Gtk.Label(label="Проверяю…", wrap=True, xalign=0.0)
+        self.checks_hint = Gtk.Label(label=_("Checking…"), wrap=True, xalign=0.0)
         self.checks_hint.add_css_class("dim-label")
         self.checks_box = boxed_list()
         self.checks_box.set_valign(Gtk.Align.START)
         buttons = Gtk.Box(spacing=12, halign=Gtk.Align.CENTER)
-        again = Gtk.Button(label="Проверить снова")
+        again = Gtk.Button(label=_("Check again"))
         again.add_css_class("pill")
         again.connect("clicked", lambda *_: self._run_checks())
-        self.continue_button = Gtk.Button(label="Продолжить", sensitive=False)
+        self.continue_button = Gtk.Button(label=_("Continue"), sensitive=False)
         self.continue_button.add_css_class("pill")
         self.continue_button.add_css_class("suggested-action")
         self.continue_button.connect("clicked", lambda *_: self._go(2))
@@ -184,7 +186,7 @@ class Onboarding:
             return
         from wayswitch import doctor
 
-        self.checks_hint.set_label("Проверяю…")
+        self.checks_hint.set_label(_("Checking…"))
         self.continue_button.set_sensitive(False)
         run_in_thread(doctor.run_checks, self._show_checks)
 
@@ -195,12 +197,15 @@ class Onboarding:
         connected = self.app.proxy.status is not None
         clear_list(self.checks_box)
         self.checks_hint.set_label(
-            "Нативная служба подключена. Настройки и жесты общие с основной системой."
-            if connected else "Сначала установите и запустите нативную службу на основной системе.")
-        row = Adw.ActionRow(title="Нативная служба WaySwitch",
-                            subtitle="Подключена по D-Bus" if connected else
-                            "Это окно не имеет доступа к клавиатуре и не заменяет службу")
-        button = Gtk.Button(label="Инструкция", valign=Gtk.Align.CENTER)
+            _("The native service is connected. Settings and gestures are shared with "
+              "the host system.")
+            if connected else
+            _("First install and start the native service on the host system."))
+        row = Adw.ActionRow(title=_("Native WaySwitch service"),
+                            subtitle=_("Connected over D-Bus") if connected else
+                            _("This window has no access to the keyboard and does not "
+                              "replace the service"))
+        button = Gtk.Button(label=_("Instructions"), valign=Gtk.Align.CENTER)
         button.connect("clicked", lambda *_: portable.show_instructions(self.window))
         row.add_suffix(button)
         self.checks_box.append(row)
@@ -211,7 +216,8 @@ class Onboarding:
 
         clear_list(self.checks_box)
         if isinstance(result, Exception):
-            self.checks_hint.set_label(f"Проверка не выполнилась: {result}")
+            self.checks_hint.set_label(
+                _("The check failed: {error}").format(error=result))
             self.continue_button.set_sensitive(True)
             return
         rows = texts.onboarding_rows(result)
@@ -227,7 +233,7 @@ class Onboarding:
                 row.add_css_class("ws-fail-row")
             if item.action in ACTIONS:
                 label, fn = ACTIONS[item.action]
-                button = Gtk.Button(label=label, valign=Gtk.Align.CENTER)
+                button = Gtk.Button(label=_(label), valign=Gtk.Align.CENTER)
                 button.connect("clicked", lambda _b, f=fn: (f(), self._run_checks()))
                 row.add_suffix(button)
             self.checks_box.append(row)
@@ -243,39 +249,40 @@ class Onboarding:
         icon = Gtk.Image(icon_name="object-select-symbolic", pixel_size=36,
                          halign=Gtk.Align.CENTER, margin_top=12)
         icon.add_css_class("ws-done-icon")
-        title = Gtk.Label(label="Настройка завершена")
+        title = Gtk.Label(label=_("Setup complete"))
         title.add_css_class("title-1")
-        sub = Gtk.Label(label="Запомните два жеста")
+        sub = Gtk.Label(label=_("Remember two gestures"))
         sub.add_css_class("dim-label")
         gestures = boxed_list()
         rows = dialogs.gesture_rows(cfg)
         for name, subtitle, keys in rows[:1] + rows[-1:] if rows else []:
-            row = Adw.ActionRow(title="Исправить вручную" if name == "Последнее слово"
+            row = Adw.ActionRow(title=_("Fix manually") if name == _("Last word")
                                 else name,
-                                subtitle="Если WaySwitch пропустил слово"
-                                if name == "Последнее слово" else subtitle)
+                                subtitle=_("If WaySwitch missed a word")
+                                if name == _("Last word") else subtitle)
             row.add_suffix(keycaps(keys))
             gestures.append(row)
         switches = boxed_list()
-        self.sw_service = Adw.SwitchRow(title="Запускать при входе в систему", active=True)
+        self.sw_service = Adw.SwitchRow(title=_("Start at sign-in"), active=True)
         from wayswitch.backends.desktop import detect_desktop
 
         self.sw_tray = Adw.SwitchRow(title=texts.tray_title(detect_desktop()), active=True)
-        self.sw_updates = Adw.SwitchRow(title="Сообщать о новых версиях",
-                                        subtitle="Раз в сутки спрашивать GitHub",
+        self.sw_updates = Adw.SwitchRow(title=_("Notify about new versions"),
+                                        subtitle=_("Ask GitHub once a day"),
                                         active=cfg.general.check_updates
                                         and portable.can_self_update())
         if not portable.can_self_update():
             self.sw_updates.set_sensitive(False)
-            self.sw_updates.set_subtitle(portable.PACKAGED_UPDATE_TEXT)
+            self.sw_updates.set_subtitle(_(portable.PACKAGED_UPDATE_TEXT))
         if portable.package_kind():
             for row in (self.sw_service, self.sw_tray):
                 row.set_active(False)
                 row.set_sensitive(False)
-                row.set_subtitle("Настраивается на основной системе, см. инструкцию службы")
+                row.set_subtitle(_("Configured on the host system, see the service "
+                                   "instructions"))
         for row in (self.sw_service, self.sw_tray, self.sw_updates):
             switches.append(row)
-        finish = Gtk.Button(label="Открыть WaySwitch", halign=Gtk.Align.CENTER)
+        finish = Gtk.Button(label=_("Open WaySwitch"), halign=Gtk.Align.CENTER)
         finish.add_css_class("pill")
         finish.add_css_class("suggested-action")
         finish.connect("clicked", lambda *_: self.window.close())

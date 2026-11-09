@@ -6,6 +6,9 @@
 // виджету уводит фокус и сбрасывает набранное слово. Так виджет
 // не зависит от D-Bus-модулей QML и работает в любой Plasma 6.
 // Щелчок — открыть, средний щелчок — пауза.
+//
+// Подписи переведены через KI18n. Домен `wayswitch` — тот же каталог, что у
+// Python GUI: при установке .mo кладётся в стандартный share/locale.
 
 import QtQuick
 import QtQuick.Layouts
@@ -24,15 +27,18 @@ PlasmoidItem {
     readonly property bool running: status !== null
     readonly property bool paused: running && status.paused === true
     readonly property string layoutName: !running ? "" :
-        status.layout === "ru" ? "русская" : status.layout === "latin" ? "английская" : "неизвестна"
+        status.layout === "ru" ? i18nd("wayswitch", "Russian")
+        : status.layout === "latin" ? i18nd("wayswitch", "English")
+        : i18nd("wayswitch", "unknown")
     readonly property int fixedTotal: running ? (status.corrections_total || 0) + (status.manual_total || 0) : 0
 
-    readonly property string stateTitle: !running ? "WaySwitch не запущен"
-        : paused ? "На паузе"
-        : status.active ? "Исправление включено" : "Только вручную"
-    readonly property string stateText: !running ? "Слова сейчас не исправляются."
-        : paused ? "Слова не исправляются"
-        : "Раскладка: " + layoutName
+    readonly property string stateTitle: !running ? i18nd("wayswitch", "WaySwitch is not running")
+        : paused ? i18nd("wayswitch", "Paused")
+        : status.active ? i18nd("wayswitch", "Correction is on")
+        : i18nd("wayswitch", "Manual only")
+    readonly property string stateText: !running ? i18nd("wayswitch", "Words are not being corrected right now.")
+        : paused ? i18nd("wayswitch", "Words are not corrected")
+        : i18nd("wayswitch", "Layout: %1", layoutName)
 
     Plasmoid.icon: (running && !paused) ? "io.github.Wetoshkin.WaySwitch-symbolic"
                                         : "io.github.Wetoshkin.WaySwitch-paused-symbolic"
@@ -105,7 +111,7 @@ PlasmoidItem {
                 PlasmaComponents3.ToolButton {
                     icon.name: "configure"
                     display: PlasmaComponents3.AbstractButton.IconOnly
-                    text: "Параметры"
+                    text: i18nd("wayswitch", "Settings")
                     onClicked: root.command("gui")
                     PlasmaComponents3.ToolTip.text: text
                     PlasmaComponents3.ToolTip.visible: hovered
@@ -152,7 +158,7 @@ PlasmoidItem {
                         // переключатель следил за паузой, поставленной горячей клавишей.
                         checked = Qt.binding(() => root.running && !root.paused)
                     }
-                    Accessible.name: "Исправление включено"
+                    Accessible.name: i18nd("wayswitch", "Correction is on")
                 }
             }
 
@@ -160,7 +166,7 @@ PlasmoidItem {
                 Layout.fillWidth: true
                 visible: !root.running
                 icon.name: "media-playback-start"
-                text: "Запустить"
+                text: i18nd("wayswitch", "Start")
                 onClicked: shell.run("systemctl --user start wayswitch")
             }
 
@@ -170,9 +176,9 @@ PlasmoidItem {
                 Layout.fillWidth: true
                 visible: root.running
                 opacity: 0.7
-                text: "За сеанс: " + (root.running ? (root.status.corrections_total || 0) : 0)
-                      + " автоматически, " + (root.running ? (root.status.manual_total || 0) : 0)
-                      + " вручную"
+                text: i18nd("wayswitch", "This session: %1 automatic, %2 manual",
+                            root.running ? (root.status.corrections_total || 0) : 0,
+                            root.running ? (root.status.manual_total || 0) : 0)
             }
         }
     }
