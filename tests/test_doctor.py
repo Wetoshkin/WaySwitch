@@ -205,7 +205,8 @@ def test_extension_state_distinguishes_cases():
     assert st(installed=True, enabled=True, running=False, version=None) == "not_loaded"
     assert st(installed=True, enabled=True, running=True, version=1) == "outdated"
     assert st(installed=True, enabled=True, running=True, version=2) == "outdated"
-    assert st(installed=True, enabled=True, running=True, version=3) == "ok"
+    assert st(installed=True, enabled=True, running=True, version=3) == "outdated"
+    assert st(installed=True, enabled=True, running=True, version=4) == "ok"
 
 
 def test_old_extension_does_not_block_onboarding():

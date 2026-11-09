@@ -1,6 +1,6 @@
 // Расширение WaySwitch: отдаёт демону индекс текущей раскладки, переключает её
 // синхронно, печатает через очередь ввода GNOME и отдаёт выделенный текст.
-// Без IME-фокуса используются keysym-ы виртуального устройства Clutter:
+// Используются keysym-ы виртуального устройства Clutter:
 // демон сначала переключает раскладку и проверяет наличие каждого символа.
 //
 // Печатать, стирать и читать выделение может только сам демон WaySwitch
@@ -50,7 +50,7 @@ const IFACE_XML = `
 </node>`;
 // Версия протокола: демон сверяет её и просит перелогиниться, если Shell
 // держит старую копию расширения (на Wayland оно перезагружается только так).
-const PROTOCOL_VERSION = 3;
+const PROTOCOL_VERSION = 4;
 
 // GNOME 51 убрал Clutter.get_default_backend() — берём бэкенд у контекста
 // сцены (get_backend() есть с GNOME 48), а старый путь оставляем для 46–47.
@@ -212,11 +212,7 @@ export default class WaySwitchExtension extends Extension {
                 `не больше ${MAX_TEXT} символов за раз`);
             return;
         }
-        if (Main.inputMethod?.currentFocus) {
-            Main.inputMethod.commit(text);
-            invocation.return_value(null);
-            return;
-        }
+        // IME commit может обогнать Backspace в очереди приложения (в том числе Qt).
         for (const ch of text) {
             const keyval = Clutter.unicode_to_keysym(ch.codePointAt(0));
             this._tap(keyval);
@@ -228,17 +224,8 @@ export default class WaySwitchExtension extends Extension {
         if (!this._allowed(invocation))
             return;
         const n = Math.min(count, MAX_BACKSPACE);
-        const im = Main.inputMethod;
-        for (let i = 0; i < n; i++) {
-            if (im?.currentFocus) {
-                // Одна IM-очередь с commit(): асинхронный IBus не меняет порядок.
-                const time = GLib.get_monotonic_time();
-                im.forward_key(Clutter.KEY_BackSpace, 22, 0, time, true);
-                im.forward_key(Clutter.KEY_BackSpace, 22, 0, time, false);
-            } else {
-                this._tap(Clutter.KEY_BackSpace);
-            }
-        }
+        for (let i = 0; i < n; i++)
+            this._tap(Clutter.KEY_BackSpace);
         invocation.return_value(null);
     }
 

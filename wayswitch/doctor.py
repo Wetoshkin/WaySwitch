@@ -26,6 +26,7 @@ from wayswitch.backends.desktop import (
     detect_desktop,
     is_wayland,
 )
+from wayswitch.backends.gnome_shell import TYPING_PROTOCOL_VERSION
 
 
 @dataclass
@@ -76,7 +77,7 @@ def extension_state(installed: bool, enabled: bool, running: bool,
                     version: int | None) -> str:
     """Одно из EXTENSION_STATES по фактам о расширении. Чистая функция."""
     if running:
-        return "outdated" if version is not None and version < 3 else "ok"
+        return "outdated" if version is not None and version < TYPING_PROTOCOL_VERSION else "ok"
     if not installed:
         return "missing"
     return "not_loaded" if enabled else "disabled"

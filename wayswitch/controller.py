@@ -388,8 +388,9 @@ class Controller:
             # Фокус и так свежий и доверенный: заново будить нечего.
             self._focus_wake_attempted = False
             return "skip", None
-        if snap.app is not None or snap.age(now) <= focus.MAX_AGE_SEC:
+        if snap.app is not None:
             return "skip", None
+        recent_unknown = snap.age(now) <= focus.MAX_AGE_SEC
         if self._focus_wake_attempted:
             return "skip", None
         self._focus_wake_attempted = True
@@ -412,6 +413,8 @@ class Controller:
             return "woke", fresh
         if why == "cancelled":
             return "cancelled", None
+        if recent_unknown:
+            return "skip", None  # позднюю привязку по-прежнему разрешает только native-проверка
         return "rejected", None
 
     def _rebind_focus_after_wake(self, snap) -> bool:
@@ -1608,7 +1611,8 @@ class Controller:
         if plan is None:
             log.warning("не могу набрать текст в группе %s", target_group)
             return False
-        plan.require_verified = self._provisional_binding
+        # До границы слова человек продолжает печатать: клавиатурная замена не атомарна.
+        plan.require_verified = self._provisional_binding or reason in {"early", "url-early"}
         original = self.keymap.decode(keys, group_before)
         if self.dry_run:
             log.info("[dry-run] %s: исправление текста", reason)
@@ -1627,7 +1631,7 @@ class Controller:
         self._busy_reset = False
         started = self.clock()
         try:
-            if plan.require_verified and self.probe is not None:
+            if self._provisional_binding and self.probe is not None:
                 fresh = self._refresh_focus_for_verified(plan.focus)
                 if fresh is not None:
                     plan.focus = fresh

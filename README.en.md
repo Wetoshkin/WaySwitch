@@ -15,8 +15,8 @@
   <img src="https://img.shields.io/badge/MATE-Wayland-7a8a5e?style=flat-square" alt="MATE through labwc/Wayfire">
   <img src="https://img.shields.io/badge/Budgie-Wayland-7a8a5e?style=flat-square" alt="Budgie through labwc/Wayfire">
   <img src="https://img.shields.io/badge/LXQt-Wayland-7a8a5e?style=flat-square" alt="LXQt through labwc/Wayfire">
-  <a href="#status"><img src="https://img.shields.io/badge/Umbriel-development-c67139?style=flat-square" alt="Umbriel — development version"></a>
-  <a href="#status"><img src="https://img.shields.io/badge/NixOS-development-c67139?style=flat-square" alt="NixOS package — development version"></a>
+  <a href="#status"><img src="https://img.shields.io/badge/Umbriel-IPC-7a8a5e?style=flat-square" alt="Umbriel — native IPC"></a>
+  <a href="#status"><img src="https://img.shields.io/badge/NixOS-build_tested-c67139?style=flat-square" alt="NixOS — build tested, graphical session untested"></a>
   <img src="https://img.shields.io/badge/Wayland-✓-7a8a5e?style=flat-square" alt="Wayland">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4a4540?style=flat-square" alt="MIT"></a>
 </p>
@@ -27,18 +27,18 @@
 
 **Automatic Russian–English keyboard layout correction for Linux on Wayland.**
 
-**Preparing 1.1.2 — GNOME input-field detection and Writer text correction.**
+**1.1.3 — text replacement fixes for GNOME, Hermes and Calc.**
 
-The latest published release is [1.1.1](https://github.com/Wetoshkin/WaySwitch/releases/tag/v1.1.1).
+Packages and checksums: [latest published release](https://github.com/Wetoshkin/WaySwitch/releases/latest).
 See [project status](docs/PROGRESS.md) for completed changes, verification and remaining work.
 
 WaySwitch fixes a word typed in the wrong layout (`ghbdtn` instead of
 «привет») right away, on Space — no hotkeys, no manual layout switching. It
 works on Wayland in GNOME, COSMIC, KDE Plasma, Sway and Hyprland. Xfce, MATE,
 Budgie and LXQt require a Wayland session on labwc or Wayfire. See the
-[compatibility table](#status) for conditions and Umbriel/NixOS support in
-development. **X11 and Cinnamon (including the default Linux Mint session)
-are unsupported.** The interface is in Russian; correction supports the
+[compatibility table](#status) for conditions and Umbriel/NixOS validation.
+**X11 and Cinnamon (including the default Linux Mint session) are unsupported.**
+The interface is in Russian; correction supports the
 Russian ↔ English pair.
 
 <p align="center">
@@ -49,17 +49,17 @@ Russian ↔ English pair.
 
 - **Fix on Space.** `ghbdtn ` becomes `привет `, and the layout switches too.
   Numbers, paths, URLs, camelCase and abbreviations are left alone.
-- **URLs right away.** A URL scheme typed in the wrong layout is fixed
-  without waiting for Space.
 - **Manual fix.** Double Shift fixes the last word, triple Shift the whole
   phrase. You can pick a single key instead (Right Ctrl, ScrollLock, an F-key).
 - **Fix selection.** Select a phrase typed in the wrong layout, press your
-  key — done (GNOME with the WaySwitch extension).
+  key — done. Requires accessible AT-SPI fields; tested in GNOME and KDE.
 - **By the start of a word.** If the first four letters clearly belong to
   the other layout (`ghbd` starts no English word but does start «прив…»),
-  the layout is switched right away.
+  the prefix can be corrected before Space using native range replacement
+  in Writer/Calc. Keyboard retyping waits for Space so continued typing
+  cannot mix with a prefix replacement. The same restriction applies to URLs.
 - **Transliteration and numbers in words** for the selected text, on keys of
-  your choice (GNOME).
+  your choice, in supported AT-SPI fields.
 - **Undo that learns.** The same gesture right after an automatic fix
   restores the word; after two undos it is added to exceptions. The threshold
   is configurable.
@@ -314,37 +314,42 @@ automatic correction requires accessible input fields with verified AT-SPI focus
 | Sway, Hyprland | Compositor IPC; Waybar indicator | Automated tests; physical keyboard checks still needed |
 | labwc, Wayfire | XKB configuration and shortcut counter; opt-in automatic mode | Automated tests; live checks still needed |
 | Xfce, MATE, Budgie, LXQt | Wayland sessions on labwc/Wayfire only; tray icon | Same limitations as the compositor |
-| Umbriel — in development | Native IPC; not included in the published release yet | Live Ubuntu Wayland session tested in the prepared branch |
+| Umbriel | Native IPC, keymap and session protection | Live Ubuntu Wayland session: input, undo, password field, locking and VT changes |
 
-**NixOS — in development.** A [package and system module](https://github.com/Wetoshkin/WaySwitch/blob/codex/feedback-by-issue/docs/nixos.md)
-are prepared in a separate branch. The Linux build was checked; a live NixOS
-graphical session has not been tested. That branch also supports additional
-layouts while leaving text outside ru/en alone; released 1.1.1 requires exactly two.
+**NixOS.** The [package and system module](docs/nixos.md) are included.
+The Linux build and dependency checks passed; a live NixOS graphical session
+has not been tested. A ru/en pair is required; additional layouts are allowed
+and text is left alone while they are selected.
 
 X11, Cinnamon and separate RDP sessions are unsupported.
 
 Application checks below refer to GNOME unless stated otherwise.
-Writer on KDE is still being investigated.
-
-Umbriel was tested in a native Ubuntu Wayland session, including ordinary input,
-undo, a password field, screen locking and VT changes. The Nix package was built
-and checked on Linux; a live NixOS graphical session has not been tested.
+KDE checks cover Writer with KF6 and GTK3, and selection in Kate/KWrite
+and Writer. Calc was tested with GTK3 VCL; testing with KF6 was limited by
+a LibreOffice plugin failure.
 
 Writer checks cover both directions, undo after continued typing, automatic
-capitalization and two consecutive words. Calc verification remains
-incomplete: the last separate manual-correction run saved a duplicate word.
-The combined changes need another live check; see the project status. Chrome checks cover
+capitalization and two consecutive words. In 1.1.3,
+Calc on GNOME 51.1 passed eight automatic and eight manual corrections:
+F2 and direct input, slow and fast typing. See the project status. Chrome checks cover
 ordinary fields, editable page elements, passwords and readonly fields.
 The original eXpress message editor was tested in an isolated environment
 without sending messages; an authenticated chat has not been tested.
 
 Firefox Flatpak checks on Bazzite cover input, textarea, contenteditable and the
-address bar. Telegram was checked in an ordinary field before login; its
-authenticated message editor remains untested. ONLYOFFICE Desktop Editors 10.0.0
+address bar. In 1.1.3, native Telegram 7.4.1 on GNOME 51.1
+passed both directions in an authenticated message composer, without sending
+messages. This does not verify the Telegram Flatpak composer. ONLYOFFICE Desktop Editors 10.0.0
 (Flatpak on Bazzite) did not expose an AT-SPI field tree on the tested setup;
 automatic correction was not confirmed. In a separate control using the official
 DEB on Ubuntu, the AT-SPI connection worked, but the document and Find controls
 did not expose editable fields even with screen-reader support enabled.
+
+GridCraft 0.13.0 Flatpak needs access to the accessibility bus:
+`flatpak override --user --talk-name=org.a11y.Bus ai.storyteller.gridcraft`.
+Save your workbooks and fully restart GridCraft after this change.
+With this permission, an isolated instance passed automatic correction in
+both directions. The native WaySwitch service is also required.
 
 When retyping uses virtual key presses, observed physical input stops further
 changes and can leave a partial correction. A physical key can still arrive
@@ -361,8 +366,8 @@ an unverified prefix.
 COSMIC correction and lock-screen handling have been tested live. Explicit
 confirmation is required after service startup and unlocking, as described above.
 
-Selection correction, transliteration and numbers in words require the GNOME
-extension in the published release. On labwc/Wayfire, automatic correction
+Selection correction, transliteration and numbers in words require usable
+AT-SPI fields; checks cover GNOME and KDE. On labwc/Wayfire, automatic correction
 requires explicit `backend.track_hotkey`; mouse layout switches are invisible
 to the shortcut counter. LibreOffice and some Flatpak applications still have
 known limitations: [LibreOffice and selection](https://github.com/Wetoshkin/WaySwitch/issues/18),

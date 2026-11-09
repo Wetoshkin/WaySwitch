@@ -28,7 +28,7 @@ assert.deepEqual(Array.from(context.extension.GetFocusedApp()),
     ['jetbrains-idea', 'com.jetbrains.IntelliJ-IDEA']);
 
 assert.equal(typeof context.extension.GetFocusedContext, 'function');
-assert.equal(context.extension.GetVersion(), 3);
+assert.equal(context.extension.GetVersion(), 4);
 const plainContext = () => JSON.parse(JSON.stringify(context.extension.GetFocusedContext()));
 context.global.display.focus_window.get_pid = () => 1234;
 assert.deepEqual(plainContext(), [
@@ -117,13 +117,13 @@ const invoke = (method, value) => {
     return result;
 };
 assert.equal(invoke('TypeTextAsync', 'привет').reply, null);
-assert.deepEqual(inputEvents, [['commit', 'привет']]);
-assert.deepEqual(keyEvents, []);
+assert.deepEqual(inputEvents, []);
+assert.deepEqual(keyEvents, Array.from('привет', ch => ch.codePointAt(0)));
 inputEvents.length = 0;
 keyEvents.length = 0;
 assert.equal(invoke('BackspaceAsync', 3).reply, null);
-assert.deepEqual(inputEvents, [['key', 65288, 22], ['key', 65288, 22], ['key', 65288, 22]]);
-assert.deepEqual(keyEvents, []);
+assert.deepEqual(inputEvents, []);
+assert.deepEqual(keyEvents, [65288, 65288, 65288]);
 inputEvents.length = 0;
 keyEvents.length = 0;
 context.Main.inputMethod.currentFocus = null;
@@ -134,8 +134,8 @@ context.Main.inputMethod.currentFocus = {};
 context.Main.inputMethod.content_purpose = 8;
 keyEvents.length = 0;
 assert.equal(invoke('TypeTextAsync', 'x').reply, null);
-assert.deepEqual(inputEvents, [['commit', 'x']]);
-assert.deepEqual(keyEvents, []);
+assert.deepEqual(inputEvents, []);
+assert.deepEqual(keyEvents, [120]);
 context.Main.modalCount = 1;
 keyEvents.length = 0;
 assert.equal(invoke('TypeTextAsync', 'x').error?.[0], 'org.freedesktop.DBus.Error.AccessDenied');

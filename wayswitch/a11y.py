@@ -155,8 +155,7 @@ def skip_reason(probe: Probe, excluded: list[str] | tuple[str, ...],
 class AtspiProbe:
     """Настоящий опрос at-spi в отдельном потоке.
 
-    Поток стартует лениво (при первом poke), чтобы демон не занимался
-    доступностью, пока автоисправление выключено.
+    Опрос засыпает при простое; подписка доступности живёт до close().
     """
 
     def __init__(self, poll_sec: float = POLL_SEC, clock=time.monotonic,
@@ -189,7 +188,8 @@ class AtspiProbe:
         # погас бы по простою посреди набора.
         self._last_activity = self._clock()
         alive = self._thread is not None and self._thread.is_alive()
-        if alive and self.snapshot().age(self._clock()) < POKE_FRESH_SEC:
+        snap = self.snapshot()
+        if alive and snap.app and snap.age(self._clock()) < POKE_FRESH_SEC:
             return
         self._ensure_thread()
         self._wake.set()
@@ -200,6 +200,8 @@ class AtspiProbe:
         self._stop.set()
         self._invalidate()
         thread = self._thread
+        if thread is None or not thread.is_alive():
+            self._drop_watcher()
         if wait and thread is not None and thread.is_alive():
             thread.join(timeout=1.0)
 
@@ -240,10 +242,11 @@ class AtspiProbe:
                         self._snap = FocusSnapshot(generation=self._generation)
                     return
         finally:
-            # Регистрация могла закончиться уже после close(wait=False).
-            self._drop_watcher()
             with self._lock:
                 self._thread = None
+            # Без слушателя AT-SPI новые Electron-окна могут не включить доступность.
+            if self._stop.is_set():
+                self._drop_watcher()
             if self._wake.is_set() and not self._stop.is_set():
                 self._ensure_thread()
 
@@ -481,6 +484,16 @@ def find_focus(tree, root, focused_pid: int = 0) -> FocusSnapshot:
             continue
         seen.add(node)
         parents[node] = parent
+        if role == 95 and not native_phase:
+            focused_path = getattr(tree, "focused_path", None)
+            path = focused_path(node) if callable(focused_path) else None
+            if path and depth + len(path) <= MAX_DEPTH and len(path) < remaining[0]:
+                # Collection находит редактор за большой историей без чтения её текста.
+                remaining[0] -= len(path)
+                ancestor = node
+                for child in path:
+                    parents[child], ancestor = ancestor, child
+                queue.insert(0, (path[-1], depth + len(path), parents[path[-1]]))
         state = tree.state(node)
         if _state_bit(state, DEFUNCT):
             continue
@@ -743,6 +756,23 @@ class _DbusTree:
         if got and got[0][0]:
             return self.app_name(got[0]) or None
         return None
+
+    def focused_path(self, root):
+        rule = ([1 << FOCUSED, 0], 1, {}, 1, [0] * 5, 1, [], 1, False)
+        got = self._call(root, "org.a11y.atspi.Collection", "GetMatches",
+                         self._GLib.Variant("((aiia{ss}iaiiasib)uib)", (rule, 1, 2, True)),
+                         "(a(so))")
+        if not got or len(got[0]) != 1:
+            return None
+        node, path = got[0][0], []
+        while node != root and len(path) < MAX_DEPTH:
+            if (not isinstance(node, tuple) or len(node) != 2 or node[0] != root[0]
+                    or not isinstance(node[1], str) or not node[1].startswith("/")
+                    or node[1] == "/org/a11y/atspi/null" or node in path):
+                return None
+            path.append(node)
+            node = self._property(node, ACC, "Parent")
+        return list(reversed(path)) if node == root and path else None
 
 
 ROOT = ("org.a11y.atspi.Registry", "/org/a11y/atspi/accessible/root")

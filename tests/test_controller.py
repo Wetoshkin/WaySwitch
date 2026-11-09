@@ -323,9 +323,14 @@ def test_gesture_after_undo_window_is_plain_manual(env):
 
 
 def test_early_url_trigger(env):
+    probe = LateFieldProbe(env["clock"])
+    probe.confirmed = True
+    env["ctrl"].set_probe(probe)
+    env["ctrl"].typist = env["typist"] = NativeTypist()
     env["backend"].current_index = RU
     type_text(env, "реезыЖ..")
-    assert typed_text(env) == "\b" * 8 + "https://"
+    assert env["typist"].native == [("реезыЖ..", "https://")]
+    assert not env["typist"].taps()
     assert env["backend"].current() == US
 
 
@@ -487,13 +492,17 @@ def test_scheduled_fix_skipped_when_buffer_changed(env):
 
 
 def test_scheduled_early_url_and_manual_fixes_are_deferred_too(env):
+    probe = LateFieldProbe(env["clock"])
+    probe.confirmed = True
+    env["ctrl"].set_probe(probe)
+    env["ctrl"].typist = env["typist"] = NativeTypist()
     queue = deferred(env)
     env["backend"].current_index = RU
     type_text(env, "реезыЖ..")
-    assert env["typist"].events == [] and len(queue) == 1
+    assert env["typist"].native == [] and len(queue) == 1
     drain(queue)
-    assert typed_text(env) == "\b" * 8 + "https://"
-    env["typist"].events.clear()
+    assert env["typist"].native == [("реезыЖ..", "https://")]
+    env["ctrl"].typist = env["typist"] = RecordingTypist()
     env["backend"].current_index = US
     env["ctrl"].buffer.reset()
     type_text(env, "ghbdtn")
@@ -929,6 +938,23 @@ def test_first_auto_fix_after_idle_waits_for_fresh_focus(env):
     type_text(env, "ghbdtn ")
     assert probe.pokes >= 1
     assert env["backend"].set_calls == [RU]
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+
+
+def test_first_word_waits_for_focus_after_young_empty_editor_snapshot(env):
+    class EmptyEditorProbe(IdleProbe):
+        def snapshot(self):
+            snap = super().snapshot()
+            return snap if self.fresh else snap._replace(taken_at=self.clock())
+
+    probe = EmptyEditorProbe(env["clock"])
+    probe.go_idle()
+    ctrl = env["ctrl"]
+    ctrl.set_probe(probe)
+    ctrl.sleep = lambda _delay: probe.wake()
+    type_text(env, "g")
+    probe.wake()
+    type_text(env, "hbdtn ")
     assert env["corrected"] == [("ghbdtn", "привет", False)]
 
 

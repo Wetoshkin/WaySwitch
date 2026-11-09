@@ -84,17 +84,13 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
             # Только KDE: нативный span-протокол для Writer через AT-SPI.
             typist.replace_span = try_replace_kde
         typist_for_controller = typist
-    elif backend.name == "shell" and config.backend.shell_typing == "uinput":
-        # Печать сканкодами через uinput, хотя раскладку переключает расширение:
-        # обход того, что виртуальное устройство Mutter теряет последнюю клавишу
-        # серии (пробел после исправленного слова). Сканкоды требуют уже
-        # применённой раскладки — SetLayout синхронен внутри Shell.
-        log.info("печать символов: uinput (shell_typing=uinput)")
-        typist_for_controller = typist
     elif backend.name == "shell":
-        from wayswitch.backends.gnome_shell import ShellTypist
+        from wayswitch.backends.gnome_shell import make_typist
 
-        typist_for_controller = ShellTypist(backend, keys=typist)
+        # Старая копия в памяти Shell не должна смешивать клавиши и IME commit.
+        typist_for_controller = make_typist(backend, typist, config.backend.shell_typing)
+        log.info("печать символов: %s (GNOME)",
+                 "uinput" if typist_for_controller is typist else "расширение")
     else:
         typist_for_controller = typist
         if backend.name == "ibus" and backend.current() is not None and not backend.verify_layout():
@@ -160,8 +156,9 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     service: DaemonService | None = None
     # Сведения о фокусе (приложение, поле пароля) нужны и автоисправлению, и
     # ручным жестам: пароль, исправленный двойным Shift, не должен уйти в
-    # историю окна. Поток опроса стартует лениво, на первой клавише.
+    # историю окна. Подписка нужна до запуска приложений, в том числе после простоя.
     probe = cfgmod_a11y.make_probe(enabled=True)
+    probe.poke()
 
     last_beep = [0.0]
 

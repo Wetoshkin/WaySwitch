@@ -27,7 +27,7 @@ def test_non_libreoffice_has_no_native_attempt(monkeypatch):
     assert editable.try_replace(focus, "hello", "руддщ", forbidden, lambda: False) is None
 
 
-@pytest.mark.parametrize("component", ["libreoffice-calc", "libreoffice-impress"])
+@pytest.mark.parametrize("component", ["libreoffice-impress"])
 def test_writer_native_path_does_not_open_other_libreoffice_components(
         native, monkeypatch, component):
     calls = []
@@ -38,7 +38,7 @@ def test_writer_native_path_does_not_open_other_libreoffice_components(
     assert result is None
 
 
-def test_direct_native_range_requires_writer_component(native, monkeypatch):
+def test_calc_native_range_requires_component_title(native, monkeypatch):
     native.focus = native.focus._replace(app_ids=("libreoffice-calc", "org.libreoffice"))
     native.context = native.context._replace(app_ids=native.focus.app_ids)
     monkeypatch.setattr(a11y, "query_shell_context", lambda: native.context)
@@ -861,6 +861,60 @@ class KdeStop:
 
     def focus_snapshot(self):
         return self._live_snapshot()
+
+
+@pytest.fixture
+def gnome_calc(native, monkeypatch):
+    native.focus = native.focus._replace(app_ids=("libreoffice-calc", "org.libreoffice"),
+                                         window="doc — LibreOffice Calc")
+    native.context = native.context._replace(app_ids=native.focus.app_ids)
+    monkeypatch.setattr(a11y, "query_shell_context", lambda: native.context)
+    native.stopped = KdeStop(lambda: native.focus._replace(taken_at=time.monotonic()))
+    native.stopped.append = lambda: 0
+    native.tree.silent_events = True
+    return native
+
+
+def test_gnome_calc_uses_native_readback_without_text_events(gnome_calc):
+    assert replace(gnome_calc) == editable.SpanResult("done", True)
+    assert gnome_calc.tree.text == "Test " + TARGET
+    assert gnome_calc.tree.writes == [("insert", 5, TARGET), ("delete", 12, 19)]
+    assert gnome_calc.stopped.fast_switch
+
+
+@pytest.mark.parametrize("proof", ["focus", "counter", "password", "pid"])
+def test_gnome_calc_requires_live_focus_and_physical_counter(gnome_calc, proof):
+    if proof == "focus":
+        gnome_calc.stopped._live_snapshot = lambda: a11y.FocusSnapshot()
+    elif proof == "counter":
+        gnome_calc.stopped.append = lambda: None
+    elif proof == "password":
+        gnome_calc.tree.kind = "password"
+    else:
+        gnome_calc.tree.pid = lambda node: 0
+    assert replace(gnome_calc) == editable.SpanResult("aborted")
+    assert not gnome_calc.tree.reads and not gnome_calc.tree.writes
+
+
+def test_gnome_calc_input_during_layout_preparation_cancels(gnome_calc):
+    count = [0]
+    gnome_calc.stopped.append = lambda: count[0]
+    gnome_calc.stopped.on_prepare = lambda: count.__setitem__(0, 1)
+    assert replace(gnome_calc) == editable.SpanResult("aborted")
+    assert not gnome_calc.tree.reads and not gnome_calc.tree.writes
+
+
+def test_gnome_calc_preserves_proven_append_after_insertion(gnome_calc):
+    count = [0]
+    gnome_calc.stopped.append = lambda: count[0]
+
+    def append():
+        gnome_calc.tree.append("X")
+        count[0] += 1
+
+    gnome_calc.tree.after_insert = append
+    assert replace(gnome_calc) == editable.SpanResult("done", True)
+    assert gnome_calc.tree.text == "Test " + TARGET + "X"
 
 
 def test_live_focus_accepts_snapshot_sampled_after_check_start(monkeypatch):

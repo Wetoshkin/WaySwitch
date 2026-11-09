@@ -1,4 +1,4 @@
-"""Bounded native word replacement for LibreOffice Writer paragraphs."""
+"""Bounded native word replacement for LibreOffice Writer and Calc."""
 
 import time
 from contextlib import contextmanager
@@ -25,9 +25,16 @@ def _writer(focus):
                     for app in focus.app_ids))
 
 
+def _calc(focus):
+    return (isinstance(focus, a11y.FocusSnapshot)
+            and any(app.casefold().removesuffix(".desktop") == "libreoffice-calc"
+                    for app in focus.app_ids))
+
+
 def try_replace(focus, source, target, commit, stopped) -> SpanResult | None:
     if (focus is not None and focus.app
-            and (focus.app.casefold() not in {"soffice", "libreoffice"} or not _writer(focus))):
+            and (focus.app.casefold() not in {"soffice", "libreoffice"}
+                 or not (_writer(focus) or _calc(focus)))):
         return None
     if not _normal(focus):
         return SpanResult("aborted")
@@ -58,7 +65,8 @@ def try_replace(focus, source, target, commit, stopped) -> SpanResult | None:
 
 
 def _normal(focus):
-    return (_writer(focus) and focus.field is not None
+    return ((_writer(focus) or _calc(focus) and _libreoffice_component(focus) == "calc")
+            and focus.field is not None
             and focus.app is not None and focus.app.casefold() in {"soffice", "libreoffice"}
             and focus.protection(time.monotonic()) is False)
 
@@ -198,6 +206,9 @@ def _replace(tree, focus, source, target, commit, stopped, events) -> SpanResult
     def safe():
         if stopped() or not _normal(focus):
             return False
+        if _calc(focus) and (_live_focus(stopped, focus, time.monotonic()) is None
+                             or _physical_count(stopped) is None):
+            return False
         current = a11y.query_shell_context()
         if (context is None or current != context or context.protected()
                 or not context.ime_focus or type(context.pid) is not int or context.pid <= 0
@@ -216,7 +227,36 @@ def _replace(tree, focus, source, target, commit, stopped, events) -> SpanResult
                 and type(selections) is int and selections == 0
                 and not stopped() and a11y.query_shell_context() == context)
 
-    return _replace_checked(tree, focus, source, target, commit, stopped, events, safe)
+    anchor = None
+    if _calc(focus):
+        if not safe():
+            return SpanResult("aborted")
+        anchor = _prepare_anchor(tree, focus, source, stopped)
+        if anchor is None:
+            return SpanResult("aborted")
+    return _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
+                            anchor=anchor)
+
+
+def _prepare_anchor(tree, focus, source, stopped):
+    caret = tree.caret(focus.field)
+    count = tree.character_count(focus.field)
+    if (type(caret) is not int or type(count) is not int
+            or caret < len(source) or count < caret):
+        return None
+    physical_base = _physical_count(stopped)
+    fast = getattr(stopped, "use_fast_switch", None)
+    if callable(fast):
+        fast()
+    prepare = getattr(stopped, "prepare", None)
+    if callable(prepare) and prepare() is not True:
+        return None
+    reserve = getattr(stopped, "reserve_anchor", None)
+    if callable(reserve) and reserve() is False:
+        return None
+    if physical_base is not None and (stopped() or _physical_count(stopped) != physical_base):
+        return None
+    return caret - len(source), caret, count, physical_base
 
 
 def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
@@ -454,7 +494,7 @@ def _kde_guard(tree, focus, context, stopped):
 
 
 def try_replace_kde(focus, source, target, commit, stopped) -> SpanResult | None:
-    """KDE-вход: нативный span только для подтверждённого Writer-параграфа."""
+    """KDE-вход: нативный span для подтверждённого редактора Writer или Calc."""
     if not isinstance(focus, a11y.FocusSnapshot):
         return SpanResult("aborted")
     if not _kde_identity(focus):
@@ -492,33 +532,13 @@ def try_replace_kde(focus, source, target, commit, stopped) -> SpanResult | None
             return None
         if state != _OK:
             return SpanResult("aborted")
-        caret = tree.caret(focus.field)
-        count = tree.character_count(focus.field)
-        if (type(caret) is not int or type(count) is not int
-                or caret < len(source) or count < caret):
+        anchor = _prepare_anchor(tree, focus, source, stopped)
+        if anchor is None:
             return SpanResult("aborted")
-        start = caret - len(source)
-        physical_base = _physical_count(stopped)
-        fast = getattr(stopped, "use_fast_switch", None)
-        if callable(fast):
-            # Запись идёт через AT-SPI, а не синтетическими клавишами; KDE-settle
-            # относится к ним и только удлинял бы окно до первой физической клавиши.
-            fast()
-        prepare = getattr(stopped, "prepare", None)
-        if callable(prepare) and prepare() is not True:
-            return SpanResult("aborted")
-        reserve = getattr(stopped, "reserve_anchor", None)
-        if callable(reserve) and reserve() is False:
-            return SpanResult("aborted")
-        if physical_base is not None:
-            # Печатные нажатия между baseline и подтверждением раскладки набраны
-            # бы в старой раскладке — append-доказательство не вправе их принять.
-            if stopped() or _physical_count(stopped) != physical_base:
-                return SpanResult("aborted")
         with _text_changes(connection, focus.field) as events:
             return _replace_checked(
                 tree, focus, source, target, begin, stopped, events,
-                lambda: check() == _OK, anchor=(start, caret, count, physical_base))
+                lambda: check() == _OK, anchor=anchor)
     except Exception:  # noqa: BLE001 — metadata and transport errors must not expose text
         return SpanResult("failed", attempted)
     finally:

@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(__dirname,
     .replace('export default class WaySwitchExtension', 'class WaySwitchExtension');
 let text = 'ghbdtn ';
 const inputQueue = [];
-const pendingIBusKeys = [];
+const pendingKeys = [];
 const applyKey = key => { text = key === 65288 ? text.slice(0, -1) : text + String.fromCodePoint(key); };
 const context = vm.createContext({
     Extension: class {},
@@ -20,7 +20,7 @@ const context = vm.createContext({
         forward_key(key, code, state, time, pressed) {
             assert.equal(code, 22);
             assert.equal(time, 1000000);
-            if (pressed) inputQueue.push(() => applyKey(key));
+            if (pressed) pendingKeys.push(() => applyKey(key));
         },
         commit(value) { inputQueue.push(() => { text += value; }); },
         delete_surrounding() { throw Error('Cached IME cursor must not be used'); },
@@ -28,10 +28,9 @@ const context = vm.createContext({
 });
 vm.runInContext(source + '\nthis.extension = new WaySwitchExtension();', context);
 context.extension._daemon = ':daemon';
-// The live GTK trace shows IBus commits overtaking unhandled Backspace events.
+// Qt can deliver IME commits before queued key events, including forwarded keys.
 context.extension._tap = key => {
-    const queue = key === 65288 || key === 32 ? pendingIBusKeys : inputQueue;
-    queue.push(() => applyKey(key));
+    pendingKeys.push(() => applyKey(key));
 };
 function invoke(method, value) {
     context.extension[method]([value], {
@@ -47,10 +46,10 @@ for (const [prefix, original, replacement] of [
 ]) {
     text = prefix + original;
     inputQueue.length = 0;
-    pendingIBusKeys.length = 0;
+    pendingKeys.length = 0;
     invoke('BackspaceAsync', original.length);
     invoke('TypeTextAsync', replacement);
-    for (const callback of [...inputQueue, ...pendingIBusKeys]) callback();
+    for (const callback of [...inputQueue, ...pendingKeys]) callback();
     assert.equal(text, prefix + replacement);
-    assert.equal(pendingIBusKeys.length, 0);
+    assert.equal(inputQueue.length, 0);
 }

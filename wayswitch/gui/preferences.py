@@ -210,7 +210,7 @@ class Preferences:
                 ("caps_fix", "Нечаянный Caps Lock",
                  "пРИВЕТ → Привет, и Caps Lock выключается"),
                 ("early_switch", "Переключать по началу слова",
-                 "ghbd → прив, не дожидаясь пробела"),
+                 "ghbd → прив в Writer/Calc; при перепечатке клавишами — после пробела"),
                 ("skip_password_fields", "Защита паролей и терминалов",
                  "Автозамена отключена. Ручной жест доступен, история скрыта")):
             row = Adw.SwitchRow(title=title, subtitle=subtitle)

@@ -186,6 +186,21 @@ class _Run:
         # _abort прокручивает GLib: и после первого Backspace нужны события lock/layout.
         return (self._abort() and not self.committed) or self._stop()
 
+    def interruption(self, *, check_hold: bool = False,
+                     virtual_modifiers: bool = False) -> str | None:
+        blocked = False
+        try:
+            blocked = check_hold and self._hold is not None and self._hold() is not True
+        finally:
+            interrupted = self._abort()
+            stopped = self._stop()
+            # Физический ввод уже использовал новый режим, возвращать его нельзя.
+            if interrupted and (self.switched or self.caps_toggle is not None
+                                or virtual_modifiers):
+                self.commit()
+        return (FAILED if self.committed else ABORTED) if (
+            blocked or interrupted or stopped) else None
+
     def commit(self) -> None:
         self.committed = True
 
@@ -427,19 +442,9 @@ def _execute_keys(plan: Plan, typist, run: _Run, key_delay: float, sleep,
     session = _Session(typist, key_delay, sleep)
 
     def interruption(check_hold: bool = False) -> str | None:
-        blocked = False
-        try:
-            blocked = check_hold and run._hold is not None and run._hold() is not True
-        finally:
-            interrupted = run._abort()
-            stopped = run._stop()
-            # Физический ввод уже использовал новый режим, возвращать его нельзя.
-            if interrupted and (run.switched or run.caps_toggle is not None
-                                or set(session.pressed) & (kc.SHIFT_KEYS | {kc.KEY_CAPSLOCK})):
-                run.commit()
-        if blocked or interrupted or stopped:
-            return FAILED if run.committed else ABORTED
-        return None
+        return run.interruption(
+            check_hold=check_hold,
+            virtual_modifiers=bool(set(session.pressed) & (kc.SHIFT_KEYS | {kc.KEY_CAPSLOCK})))
 
     try:
         native_result = _attempt_native(
@@ -557,20 +562,28 @@ def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: flo
         if plan.require_verified:
             return ABORTED  # сомнительная привязка: клавишами чужой текст не трогаем
         for step in plan.steps:
-            if run.aborted():
-                return ABORTED
-            if isinstance(step, (Backspace, Type)) and (run.blocked() or run.aborted()):
-                return ABORTED
+            if status := run.interruption(check_hold=isinstance(step, (Backspace, Type))):
+                return status
             if isinstance(step, (Backspace, Type)) and not run.write_checked:
-                if not run.validate_write() or run.native_aborted(before_write=True):
+                if not run.validate_write():
                     return ABORTED
-            if isinstance(step, Backspace):
-                run.committed = True
-                typist.backspace(step.count)
-            elif isinstance(step, Type):
-                run.committed = True
-                typist.type_text(step.text)
-            elif not _text_setup(step, typist, run, switch_timeout):
+                if status := run.interruption():
+                    return status
+            applied = True
+            try:
+                if isinstance(step, Backspace):
+                    run.commit()
+                    typist.backspace(step.count)
+                elif isinstance(step, Type):
+                    run.commit()
+                    typist.type_text(step.text)
+                else:
+                    applied = _text_setup(step, typist, run, switch_timeout)
+            finally:
+                status = run.interruption()
+            if status:
+                return status
+            if not applied:
                 return FAILED
         return DONE
     except Exception as exc:  # noqa: BLE001 — GLib.Error таймаута D-Bus и прочее

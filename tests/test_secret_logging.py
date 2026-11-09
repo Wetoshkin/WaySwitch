@@ -3,6 +3,7 @@ import logging
 import pytest
 
 from tests.fakes import RU, US, RecordingTextTypist, make_keymap
+from tests.test_controller import NativeTypist
 from tests.test_focus import FakeProbe
 from tests.test_review_fixes import PasswordProbe, make_ctrl, type_word
 from wayswitch import a11y
@@ -129,6 +130,9 @@ def test_undo_cannot_replay_after_focus_changes(real, early, queued):
     )
     ctrl.config.general.learn_after_undos = 1
     if early:
+        snapshot = probe.snapshot
+        probe.snapshot = lambda: snapshot()._replace(field=(":test", "/field"))
+        ctrl.typist = typist = NativeTypist()
         ctrl.config.general.early_switch = True
         type_word(ctrl, real[0], "ghbd", US)
         type_word(ctrl, real[0], "ет", RU)
@@ -136,6 +140,7 @@ def test_undo_cannot_replay_after_focus_changes(real, early, queued):
         type_word(ctrl, real[0], "кембы ", RU)
     assert ctrl.stats["corrections"] == 1
     before = typist.taps()
+    native_before = list(typist.native) if early else None
     if queued:
         pending = []
         ctrl.schedule = pending.append
@@ -147,6 +152,8 @@ def test_undo_cannot_replay_after_focus_changes(real, early, queued):
         probe.password = True
         assert not ctrl.manual_word()
     assert typist.taps() == before
+    if early:
+        assert typist.native == native_before
     assert ctrl.stats["undo"] == 0
     assert len(corrected) == 1
     assert ctrl.detector.exceptions == set()

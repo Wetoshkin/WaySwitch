@@ -560,6 +560,16 @@ def test_probe_updates_snapshot_from_query():
         probe.close()
 
 
+@pytest.mark.parametrize("app,expected", [(None, True), ("Editor", False)])
+def test_poke_retries_young_unknown_focus_without_repolling_known_field(app, expected):
+    clock = Clock()
+    probe = a11y.AtspiProbe(clock=clock, query=lambda: None)
+    probe._snap = FocusSnapshot(app, taken_at=clock())
+    probe._thread = SimpleNamespace(is_alive=lambda: True)
+    probe.poke()
+    assert probe._wake.is_set() is expected
+
+
 def test_probe_survives_failing_query():
     def query():
         raise RuntimeError("at-spi недоступен")
@@ -968,19 +978,27 @@ def test_focus_loss_and_gain_both_invalidate_without_reading_event_payload(event
     watch.close()
 
 
-def test_idle_worker_releases_subscription(monkeypatch, focus_bus):
+def test_idle_worker_keeps_accessibility_enabled_until_close(monkeypatch, focus_bus):
     monkeypatch.setattr(a11y, "IDLE_STOP_SEC", 0.0)
     monkeypatch.setattr(a11y, "query_focus", lambda: ("Editor", False))
     probe = a11y.AtspiProbe(poll_sec=0.01)
     try:
         probe.poke()
         deadline = time.monotonic() + 1.0
-        while not focus_bus["closed"] and time.monotonic() < deadline:
+        while probe._thread is not None and time.monotonic() < deadline:
             time.sleep(0.01)
-        assert focus_bus["closed"]
+        assert probe._thread is None
+        assert len(focus_bus["callbacks"]) == 1
+        assert not focus_bus["closed"]
         assert probe.snapshot().app is None
+        probe.poke()
+        deadline = time.monotonic() + 1.0
+        while probe._thread is not None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert len(focus_bus["callbacks"]) == 1
     finally:
         probe.close(wait=True)
+    assert focus_bus["closed"] == [focus_bus["connection"]]
 
 
 def test_make_probe_respects_flag():
@@ -1714,3 +1732,87 @@ def test_manual_fix_with_stale_focus_is_not_reported():
     assert env["ctrl"].manual_word()
     assert corrected == []
     assert env["ctrl"].probe.pokes > 0  # клавиши будят опрос
+
+
+def collection_tree():
+    tree = editable_tree()
+    labels = [f"label{i}" for i in range(a11y.MAX_NODES)]
+    tree.nodes["window"]["kids"] = ["document"]
+    tree.nodes["document"] = {"role": 95, "kids": ["history", "editor"]}
+    tree.nodes["history"] = {"kids": labels}
+    tree.nodes["editor"] = {"kids": ["field"]}
+    tree.nodes.update((label, {"role": 85}) for label in labels)
+    tree.focused_path = lambda node: ["editor", "field"] if node == "document" else None
+    return tree
+
+
+def test_collection_focus_hint_reaches_editor_after_large_web_history():
+    tree = collection_tree()
+    assert a11y.find_focus(tree, "root") == FocusSnapshot("Editor", field="field")
+
+
+@pytest.mark.parametrize("metadata,expected", [
+    ({"state": (a11y.DEFUNCT,)}, FocusSnapshot()),
+    ({"role": 40}, FocusSnapshot("Editor", True, field="field")),
+    ({"role": None}, FocusSnapshot()),
+    ({"input_type": None}, FocusSnapshot()),
+])
+def test_collection_hint_still_checks_editor_ancestors(metadata, expected):
+    tree = collection_tree()
+    tree.nodes["editor"].update(metadata)
+    assert a11y.find_focus(tree, "root") == expected
+
+
+def test_collection_web_hint_cannot_override_native_field():
+    tree = collection_tree()
+    tree.nodes["window"]["kids"].append("native")
+    tree.nodes["native"] = dict(tree.nodes["field"])
+    calls = []
+    tree.focused_path = lambda node: calls.append(node) or ["editor", "field"]
+    assert a11y.find_focus(tree, "root") == FocusSnapshot("Editor", field="native")
+    assert calls == []
+
+
+def collection_bus(matches, parents):
+    tree = a11y._DbusTree.__new__(a11y._DbusTree)
+    tree._GLib = SimpleNamespace(Variant=lambda signature, value: (signature, value))
+    calls = []
+
+    def call(node, interface, method, argument, signature):
+        calls.append((node, interface, method, argument, signature))
+        return None if matches is None else (matches,)
+
+    tree._call = call
+    tree._property = lambda node, interface, prop: parents.get(node)
+    return tree, calls
+
+
+def test_dbus_collection_requests_one_unambiguous_focused_path():
+    root, parent, field = (":1.2", "/document"), (":1.2", "/editor"), (":1.2", "/field")
+    tree, calls = collection_bus([field], {field: parent, parent: root})
+    assert tree.focused_path(root) == [parent, field]
+    assert calls == [(root, "org.a11y.atspi.Collection", "GetMatches",
+                      ("((aiia{ss}iaiiasib)uib)",
+                       (([1 << a11y.FOCUSED, 0], 1, {}, 1, [0] * 5, 1, [], 1, False),
+                        1, 2, True)), "(a(so))")]
+
+
+@pytest.mark.parametrize("matches,parents", [
+    (None, {}),
+    ([], {}),
+    ([(":1.2", "/one"), (":1.2", "/two")], {}),
+    ([(":other", "/field")], {}),
+    ([(":1.2", "/org/a11y/atspi/null")], {}),
+    ([(":1.2", "/field")], {}),
+    ([(":1.2", "/field")], {(":1.2", "/field"): (":1.2", "/field")}),
+    ([(":1.2", "/field")], {(":1.2", "/field"): (":other", "/parent")}),
+])
+def test_dbus_collection_rejects_incomplete_or_foreign_paths(matches, parents):
+    tree, _calls = collection_bus(matches, parents)
+    assert tree.focused_path((":1.2", "/document")) is None
+
+
+def test_dbus_collection_parent_walk_is_bounded():
+    nodes = [(":1.2", f"/node{i}") for i in range(a11y.MAX_DEPTH + 2)]
+    tree, _calls = collection_bus([nodes[0]], dict(zip(nodes[:-1], nodes[1:], strict=True)))
+    assert tree.focused_path(nodes[-1]) is None
