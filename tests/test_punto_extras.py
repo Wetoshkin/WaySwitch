@@ -260,6 +260,45 @@ def test_early_switch_on_fourth_letter(real):
     assert not typist.taps()
 
 
+def test_early_mixed_input_keeps_ubuntu(real):
+    km = real[0]
+    ctrl, backend, typist, corrected = make(real, US, native=True)
+    now = 100.0
+    ctrl.clock = lambda: now
+    for key in keys_for_text(km, "lbcn", US):
+        press(ctrl, key.code)
+    assert typist.native == [("lbcn", "дист")]
+    assert backend.current() == RU
+    for key in keys_for_text(km, "рибутив ", RU):
+        press(ctrl, key.code)
+    backend.set(US)
+    ctrl.on_layout_changed(US, external=True)
+    now += ctrl.config.general.edit_guard_sec + 1
+    for key in keys_for_text(km, "Ubuntu ", US):
+        press(ctrl, key.code, key.shift)
+    assert backend.current() == US
+    assert corrected == [("lbcn", "дист", False)]
+    assert typist.native == [("lbcn", "дист")]
+    assert not typist.taps()
+
+
+def test_early_prefix_does_not_cross_fields(real):
+    km = real[0]
+    ctrl, backend, typist, corrected = make(real, US, native=True)
+    for key in keys_for_text(km, "lbc", US):
+        press(ctrl, key.code)
+    # Смена фокуса без клика: «n» в другом поле не завершает префикс «lbcn».
+    ctrl.probe.field = (":test", "/other")
+    ctrl.probe.generation += 1
+    for key in keys_for_text(km, "n Ubuntu ", US):
+        press(ctrl, key.code, key.shift)
+    assert backend.current() == US
+    assert not corrected and not typist.native and not typist.taps()
+    for key in keys_for_text(km, "lbcn", US):
+        press(ctrl, key.code)
+    assert typist.native == [("lbcn", "дист")]
+
+
 def test_early_switch_respects_setting_and_careful_mode(real):
     km = real[0]
     for tweak in ({"early_switch": False}, {"sensitivity": "conservative"}):
