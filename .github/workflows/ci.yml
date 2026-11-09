@@ -162,6 +162,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y python3 dpkg squashfs-tools
       - name: Сборка .AppImage
         run: python3 tools/build_appimage.py build/appimage
+      - name: Проверка значка в готовом AppImage
+        run: |
+          cd build/appimage
+          ./WaySwitch-Settings-x86_64.AppImage --appimage-extract .DirIcon > /dev/null
+          cmp squashfs-root/.DirIcon ../../packaging/icons/io.github.Wetoshkin.WaySwitch.png
       - uses: actions/upload-artifact@v4
         with:
           name: wayswitch-appimage
