@@ -200,6 +200,27 @@ def test_two_capitals(real, word, group, expected):
     assert got == expected
 
 
+@pytest.mark.parametrize("typed_text,expected", [
+    ("{Kt,", "Хлеб"),
+    ("K>,jdm", "Любовь"),
+    (":Bpym", "Жизнь"),
+    ("<>hj", "Бюро"),
+    (">Hbq", "Юрий"),
+])
+def test_two_capitals_in_opposite_layout(real, typed_text, expected):
+    ctrl, _b, _t, corrected = make_ctrl(real, group=US)
+    type_word(ctrl, real[0], typed_text + " ", US)
+    assert corrected == [(typed_text, expected, False)]
+
+
+def test_two_capitals_in_opposite_layout_obeys_setting(real):
+    cfg = Config()
+    cfg.general.two_capitals_fix = False
+    ctrl, _b, _t, corrected = make_ctrl(real, group=US, config=cfg)
+    type_word(ctrl, real[0], "{Kt, ", US)
+    assert corrected == []
+
+
 # --- исключения и откат правил ---------------------------------------------------------
 
 def test_exception_blocks_rules_too(real):
