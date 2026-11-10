@@ -225,12 +225,18 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     guard.start()
 
     def reload() -> None:
+        previous_settle = controller.config.typing.settle_ms
         try:
             new_config = cfgmod.load(config_path)
             controller.reload_config(new_config)
             detector.exceptions.clear()
             detector.exceptions.update(cfgmod.load_exceptions())
             log.info("конфиг перечитан")
+            if new_config.typing.settle_ms != previous_settle:
+                # Бэкенд получает задержку в конструкторе; остальные настройки
+                # контроллера Reload применяет сразу.
+                log.info("новая задержка после смены раскладки применится после "
+                         "перезапуска службы")
         except cfgmod.ConfigError as e:
             log.error("конфиг не перечитан: %s", e)
 
