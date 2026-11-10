@@ -5,7 +5,15 @@
 
 import pytest
 
-from tests.fakes import RU, US, FakeBackend, RecordingTypist, keys_for_text, make_keymap
+from tests.fakes import (
+    RU,
+    US,
+    FakeBackend,
+    RecordingTypist,
+    keys_for_text,
+    make_keymap,
+    run_after_key,
+)
 from wayswitch import keycodes as kc
 from wayswitch.config import Config
 from wayswitch.controller import Controller
@@ -51,10 +59,35 @@ def keys_with_shift(km, text, group):
     return keys
 
 
+def press(env, code, shift=False):
+    """Нажать клавишу; фиксы из её колбэков исполнятся после отпускания."""
+    ctrl = env["ctrl"]
+
+    def send():
+        if shift:
+            ctrl.on_key(kc.KEY_LEFTSHIFT, 1, 1)
+        ctrl.on_key(code, 1, 1)
+        ctrl.on_key(code, 0, 1)
+        if shift:
+            ctrl.on_key(kc.KEY_LEFTSHIFT, 0, 1)
+
+    run_after_key(ctrl, send)
+
+
+def press_space(env):
+    press(env, kc.KEY_SPACE)
+
+
 def type_keys(env, keys):
     for key in keys:
-        env["ctrl"].on_key(key.code, 1, 1)
-        env["ctrl"].on_key(key.code, 0, 1)
+        press(env, key.code, key.shift)
+
+
+def type_case_word(env, word, group, shift=()):
+    """Слово с Shift на указанных буквах; Caps Lock задаётся в buffer.caps."""
+    for i, ch in enumerate(word):
+        key = keys_for_text(env["km"], ch.lower(), group)[0]
+        press(env, key.code, i in shift)
 
 
 def typed_chars(env) -> str:
@@ -96,8 +129,7 @@ def test_punct_fix_applied_without_layout_switch():
     """Меняется только последняя буква, раскладку не трогаем."""
     env = make_env()
     type_keys(env, keys_for_text(env["km"], "пирогб", RU))
-    env["ctrl"].on_key(kc.KEY_SPACE, 1, 1)
-    env["ctrl"].on_key(kc.KEY_SPACE, 0, 1)
+    press_space(env)
     assert backspaces(env) == 7  # «пирогб» + пробел
     assert typed_chars(env) == "пирог, "
     assert env["backend"].set_calls == []
@@ -117,6 +149,16 @@ def test_particles_space():
     assert env["det"].particles_fix(keys, RU) == "кем бы"
 
 
+@pytest.mark.parametrize("typed,expected", [
+    ("чьето", "чье-то"),   # набранную «е» не заменяем на «ё»
+    ("чьёто", "чьё-то"),
+])
+def test_particles_preserve_entered_e_or_yo(typed, expected):
+    env = make_env()
+    keys = keys_for_text(env["km"], typed, RU)
+    assert env["det"].particles_fix(keys, RU) == expected
+
+
 def test_particles_skips_known_word():
     env = make_env()
     keys = keys_for_text(env["km"], "пирог", RU)
@@ -132,8 +174,7 @@ def test_particles_skips_unknown_stem():
 def test_particles_applied_in_controller():
     env = make_env()
     type_keys(env, keys_for_text(env["km"], "чтото", RU))
-    env["ctrl"].on_key(kc.KEY_SPACE, 1, 1)
-    env["ctrl"].on_key(kc.KEY_SPACE, 0, 1)
+    press_space(env)
     assert typed_chars(env) == "что-то "
     assert backspaces(env) == 6  # «чтото» + пробел
     assert env["backend"].set_calls == []
@@ -181,10 +222,38 @@ def test_split_words_applied_in_controller():
     type_keys(env, keys_for_text(env["km"], "б", RU))
     env["ctrl"].on_key(kc.KEY_LEFTSHIFT, 0, 1)
     type_keys(env, keys_for_text(env["km"], "аха", RU))
-    env["ctrl"].on_key(kc.KEY_SPACE, 1, 1)
-    env["ctrl"].on_key(kc.KEY_SPACE, 0, 1)
+    press_space(env)
     assert typed_chars(env) == "сонату Баха "
     assert env["backend"].set_calls == []
+
+
+# --- контекст языка после успешного правила ----------------------------------
+
+@pytest.mark.parametrize("rule,word,caps,shift", [
+    ("punct", "пирогб", False, ()),
+    ("split", "сонатуБаха", False, (6,)),
+    ("particles", "чтото", False, ()),
+    ("caps-lock", "привет", True, (0,)),
+    ("capitals", "ПРивет", False, (0, 1)),
+])
+def test_successful_rule_records_target_language_context(rule, word, caps, shift):
+    env = make_env()
+    env["ctrl"].set_caps(caps)
+    type_case_word(env, word, RU, shift)
+    press_space(env)
+    assert backspaces(env) > 0, rule
+    assert list(env["ctrl"].context) == ["ru"], rule
+
+
+def test_caps_lock_switch_records_target_language_context():
+    env = make_env()
+    env["backend"].current_index = US
+    env["ctrl"].set_caps(True)
+    type_case_word(env, "ghbdtn", US, (0,))
+    press_space(env)
+    assert env["backend"].current() == RU
+    assert backspaces(env) > 0
+    assert list(env["ctrl"].context) == ["ru"]
 
 
 # --- защита после правки текста ---------------------------------------------
@@ -196,8 +265,7 @@ def test_guard_skips_fix_after_backspace():
     env["ctrl"].on_key(kc.KEY_BACKSPACE, 1, 1)
     env["ctrl"].on_key(kc.KEY_BACKSPACE, 0, 1)
     type_keys(env, keys_for_text(env["km"], "ghbdtn", US))
-    env["ctrl"].on_key(kc.KEY_SPACE, 1, 1)
-    env["ctrl"].on_key(kc.KEY_SPACE, 0, 1)
+    press_space(env)
     assert env["typist"].taps() == []
     assert env["backend"].set_calls == []
 
@@ -209,8 +277,7 @@ def test_guard_expires_and_fix_works_again():
     env["ctrl"].on_key(kc.KEY_BACKSPACE, 0, 1)
     env["clock"].now += 2.0  # окно защиты прошло
     type_keys(env, keys_for_text(env["km"], "ghbdtn", US))
-    env["ctrl"].on_key(kc.KEY_SPACE, 1, 1)
-    env["ctrl"].on_key(kc.KEY_SPACE, 0, 1)
+    press_space(env)
     assert backspaces(env) == 7
     assert env["backend"].set_calls == [RU]
 
@@ -223,8 +290,7 @@ def test_guard_can_be_disabled():
     env["ctrl"].on_key(kc.KEY_BACKSPACE, 1, 1)
     env["ctrl"].on_key(kc.KEY_BACKSPACE, 0, 1)
     type_keys(env, keys_for_text(env["km"], "ghbdtn", US))
-    env["ctrl"].on_key(kc.KEY_SPACE, 1, 1)
-    env["ctrl"].on_key(kc.KEY_SPACE, 0, 1)
+    press_space(env)
     assert backspaces(env) == 7
 
 
@@ -234,8 +300,7 @@ def test_guard_after_manual_layout_switch():
     env["backend"].current_index = US
     env["ctrl"].on_layout_changed(US, external=True)
     type_keys(env, keys_for_text(env["km"], "ghbdtn", US))
-    env["ctrl"].on_key(kc.KEY_SPACE, 1, 1)
-    env["ctrl"].on_key(kc.KEY_SPACE, 0, 1)
+    press_space(env)
     assert env["typist"].taps() == []
 
 

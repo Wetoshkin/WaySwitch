@@ -27,7 +27,7 @@
 
 **Automatic Russian–English keyboard layout correction for Linux on Wayland.**
 
-**1.1.3 — text replacement fixes for GNOME, Hermes and Calc.**
+**1.1.4 — explain diagnostics, Russian/English interface localization and text-replacement stabilization.**
 
 Packages and checksums: [latest published release](https://github.com/Wetoshkin/WaySwitch/releases/latest).
 See [project status](docs/PROGRESS.md) for completed changes, verification and remaining work.
@@ -38,8 +38,8 @@ works on Wayland in GNOME, COSMIC, KDE Plasma, Sway and Hyprland. Xfce, MATE,
 Budgie and LXQt require a Wayland session on labwc or Wayfire. See the
 [compatibility table](#status) for conditions and Umbriel/NixOS validation.
 **X11 and Cinnamon (including the default Linux Mint session) are unsupported.**
-The interface is in Russian; correction supports the
-Russian ↔ English pair.
+The interface is available in Russian and English, selected from the system
+locale; correction supports the Russian ↔ English pair.
 
 <p align="center">
   <img src=".github/assets/how-en.png" alt="Type руддщ, press Space, get hello" width="100%">
@@ -49,6 +49,11 @@ Russian ↔ English pair.
 
 - **Fix on Space.** `ghbdtn ` becomes `привет `, and the layout switches too.
   Numbers, paths, URLs, camelCase and abbreviations are left alone.
+- **Russian е/ё and English contractions.** Dictionary lookup treats «е» and
+  «ё» as one key while the corrected text keeps the letter you typed
+  (`небоскреб` ↔ `небоскрёб`). Common contractions (`I'm`, `I'd`, `won't`,
+  `don't`, `can't`) are recognised across layouts; the shortest forms follow
+  the normal short-word sensitivity rules.
 - **Manual fix.** Double Shift fixes the last word, triple Shift the whole
   phrase. You can pick a single key instead (Right Ctrl, ScrollLock, an F-key).
 - **Fix selection.** Select a phrase typed in the wrong layout, press your
@@ -131,6 +136,14 @@ Before installing a `.deb` or `.rpm`, the script verifies its SHA256 and size
 against the selected GitHub release metadata. Missing checksums or failed
 verification stop installation. This check requires `python3`; the installer
 reports the prerequisite if it is missing.
+
+If the selected release has no package, source installation uses that release
+tag instead of `main`: the tag is resolved to an immutable commit and the
+downloaded source is checked against it before installation. Changes to `main`
+have no effect. Selecting the release and checking the tag require `curl` and
+`python3`; the installer reports missing prerequisites. `WAYSWITCH_SRC` still
+installs and uninstalls the explicitly named local checkout without consulting
+a release.
 
 ### Flatpak and AppImage
 
@@ -223,7 +236,8 @@ is paused or the screen is locked.
 
 ## Settings
 
-Everything is set with the mouse and applied immediately. Open **WaySwitch**
+Everything is set with the mouse and applied immediately; the typing delay
+takes effect after the service restarts (see below). Open **WaySwitch**
 from the app menu; preferences are under <kbd>☰</kbd> or
 <kbd>Ctrl</kbd>+<kbd>,</kbd>. On **Sway and Hyprland** the indicator is a
 Waybar module (`wayswitch waybar`), pausing is bound to a hotkey (`wayswitch toggle`; the last word is
@@ -239,7 +253,16 @@ choose the language at startup from `LANGUAGE`, `LC_ALL`, `LC_MESSAGES` and
 `LANG`. A Russian locale gives the Russian interface; English, `C`, `C.UTF-8`,
 `POSIX`, an unknown or an unset locale give English (the source language).
 For `C`/`POSIX`, `LANGUAGE` does not enable the Russian catalog. The Plasma
-widget uses KDE's system language. Localization is not in a published release yet.
+widget uses KDE's system language. Localization is part of 1.1.4; the published
+1.1.3 did not include it.
+
+The `[meta]` section with `schema = 1` identifies the `config.toml` format. Files without the marker are treated as legacy: their
+`settle_ms = 30` is migrated to 120. An explicit 30 saved by this version stays
+30. An older WaySwitch version ignores the marker and replaces 30 with 120 again
+when it saves the file. Saving over a file with an unsupported format marker
+is rejected. The typing delay is read when the service starts: restart the
+service after changing it (`systemctl --user restart wayswitch` for a system
+install); other settings reload immediately.
 
 ## Updating
 
@@ -259,8 +282,20 @@ on Silverblue and Kinoite — after a reboot). Preferences → System → **Remo
 | Command | What it shows |
 |---|---|
 | `wayswitch doctor` | what works, what is missing and how to fix it |
+| `wayswitch explain ghbdtn` | why the detector fixed or kept a word; `--from ru` reverses the direction |
 | `journalctl --user -u wayswitch -n 50` | the latest log lines |
 | `wayswitch dry-run` | detector decisions without touching the screen |
+
+`wayswitch explain <word>` evaluates only `Detector.decide` for the word you
+pass: the explicit us/ru layouts and an empty context. It reads `sensitivity`,
+and `two_capitals_fix` from `config.toml`, and exceptions from `exceptions.txt`.
+It writes nothing and
+does not contact the service, read focus, send keys, or change the layout.
+Options: `--from en|ru` (default `en` = us),
+`--sensitivity conservative|normal|aggressive`, `--json`. It does not evaluate
+punct/split/particles/caps, the early trigger or triple Shift; layout variants,
+AltGr, dead keys and XKB options are not considered. Requires Linux with
+libxkbcommon. The command is included in 1.1.4; it is not in 1.1.3.
 
 Passing the mandatory checks does not confirm that the focused field is accessible.
 If the active application is unknown, run `sleep 5; wayswitch doctor` and focus a
@@ -335,11 +370,28 @@ KDE checks cover Writer with KF6 and GTK3, and selection in Kate/KWrite
 and Writer. Calc was tested with GTK3 VCL; testing with KF6 was limited by
 a LibreOffice plugin failure.
 
-Writer checks cover both directions, undo after continued typing, automatic
-capitalization and two consecutive words. In 1.1.3,
-Calc on GNOME 51.1 passed eight automatic and eight manual corrections:
-F2 and direct input, slow and fast typing. See the project status. Chrome checks cover
-ordinary fields, editable page elements, passwords and readonly fields.
+Earlier Writer checks covered both directions, undo after continued typing,
+automatic capitalization and two consecutive words. In 1.1.3, Calc on GNOME 51.1
+passed eight automatic and eight manual corrections:
+F2 and direct input, slow and fast typing. See the project status.
+
+- For 1.1.4, a live CachyOS GNOME 51.1 Wayland session on an isolated GTK4
+  TextView passed 8 of 8 scenarios, including direct FixPhrase in both
+  directions, fresh and expired phrases with a prefix, an empty phrase, triple
+  Shift after a fresh correction, a manual layout switch and automatic
+  correction, and «ПРивет» with undo and a third Shift. Text, caret, layout,
+  counters and the absence of a spurious `Corrected` were checked. The loaded
+  extension used protocol 3, so the uinput fallback was tested; TypeText and
+  native Writer replacement were not exercised.
+- The same run found a lost space when a physical Space was held during
+  synthesized Space; the fix is included in 1.1.4 and passed a repeated live run. Native Writer replacement
+  for 1.1.4 was not verified: the private Flatpak Writer never mapped a fresh
+  window. Writer/Calc 1.1.3 results remain historical and do not confirm 1.1.4.
+  Sway, PrintScreen, async GUI, tray, sound and language-edge checks are still
+  pending. This does not confirm every desktop, app or native Writer
+  replacement.
+
+Chrome checks cover ordinary fields, editable page elements, passwords and readonly fields.
 The original eXpress message editor was tested in an isolated environment
 without sending messages; an authenticated chat has not been tested.
 

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.fakes import RU_TABLE, US_TABLE, FakeBackend, RecordingTypist, SafeProbe
+from tests.fakes import RU_TABLE, US_TABLE, FakeBackend, RecordingTypist, SafeProbe, run_after_key
 from wayswitch.config import Config
 from wayswitch.controller import Controller
 from wayswitch.detector import Detector, LanguageModel
@@ -28,20 +28,27 @@ def environment(ids=("de", "ru", "us"), current=2, schedule=None):
                       on_corrected=lambda *args: corrected.append(args))
     backend.on_change(ctrl.on_layout_changed)
     return SimpleNamespace(km=km, backend=backend, typist=typist, ctrl=ctrl,
-                           clock=clock, corrected=corrected)
+                           clock=clock, corrected=corrected,
+                           manual_schedule=schedule is not None)
 
 
 def type_text(env, text):
     from wayswitch import keycodes as kc
 
     for ch in text:
-        code, shift = env.km.key_for(ch, env.backend.current())
-        if shift:
-            env.ctrl.on_key(kc.KEY_LEFTSHIFT, 1, 1)
-        env.ctrl.on_key(code, 1, 1)
-        env.ctrl.on_key(code, 0, 1)
-        if shift:
-            env.ctrl.on_key(kc.KEY_LEFTSHIFT, 0, 1)
+        def send(ch=ch):
+            code, shift = env.km.key_for(ch, env.backend.current())
+            if shift:
+                env.ctrl.on_key(kc.KEY_LEFTSHIFT, 1, 1)
+            env.ctrl.on_key(code, 1, 1)
+            env.ctrl.on_key(code, 0, 1)
+            if shift:
+                env.ctrl.on_key(kc.KEY_LEFTSHIFT, 0, 1)
+
+        if env.manual_schedule:
+            send()
+        else:
+            run_after_key(env.ctrl, send)
         env.clock.now += .05
 
 

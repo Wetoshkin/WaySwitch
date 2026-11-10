@@ -16,6 +16,7 @@ from tests.fakes import (
     RecordingTypist,
     SafeProbe,
     make_keymap,
+    run_after_key,
 )
 from wayswitch import keycodes as kc
 from wayswitch.a11y import FocusSnapshot
@@ -58,12 +59,16 @@ def make_ctrl(real, group=RU, config=None, typist=None, **kw):
 
 
 def press(ctrl, code, shift=False, device=1):
-    if shift:
-        ctrl.on_key(kc.KEY_LEFTSHIFT, 1, device)
-    ctrl.on_key(code, 1, device)
-    ctrl.on_key(code, 0, device)
-    if shift:
-        ctrl.on_key(kc.KEY_LEFTSHIFT, 0, device)
+    """Нажать клавишу; фиксы из её колбэков исполнятся после отпускания."""
+    def send():
+        if shift:
+            ctrl.on_key(kc.KEY_LEFTSHIFT, 1, device)
+        ctrl.on_key(code, 1, device)
+        ctrl.on_key(code, 0, device)
+        if shift:
+            ctrl.on_key(kc.KEY_LEFTSHIFT, 0, device)
+
+    run_after_key(ctrl, send)
 
 
 def type_word(ctrl, km, text, group):
@@ -179,6 +184,7 @@ def test_rules_do_not_touch_code_and_paths(real, word):
     ("чтото", "что-то"), ("кембы", "кем бы"), ("хорошобы", "хорошо бы"),
     ("давайка", "давай-ка"), ("всётаки", "всё-таки"), ("знаешьли", "знаешь ли"),
     ("сделалбы", "сделал бы"), ("когданибудь", "когда-нибудь"), ("тыже", "ты же"),
+    ("чьето", "чье-то"), ("чьёто", "чьё-то"),
     ("пирогб", "пирог,"), ("сонатуБаха", "сонату Баха"),
 ])
 def test_rules_still_fix_real_cases(real, word, expected):
@@ -200,6 +206,48 @@ def test_two_capitals(real, word, group, expected):
     assert got == expected
 
 
+def tap_shift(ctrl, times=1):
+    for _ in range(times):
+        ctrl.on_key(kc.KEY_RIGHTSHIFT, 1, 1)
+        ctrl.on_key(kc.KEY_RIGHTSHIFT, 0, 1)
+
+
+def test_third_shift_after_same_group_undo_converts_phrase(real):
+    """Второй тап отменил правку в той же раскладке и группу не сменил.
+    Третий тап должен перевести всю фразу в противоположную группу, а не
+    перепечатать её в прежней."""
+    ctrl, backend, _typist, corrected = make_ctrl(real, group=RU)
+    type_word(ctrl, real[0], "ПРивет ", RU)
+    assert corrected[0] == ("ПРивет", "Привет", False)
+    tap_shift(ctrl, 2)  # откат правки «две заглавные»; группа осталась RU
+    assert backend.current() == RU
+    tap_shift(ctrl, 1)  # третий тап: фраза должна уйти в US
+    assert backend.current() == US
+    assert real[0].decode(ctrl.buffer.phrase(), US) == "GHbdtn "
+    assert corrected[-1] == ("ПРивет ", "GHbdtn", True)
+
+
+@pytest.mark.parametrize("typed_text,expected", [
+    ("{Kt,", "Хлеб"),
+    ("K>,jdm", "Любовь"),
+    (":Bpym", "Жизнь"),
+    ("<>hj", "Бюро"),
+    (">Hbq", "Юрий"),
+])
+def test_two_capitals_in_opposite_layout(real, typed_text, expected):
+    ctrl, _b, _t, corrected = make_ctrl(real, group=US)
+    type_word(ctrl, real[0], typed_text + " ", US)
+    assert corrected == [(typed_text, expected, False)]
+
+
+def test_two_capitals_in_opposite_layout_obeys_setting(real):
+    cfg = Config()
+    cfg.general.two_capitals_fix = False
+    ctrl, _b, _t, corrected = make_ctrl(real, group=US, config=cfg)
+    type_word(ctrl, real[0], "{Kt, ", US)
+    assert corrected == []
+
+
 # --- исключения и откат правил ---------------------------------------------------------
 
 def test_exception_blocks_rules_too(real):
@@ -207,6 +255,38 @@ def test_exception_blocks_rules_too(real):
     ctrl.detector.exceptions.add("чтото")
     type_word(ctrl, real[0], "чтото ", RU)
     assert corrected == []
+
+
+@pytest.mark.parametrize("word", ["I'm", "I'd", "won't", "don't", "can't"])
+def test_english_contractions_applied_in_controller(real, word):
+    ctrl, _backend, _typist, corrected = make_ctrl(real, group=RU)
+    km = real[0]
+    # Физические клавиши английского слова при включённой русской раскладке.
+    for ch in word:
+        code, shift = km.key_for(ch.lower(), US)
+        press(ctrl, code, shift or ch.isupper())
+    press(ctrl, kc.KEY_SPACE)
+    assert corrected and corrected[0][1] == word, corrected
+
+
+def test_cheto_particles_exception_and_undo_keep_entered_e(real):
+    cfg = Config()
+    cfg.general.learn_after_undos = 1
+    ctrl, _backend, typist, corrected = make_ctrl(real, group=RU, config=cfg)
+    km = real[0]
+    ctrl.detector.exceptions.add("чьето")
+    type_word(ctrl, km, "чьето ", RU)
+    assert corrected == []
+    ctrl.detector.exceptions.clear()
+    type_word(ctrl, km, "чьето ", RU)
+    assert corrected[-1][1] == "чье-то"
+    before = len(typist.taps())
+    assert ctrl.manual_word()
+    assert corrected[-1] == ("чье-то", "чьето", True)
+    after = typist.taps()[before:]
+    new = [KeyPress(c, s) for c, s in after if c != kc.KEY_BACKSPACE]
+    assert km.decode(new, RU) == "чьето "
+    assert "чьето" in ctrl.detector.exceptions
 
 
 def test_undo_of_split_fix_restores_original(real):

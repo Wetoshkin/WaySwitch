@@ -27,6 +27,14 @@ TRANSIENT_HTTP = frozenset({408, 425, 429, 500, 502, 503, 504})
 RELEASE_DOWNLOAD = re.compile(
     r"https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^/]+)")
 
+# Snapshot Service иногда отвечает 5xx на закреплённый pool-файл. Такой же
+# неизменный файл лежит на официальных archive/security-зеркалах Ubuntu.
+SNAPSHOT_POOL = re.compile(
+    r"https://snapshot\.ubuntu\.com/ubuntu/\d{8}T\d{6}Z/pool/(main|universe)/"
+    r"(?P<path>[A-Za-z0-9][A-Za-z0-9._+~%:/-]*\.deb)")
+UBUNTU_MIRRORS = ("https://archive.ubuntu.com/ubuntu",
+                  "https://security.ubuntu.com/ubuntu")
+
 
 def _release_fallback(url: str) -> tuple[str, dict[str, str]] | None:
     """Прямая ссылка API на тот же asset, если браузерная 5xx.
@@ -55,6 +63,35 @@ def _release_fallback(url: str) -> tuple[str, dict[str, str]] | None:
     return None
 
 
+class DownloadError(RuntimeError):
+    """Загрузка не удалась; сообщение содержит URL, цель и последнюю ошибку."""
+
+
+def _ubuntu_fallbacks(url: str) -> tuple[str, ...]:
+    """Зеркала официального архива для строго закреплённого snapshot pool-файла.
+
+    Принимаем только неизменяемый путь snapshot. Query, userinfo, чужие хосты,
+    traversal и закодированные разделители не переписываются на зеркала.
+    """
+    match = SNAPSHOT_POOL.fullmatch(url)
+    if match is None:
+        return ()
+    path = match["path"]
+    if "//" in path or "\\" in path:
+        return ()
+    for segment in path.split("/"):
+        if segment in {".", ".."} or re.search(r"%(?:2e|2f|3f|23|5c)", segment,
+                                               re.IGNORECASE):
+            return ()
+    return tuple(f"{mirror}/pool/{match[1]}/{path}" for mirror in UBUNTU_MIRRORS)
+
+
+def _download_error(url: str, target: Path, last_url: str,
+                    error: Exception) -> DownloadError:
+    last = f" (last URL: {last_url})" if last_url != url else ""
+    return DownloadError(f"download failed: {url} -> {target}{last}: {error}")
+
+
 def fetch_verified(url: str, target: Path, sha256: str, *, opener=urllib.request.urlopen,
                    sleep=time.sleep, attempts: int = 6, base_delay: float = 1.5) -> None:
     if target.exists():
@@ -64,11 +101,16 @@ def fetch_verified(url: str, target: Path, sha256: str, *, opener=urllib.request
     target.unlink(missing_ok=True)
     partial = target.with_suffix(".partial")
     last_error: Exception | None = None
+    last_url = url
     current_url, headers = url, None
     fallback_checked = False
+    ubuntu_candidates: tuple[str, ...] = ()
+    ubuntu_index = -1
+    ubuntu_active = False
     try:
         for attempt in range(attempts):
             partial.unlink(missing_ok=True)
+            last_url = current_url
             try:
                 request = (urllib.request.Request(current_url, headers=headers)
                            if headers else current_url)
@@ -76,14 +118,21 @@ def fetch_verified(url: str, target: Path, sha256: str, *, opener=urllib.request
                     shutil.copyfileobj(source, dest)
             except urllib.error.HTTPError as exc:
                 if exc.code not in TRANSIENT_HTTP:
-                    raise
+                    if (ubuntu_active and exc.code == 404
+                            and ubuntu_index + 1 < len(ubuntu_candidates)):
+                        last_error = exc
+                        ubuntu_index += 1
+                        current_url = ubuntu_candidates[ubuntu_index]
+                        headers = None
+                        continue
+                    raise _download_error(url, target, current_url, exc) from exc
                 last_error = exc
             except (urllib.error.URLError, TimeoutError) as exc:
                 last_error = exc
             else:
                 with partial.open("rb") as stream:
                     if hashlib.file_digest(stream, "sha256").hexdigest() != sha256:
-                        raise ValueError(f"SHA256 mismatch: {url}")
+                        raise ValueError(f"SHA256 mismatch: {current_url} -> {target}")
                 partial.replace(target)
                 return
             if not fallback_checked:
@@ -91,10 +140,28 @@ def fetch_verified(url: str, target: Path, sha256: str, *, opener=urllib.request
                 fallback = _release_fallback(url)
                 if fallback is not None:
                     current_url, headers = fallback
+                else:
+                    mirrors = _ubuntu_fallbacks(url)
+                    if mirrors:
+                        # Сначала официальные зеркала, затем ограниченный
+                        # повтор исходного snapshot в пределах общих попыток.
+                        ubuntu_candidates = (*mirrors, url)
+                        ubuntu_active = True
+                        ubuntu_index = 0
+                        current_url = ubuntu_candidates[0]
+                        headers = None
+            elif ubuntu_active:
+                if ubuntu_index + 1 < len(ubuntu_candidates):
+                    ubuntu_index += 1
+                    current_url = ubuntu_candidates[ubuntu_index]
+                else:
+                    ubuntu_active = False
+                    current_url = url
+                headers = None
             if attempt + 1 < attempts:
                 sleep(base_delay * (2 ** attempt))
         assert last_error is not None
-        raise last_error
+        raise _download_error(url, target, last_url, last_error) from last_error
     finally:
         partial.unlink(missing_ok=True)
 

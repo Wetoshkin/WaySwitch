@@ -271,6 +271,11 @@ def test_russian_catalog_translates_key_ui_strings():
         assert catalog.gettext(message) == translation
 
 
+def test_russian_catalog_has_no_stale_gnome_only_selection_limit():
+    catalog = _catalog()
+    assert not _has(catalog, " (GNOME only for now)")
+
+
 def test_placeholders_and_markup_survive_translation():
     catalog = _catalog()
     checked = 0

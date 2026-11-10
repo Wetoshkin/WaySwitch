@@ -589,6 +589,205 @@ fetch deb
     assert 'Нужен Python 3' in result.stderr
 
 
+def _installer_functions():
+    source = (ROOT / "packaging/get.sh").read_text(encoding="utf-8")
+    helpers = source[source.index("valid_release_tag()"):source.index("fetch()")]
+    fetch = source[source.index("fetch()"):source.index("\nget_package()")]
+    get_package = source[source.index("get_package()"):source.index("\nfrom_source()")]
+    from_source = source[source.index("from_source()"):source.index("\nTRAY_AUTOSTART=")]
+    return helpers, fetch, get_package, from_source
+
+
+def _prepare_installer_commands(tmp_path, *, tag="v1.2.3", assets=(), ls_remote="",
+                                clone_head="", payload=b""):
+    (tmp_path / "api.json").write_text(
+        json.dumps([{"tag_name": tag, "assets": list(assets)}]), encoding="utf-8")
+    (tmp_path / "ls-remote.txt").write_text(ls_remote, encoding="utf-8", newline="\n")
+    (tmp_path / "clone-head.txt").write_text(clone_head + "\n", encoding="utf-8", newline="\n")
+    (tmp_path / "package").write_bytes(payload)
+    git = tmp_path / "git"
+    git.write_text("""#!/bin/sh
+printf '%s\\n' "$*" >> git.log
+case "$1" in
+  ls-remote) cat ls-remote.txt ;;
+  clone) for arg do dest=$arg; done; mkdir -p "$dest" ;;
+  -C) cat clone-head.txt ;;
+  *) exit 98 ;;
+esac
+""", encoding="utf-8", newline="\n")
+    git.chmod(0o755)
+
+
+def _run_installer(shell, tmp_path, tail):
+    helpers, fetch, get_package, from_source = _installer_functions()
+    script = f"""
+set -eu
+unset WAYSWITCH_SRC
+TMP="$PWD"
+ATOMIC=0
+FAMILY=source
+API=api
+REPO=Wetoshkin/WaySwitch
+PATH="$PWD:$PATH"
+python3() {{ "$TEST_PYTHON" "$@"; }}
+die() {{ printf '%s\\n' "$2" >&2; exit 1; }}
+say() {{ :; }}
+warn() {{ :; }}
+have() {{ command -v "$1" >/dev/null 2>&1; }}
+curl() {{
+    out=""; url=""
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            -o) shift; out=$1 ;;
+            -*) ;;
+            *) url=$1 ;;
+        esac
+        shift
+    done
+    printf '%s\\n' "$url" >> curl.log
+    if [ "$url" = api ]; then cat api.json > "$out"; else cat package > "$out"; fi
+}}
+sudo() {{ printf '%s\\n' "$*" >> sudo.log; }}
+{helpers}
+{fetch}
+{get_package}
+{from_source}
+{tail}
+"""
+    # Длинный bash -c обрезается в Windows; файл сохраняет сценарий целиком.
+    script_path = tmp_path / "installer-test.sh"
+    script_path.write_text(script, encoding="utf-8", newline="\n")
+    return subprocess.run([shell, script_path.as_posix()], cwd=tmp_path,
+                          env=dict(os.environ, TEST_PYTHON=Path(sys.executable).as_posix()),
+                          capture_output=True, text=True, encoding="utf-8")
+
+
+def test_source_install_uses_selected_release_tag(shell, tmp_path):
+    commit = "a" * 40
+    _prepare_installer_commands(
+        tmp_path, ls_remote=f"{commit}\trefs/tags/v1.2.3\n", clone_head=commit)
+    result = _run_installer(shell, tmp_path, "from_source install.sh")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (tmp_path / "release.tag").read_text() == "v1.2.3\n"
+    assert (tmp_path / "curl.log").read_text().splitlines() == ["api"]
+    calls = (tmp_path / "git.log").read_text().splitlines()
+    assert calls[0] == ("ls-remote https://github.com/Wetoshkin/WaySwitch.git "
+                        "refs/tags/v1.2.3 refs/tags/v1.2.3^{}")
+    assert calls[1].startswith(
+        "clone -q --depth 1 --branch v1.2.3 https://github.com/Wetoshkin/WaySwitch.git ")
+    assert calls[1].endswith("/src")
+    assert calls[2].startswith("-C ") and calls[2].endswith(" rev-parse --verify HEAD")
+    sudo = (tmp_path / "sudo.log").read_text().splitlines()
+    assert len(sudo) == 1 and sudo[0].endswith("/src/packaging/install.sh")
+
+
+def test_missing_package_reuses_tag_selected_by_fetch(shell, tmp_path):
+    commit = "b" * 40
+    _prepare_installer_commands(
+        tmp_path, ls_remote=f"{commit}\trefs/tags/v1.2.3\n", clone_head=commit)
+    result = _run_installer(shell, tmp_path,
+                            "get_package deb\nfrom_source install.sh")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (tmp_path / "curl.log").read_text().splitlines() == ["api"]
+    calls = (tmp_path / "git.log").read_text().splitlines()
+    assert calls[1].startswith("clone -q --depth 1 --branch v1.2.3 ")
+    assert (tmp_path / "sudo.log").read_text().endswith("/src/packaging/install.sh\n")
+
+
+def test_source_install_resolves_annotated_release_tag(shell, tmp_path):
+    commit = "b" * 40
+    tag_object = "c" * 40
+    _prepare_installer_commands(
+        tmp_path,
+        ls_remote=(f"{tag_object}\trefs/tags/v1.2.3\n"
+                   f"{commit}\trefs/tags/v1.2.3^{{}}\n"),
+        clone_head=commit,
+    )
+    result = _run_installer(shell, tmp_path, "from_source install.sh")
+    assert result.returncode == 0, result.stdout + result.stderr
+    calls = (tmp_path / "git.log").read_text().splitlines()
+    assert calls[1].startswith("clone -q --depth 1 --branch v1.2.3 ")
+    assert (tmp_path / "sudo.log").read_text().endswith("/src/packaging/install.sh\n")
+
+
+def test_source_install_missing_tag_stops_before_clone_and_sudo(shell, tmp_path):
+    _prepare_installer_commands(tmp_path, ls_remote="", clone_head="d" * 40)
+    result = _run_installer(shell, tmp_path, "from_source install.sh")
+    assert result.returncode == 1
+    calls = (tmp_path / "git.log").read_text().splitlines()
+    assert len(calls) == 1 and calls[0].startswith("ls-remote ")
+    assert not (tmp_path / "sudo.log").exists()
+
+
+def test_source_install_rejects_unsafe_release_tag(shell, tmp_path):
+    _prepare_installer_commands(tmp_path, tag="v1.2.3; touch owned", clone_head="d" * 40)
+    result = _run_installer(shell, tmp_path, "from_source install.sh")
+    assert result.returncode == 1
+    assert not (tmp_path / "owned").exists()
+    assert not (tmp_path / "git.log").exists()
+    assert not (tmp_path / "sudo.log").exists()
+
+
+def test_source_install_moved_tag_stops_before_sudo(shell, tmp_path):
+    selected = "d" * 40
+    moved = "e" * 40
+    _prepare_installer_commands(
+        tmp_path, ls_remote=f"{selected}\trefs/tags/v1.2.3\n", clone_head=moved)
+    result = _run_installer(shell, tmp_path, "from_source install.sh")
+    assert result.returncode == 1
+    calls = (tmp_path / "git.log").read_text().splitlines()
+    assert any(line.startswith("clone ") for line in calls)
+    assert not (tmp_path / "sudo.log").exists()
+
+
+def test_source_install_ignores_moving_main(shell, tmp_path):
+    commit = "f" * 40
+    _prepare_installer_commands(
+        tmp_path,
+        ls_remote=(f"{commit}\trefs/tags/v1.2.3\n"
+                   f"{'1' * 40}\trefs/heads/main\n"),
+        clone_head=commit,
+    )
+    result = _run_installer(shell, tmp_path, "from_source install.sh")
+    assert result.returncode == 0, result.stdout + result.stderr
+    calls = (tmp_path / "git.log").read_text().splitlines()
+    assert calls[1].startswith("clone -q --depth 1 --branch v1.2.3 ")
+    assert not any("refs/heads/main" in line for line in calls)
+
+
+def test_bad_package_checksum_stops_before_source_or_sudo(shell, tmp_path):
+    good = b"package bytes"
+    asset = {
+        "name": "wayswitch.deb",
+        "size": len(good),
+        "digest": "sha256:" + hashlib.sha256(good).hexdigest(),
+        "browser_download_url": (
+            "https://github.com/Wetoshkin/WaySwitch/releases/download/v1.2.3/wayswitch.deb"),
+    }
+    commit = "2" * 40
+    _prepare_installer_commands(
+        tmp_path, assets=[asset], ls_remote=f"{commit}\trefs/tags/v1.2.3\n",
+        clone_head=commit, payload=b"changed bytes")
+    result = _run_installer(shell, tmp_path,
+                            "get_package deb\nfrom_source install.sh")
+    assert result.returncode == 1
+    assert not (tmp_path / "git.log").exists()
+    assert not (tmp_path / "sudo.log").exists()
+    requests = (tmp_path / "curl.log").read_text().splitlines()
+    assert requests == ["api", asset["browser_download_url"]]
+
+
+def test_local_source_uninstall_does_not_select_release(shell, tmp_path):
+    _prepare_installer_commands(tmp_path)
+    result = _run_installer(
+        shell, tmp_path, 'WAYSWITCH_SRC="$PWD/local"\nfrom_source uninstall.sh')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not (tmp_path / "curl.log").exists()
+    assert not (tmp_path / "git.log").exists()
+    sudo = (tmp_path / "sudo.log").read_text().splitlines()
+    assert len(sudo) == 1 and sudo[0].endswith("/local/packaging/uninstall.sh")
+
+
 @pytest.mark.parametrize("reverse", [False, True])
 @pytest.mark.parametrize("settings_tray,legacy_tray,foreign,expected", [
     (False, True, False, True), (True, False, False, True),
@@ -649,3 +848,13 @@ wait
     assert started.exists() is expected
     if expected:
         assert started.read_text() == "wayswitch-gui --tray"
+
+
+def test_atomic_missing_package_stops_before_source_install(shell, tmp_path):
+    _prepare_installer_commands(tmp_path)
+    result = _run_installer(shell, tmp_path,
+                            "ATOMIC=1\nget_package rpm\nfrom_source install.sh")
+    assert result.returncode == 1
+    assert "cannot install without it" in result.stderr
+    assert not (tmp_path / "git.log").exists()
+    assert not (tmp_path / "sudo.log").exists()

@@ -65,8 +65,7 @@ class Preferences:
     def present(self, parent) -> None:
         self.dialog.present(parent)
         if self.broken:
-            self.toast(_("The settings file is damaged — defaults are shown. "
-                         "It will be overwritten on the first change"))
+            self.toast(_("Settings could not be loaded — defaults are shown"))
 
     # --- сохранение ----------------------------------------------------------
 
@@ -173,14 +172,12 @@ class Preferences:
         manual.add(self.row_key)
         # Клавиши действий над выделенным текстом: своя строка у каждой.
         self.sel_caps = {}
-        from wayswitch.backends.desktop import GNOME, detect_desktop
-
-        # Выделенный текст читает расширение GNOME Shell — в других средах
-        # клавиши ничего не сделают, о чём честно и пишем.
-        only_gnome = "" if detect_desktop() == GNOME else _(" (GNOME only for now)")
+        guidance = texts.selection_guidance(self.proxy.status)
+        if guidance:
+            manual.set_description(guidance)
         for field_name, title, subtitle, hint in texts.SELECTION_KEY_ROWS:
             row_title, row_hint = _(title), _(hint)
-            row = Adw.ActionRow(title=row_title, subtitle=_(subtitle) + only_gnome,
+            row = Adw.ActionRow(title=row_title, subtitle=_(subtitle),
                                 activatable=True)
             cap = keycap("")
             row.add_suffix(cap)
@@ -287,11 +284,12 @@ class Preferences:
             # Backspace в диалоге: «без клавиши» — жест выключается.
             self.cb_manual.set_selected(cfgmod.MANUAL_MODES.index("none"))
             return
+        code = cfgmod.key_code(name)
         for field_name in cfgmod.SELECTION_KEY_FIELDS:
-            if name == getattr(self.cfg.gesture, field_name):
+            if code == cfgmod.key_code(getattr(self.cfg.gesture, field_name)):
                 self.toast(_("This key is already used for another action"))
                 return
-        if self.cfg.gesture.pause_hotkey and name == self.cfg.gesture.pause_hotkey.lower():
+        if self.cfg.gesture.pause_hotkey and code == cfgmod.key_code(self.cfg.gesture.pause_hotkey):
             self.toast(_("This key pauses WaySwitch"))
             return
         self._set("gesture", "tap_key", name)

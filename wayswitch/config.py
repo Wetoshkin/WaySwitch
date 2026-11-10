@@ -26,6 +26,10 @@ class ConfigError(ValueError):
     """Неверное значение в конфиге."""
 
 
+class ConfigSchemaError(ConfigError):
+    """Файл записан неизвестной или несовместимой версией WaySwitch."""
+
+
 @dataclass
 class General:
     auto_correct: bool = True
@@ -84,6 +88,11 @@ class Gesture:
 
 
 OLD_SETTLE_MS = 30  # умолчание до 2.0.0a2
+# Маркер формата лежит в отдельной верхней секции: старые читатели не знают
+# её и пропускают целиком, поэтому новый файл для них остаётся читаемым.
+CONFIG_SCHEMA = 1
+_SCHEMA_SECTION = "meta"
+_SCHEMA_KEY = "schema"
 
 
 @dataclass
@@ -220,7 +229,7 @@ def _validate(cfg: Config) -> None:
         raise ConfigError(
             f"tap_key: недопустимая клавиша жеста {ge.tap_key!r}, "
             f"можно: leftctrl, rightctrl, scrolllock, pause, f1…f12 и подобные")
-    tap, pause = ge.tap_key.lower(), ge.pause_hotkey.lower()
+    tap, pause = key_code(ge.tap_key), key_code(ge.pause_hotkey)
     for field_name in SELECTION_KEY_FIELDS:
         sel = getattr(ge, field_name).lower()
         if not sel:
@@ -250,6 +259,12 @@ SELECTION_KEY_FIELDS = {"selection_key": "исправляет выделенн�
                         "numbers_key": "пишет число прописью"}
 
 
+def key_code(name: str) -> int | str | None:
+    """Разрешить алиасы клавиши в код для сравнения назначений."""
+    name = name.lower()
+    return KEY_NAMES.get(name, name) if name else None
+
+
 def selection_key_conflict(ge: Gesture, name: str, manual: str | None = None,
                            field: str = "selection_key") -> str | None:
     """С чем клавиша действия над выделенным столкнулась бы (или None).
@@ -261,31 +276,58 @@ def selection_key_conflict(ge: Gesture, name: str, manual: str | None = None,
     """
     manual = manual or ge.manual
 
-    def code(key_name: str):
-        # Сравниваем коды, а не имена: «esc» и «escape» — одна клавиша.
-        key_name = key_name.lower()
-        return KEY_NAMES.get(key_name, key_name) if key_name else None
-
     if not name:
         return None
-    name = code(name)
+    name = key_code(name)
     for other, does in SELECTION_KEY_FIELDS.items():
-        if other != field and name == code(getattr(ge, other)):
+        if other != field and name == key_code(getattr(ge, other)):
             return f"эта клавиша уже {does}"
-    if manual == "tap_key" and name == code(ge.tap_key):
+    if manual == "tap_key" and name == key_code(ge.tap_key):
         return "эта клавиша уже исправляет последнее слово"
-    if manual == "double_shift" and name in (code("leftshift"), code("rightshift")):
+    if manual == "double_shift" and name in (key_code("leftshift"), key_code("rightshift")):
         return "Shift уже занят жестом «двойной Shift»"
-    if manual == "pause_key" and name == code("pause"):
+    if manual == "pause_key" and name == key_code("pause"):
         return "Pause уже занята жестом «клавиша Pause»"
-    if ge.pause_hotkey and name == code(ge.pause_hotkey):
+    if ge.pause_hotkey and name == key_code(ge.pause_hotkey):
         return "эта клавиша ставит WaySwitch на паузу"
     return None
+
+
+def _schema_version(data: dict) -> int:
+    """Версия формата: 0 — файл без маркера, 1 — текущий.
+
+    Неизвестные верхние секции по-прежнему игнорируются, но секция-маркер
+    известна: без неё нельзя отличить старое умолчание 30 мс от явного
+    выбора. Неизвестную или будущую версию не угадываем.
+    """
+    if _SCHEMA_SECTION not in data:
+        return 0
+    marker = data[_SCHEMA_SECTION]
+    if not isinstance(marker, dict):
+        raise ConfigSchemaError(f"[{_SCHEMA_SECTION}] должна быть секцией")
+    unknown = set(marker) - {_SCHEMA_KEY}
+    if unknown:
+        raise ConfigSchemaError(
+            f"неизвестные ключи в [{_SCHEMA_SECTION}]: {sorted(unknown)}")
+    version = marker.get(_SCHEMA_KEY)
+    if isinstance(version, bool) or not isinstance(version, int):
+        raise ConfigSchemaError(
+            f"{_SCHEMA_SECTION}.{_SCHEMA_KEY}: ожидалось целое число")
+    if version != CONFIG_SCHEMA:
+        if version > CONFIG_SCHEMA:
+            raise ConfigSchemaError(
+                f"конфиг создан более новой версией WaySwitch "
+                f"(schema {version}, поддерживается {CONFIG_SCHEMA}); "
+                "файл не перезаписан")
+        raise ConfigSchemaError(
+            f"{_SCHEMA_SECTION}.{_SCHEMA_KEY}: неподдерживаемое значение {version}")
+    return version
 
 
 def from_dict(data: dict) -> Config:
     """Собрать конфиг из словаря TOML. Неизвестные секции игнорируются,
     неизвестные ключи внутри известных секций — ошибка (опечатка)."""
+    schema = _schema_version(data)
     kwargs = {}
     for name, cls in _SECTIONS.items():
         section = data.get(name, {})
@@ -293,16 +335,19 @@ def from_dict(data: dict) -> Config:
             raise ConfigError(f"[{name}] должна быть секцией")
         kwargs[name] = _section_from_dict(cls, section)
     cfg = Config(**kwargs)
-    if cfg.typing.settle_ms == OLD_SETTLE_MS:
+    if schema == 0 and cfg.typing.settle_ms == OLD_SETTLE_MS:
         # Прежние версии записывали в файл все ключи, и старое умолчание
         # 30 мс закрепилось бы навсегда — а с ним терялся пробел после слова.
+        # В файле с маркером 30 — уже явный выбор человека.
         cfg.typing.settle_ms = Typing.settle_ms
     _validate(cfg)
     return cfg
 
 
 def to_dict(cfg: Config) -> dict:
-    return asdict(cfg)
+    # Маркер — часть формата: без него from_dict(to_dict(cfg)) принял бы
+    # явные 30 мс за старое умолчание и заменил бы их на 120.
+    return {_SCHEMA_SECTION: {_SCHEMA_KEY: CONFIG_SCHEMA}, **asdict(cfg)}
 
 
 def _toml_scalar(value) -> str:
@@ -337,9 +382,22 @@ def load(path: Path | None = None) -> Config:
     return from_dict(data)
 
 
+def _check_existing_schema(path: Path) -> None:
+    """Не перезаписывать файл, маркер которого мы не понимаем."""
+    try:
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+    except (FileNotFoundError, tomllib.TOMLDecodeError):
+        # Битый файл, как и раньше, можно заменить осознанной правкой в GUI.
+        return
+    _schema_version(data)
+
+
 def save(cfg: Config, path: Path | None = None) -> None:
     _validate(cfg)
     path = path or default_path()
+    if path.exists():
+        _check_existing_schema(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(dumps(cfg), encoding="utf-8")
