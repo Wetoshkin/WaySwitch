@@ -455,6 +455,55 @@ def test_failed_fix_leaves_context_empty(env):
     assert env["ctrl"].buffer.is_empty()
 
 
+def test_callback_pause_does_not_repopulate_context(env):
+    ctrl = env["ctrl"]
+    ctrl.on_fixed = lambda manual: ctrl.pause()
+    type_text(env, "HEllo ")
+    assert ctrl.paused
+    assert list(ctrl.context) == []
+
+
+def test_callback_click_does_not_repopulate_context(env):
+    ctrl = env["ctrl"]
+    ctrl.on_fixed = lambda manual: ctrl.on_click()
+    type_text(env, "HEllo ")
+    assert ctrl.buffer.is_empty()
+    assert list(ctrl.context) == []
+
+
+def test_callback_focus_boundary_does_not_repopulate_context(env):
+    ctrl = env["ctrl"]
+    snap = {"current": ctrl.probe.snapshot()}
+    ctrl.probe.snapshot = lambda: snap["current"]
+
+    def focus_boundary(manual):
+        snap["current"] = snap["current"]._replace(
+            field=(":test", "/field"), generation=1)
+        assert ctrl._sync_focus() is False
+
+    ctrl.on_fixed = focus_boundary
+    type_text(env, "HEllo ")
+    assert list(ctrl.context) == []
+
+
+def test_nested_success_before_outer_done_does_not_restore_invalidated_context(env):
+    ctrl = env["ctrl"]
+    fired = []
+
+    def on_fixed(manual):
+        if fired:
+            return
+        fired.append(True)
+        ctrl.pause()
+        assert ctrl.resume()
+        type_text(env, "ghbdtn ")  # успешный вложенный фикс до outer done
+
+    ctrl.on_fixed = on_fixed
+    type_text(env, "HEllo ")
+    assert fired
+    assert list(ctrl.context) == ["ru"]
+
+
 # --- исполнение вне диспатча evdev (schedule) -------------------------------
 
 def deferred(env):
@@ -489,6 +538,38 @@ def test_scheduled_fix_skipped_when_buffer_changed(env):
     assert env["typist"].events == [] and env["backend"].set_calls == []
     assert env["corrected"] == []
     assert list(env["ctrl"].context) == []
+
+
+def test_rejected_rule_fix_does_not_repopulate_context(env):
+    type_text(env, "hello world ")
+    ctrl = env["ctrl"]
+    queue = deferred(env)
+    env["backend"].current_index = RU
+    type_text(env, "чтото ", group=RU)  # частицы: «что-то» в RU
+    assert len(queue) == 1
+    type_text(env, "ч", group=RU)  # буфер изменился до idle — фикс отклонён
+    drain(queue)
+    assert list(ctrl.context) == ["en", "en"]
+    assert env["corrected"] == []
+
+    ctrl.schedule = lambda fn: fn()
+    env["backend"].current_index = US
+    type_text(env, "z ", group=US)  # короткое «я» требует контекста RU
+    assert env["corrected"] == []
+    assert env["backend"].current() == US
+
+
+def test_successful_rule_context_drives_later_short_word(env):
+    type_text(env, "hello world ")
+    ctrl = env["ctrl"]
+    env["backend"].current_index = RU
+    type_text(env, "чтото ", group=RU)
+    assert list(ctrl.context) == ["en", "ru"]
+
+    env["backend"].current_index = US
+    type_text(env, "z ", group=US)
+    assert env["corrected"][-1] == ("z", "я", False)
+    assert env["backend"].current() == RU
 
 
 def test_scheduled_early_url_and_manual_fixes_are_deferred_too(env):
