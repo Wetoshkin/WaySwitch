@@ -198,7 +198,7 @@ def selection_guidance(status: dict | None) -> str | None:
 
 
 def selection_feedback(result) -> SelectionFeedback | None:
-    """Что показать по ответу DaemonProxy.call("FixSelection").
+    """Что показать по результату завершённого FixSelection.
 
     (True,) — исправление подтверждено, уведомление не нужно; (False,), None и
     любой неожиданный ответ — не подтвердилось, показываем одно сообщение.
