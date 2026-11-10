@@ -49,6 +49,11 @@ Russian ↔ English pair.
 
 - **Fix on Space.** `ghbdtn ` becomes `привет `, and the layout switches too.
   Numbers, paths, URLs, camelCase and abbreviations are left alone.
+- **Russian е/ё and English contractions.** Dictionary lookup treats «е» and
+  «ё» as one key while the corrected text keeps the letter you typed
+  (`небоскреб` ↔ `небоскрёб`). Common contractions (`I'm`, `I'd`, `won't`,
+  `don't`, `can't`) are recognised across layouts; the shortest forms follow
+  the normal short-word sensitivity rules.
 - **Manual fix.** Double Shift fixes the last word, triple Shift the whole
   phrase. You can pick a single key instead (Right Ctrl, ScrollLock, an F-key).
 - **Fix selection.** Select a phrase typed in the wrong layout, press your
