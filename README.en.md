@@ -248,6 +248,16 @@ start systemd user services: without uwsm, add `exec wayswitch run` (Sway) or
 (labwc / Wayfire) WaySwitch reads the layouts from the compositor's XKB
 settings — see the Russian README for snippets.
 
+**Closing the window.** This native fix is a source change after 1.1.4 and is
+not released yet: in 1.1.4 a normal native launch ended both the window and
+its icon. With the fix, a native launch stays in the icon like `--tray`: the
+service keeps correcting, and launching WaySwitch again from the app menu
+reopens the same window with its history. In GNOME the icon requires the
+AppIndicator extension to be enabled (it is usually already enabled on
+Ubuntu). The portable Flatpak and AppImage GUIs keep an independent window
+lifecycle: an ordinary close ends the GUI together with its icon while the
+native service keeps running; `--tray` keeps the icon.
+
 **Interface language.** The window, notifications, panel icon and Waybar module
 choose the language at startup from `LANGUAGE`, `LC_ALL`, `LC_MESSAGES` and
 `LANG`. A Russian locale gives the Russian interface; English, `C`, `C.UTF-8`,

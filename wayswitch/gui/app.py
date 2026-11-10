@@ -95,7 +95,12 @@ def main(argv: list[str] | None = None) -> int:
 
     argv = sys.argv[1:] if argv is None else argv
     tray_only = parse_gui_args(argv)
-    if portable.package_kind() is None:
+    package_kind = portable.package_kind()
+    # Нативный запуск и любой --tray живут после закрытия окна: значок
+    # StatusNotifierItem остаётся, а повторный запуск показывает окно. Обычный
+    # AppImage/Flatpak завершается вместе с окном.
+    keep_alive = tray_only or package_kind is None
+    if package_kind is None:
         autostart.migrate_tray()
 
     class App(Adw.Application):
@@ -141,8 +146,8 @@ def main(argv: list[str] | None = None) -> int:
                 self.set_accels_for_action(action, accels)
             self.proxy.start()
             self.tray.start()
-            if tray_only:
-                self.hold()  # живём без окна
+            if keep_alive:
+                self.hold()  # живём и после закрытия окна
             GLib.timeout_add_seconds(UPDATE_FIRST_DELAY_SEC, self._periodic_update)
 
         def do_activate(self):
@@ -186,8 +191,8 @@ def main(argv: list[str] | None = None) -> int:
             return self._main
 
         def _on_close(self, *_):
-            if tray_only:
-                # Значок остаётся — окно просто прячем, история не теряется.
+            if keep_alive:
+                # Значок остаётся — окно просто прячем, история и связь не теряются.
                 self._main.window.set_visible(False)
                 return True
             self._main = None
@@ -226,8 +231,8 @@ def main(argv: list[str] | None = None) -> int:
             dialogs.quit_dialog(self._parent(), self._quit_background, self._quit_stop)
 
         def _quit_background(self):
-            # Служба продолжает исправлять; закрываем только окно (и значок,
-            # если это не процесс значка).
+            # Служба продолжает исправлять. Нативный запуск и --tray прячут
+            # окно в значок; обычный AppImage/Flatpak завершает только окно.
             if self._main is not None:
                 self._main.window.close()
 
