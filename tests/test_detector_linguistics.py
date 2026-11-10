@@ -12,7 +12,7 @@ import pytest
 
 from tests.fakes import RU, US, make_keymap
 from wayswitch.buffer import KeyPress
-from wayswitch.detector import SENSITIVITY, Detector, LanguageModel
+from wayswitch.detector import EN_CONTRACTIONS, SENSITIVITY, Detector, LanguageModel
 
 DATA = Path(__file__).resolve().parents[1] / "wayswitch" / "data"
 SENS = ("conservative", "normal", "aggressive")
@@ -94,6 +94,44 @@ def test_ru_vsyo_wrong_layout_keeps_dc_technical_collision(setup, sensitivity):
     decision = _decide(setup, sensitivity, "всё", RU, US)
     assert decision.a.core == "dc"
     assert (decision.action, decision.reason) == ("keep", "dict-a")
+
+
+# --- английский: закрытый набор сокращений -----------------------------------
+
+def test_contraction_table_is_validated_against_shipped_dictionary(setup):
+    _, models = setup
+    en = models["en"]
+    for form, key in EN_CONTRACTIONS.items():
+        assert key in en.words, (form, key)
+        assert en.is_word(form), form
+
+
+@pytest.mark.parametrize("sensitivity", ("normal", "aggressive"))
+@pytest.mark.parametrize("word", EN_REQUIRED)
+def test_en_contractions_wrong_layout_fixed(setup, sensitivity, word):
+    decision = _decide(setup, sensitivity, word, US, RU)
+    assert (decision.action, decision.target_text) == ("fix", word), decision.reason
+
+
+@pytest.mark.parametrize("word", ("won't", "don't", "can't"))
+def test_en_long_contractions_fixed_even_on_conservative(setup, word):
+    decision = _decide(setup, "conservative", word, US, RU)
+    assert (decision.action, decision.target_text) == ("fix", word), decision.reason
+
+
+@pytest.mark.parametrize("word", ("I'm", "I'd"))
+def test_en_short_contractions_kept_on_conservative(setup, word):
+    """conservative не трогает трёхбуквенные слова вне top-списка."""
+    decision = _decide(setup, "conservative", word, US, RU)
+    assert decision.action == "keep"
+    assert decision.reason == "short"
+
+
+@pytest.mark.parametrize("sensitivity", SENS)
+@pytest.mark.parametrize("word", EN_REQUIRED)
+def test_en_contractions_correct_source_kept(setup, sensitivity, word):
+    decision = _decide(setup, sensitivity, word, US, US)
+    assert decision.action == "keep", (word, decision.reason, decision.target_text)
 
 
 # --- имена, технические токены и пути ---------------------------------------

@@ -24,6 +24,17 @@ INNER_MARKS = {"-", "'"}
 # Поиск по русскому словарю не различает «е» и «ё»: человек может набрать
 # «небоскреб» вместо «небоскрёб». Это только ключ поиска — напечатанный текст
 # и результат замены сохраняют ровно ту букву, которую ввели.
+# Апострофы не входят в en.words.gz, но формы без них там есть. Набор
+# намеренно закрытый: только частые сокращения, проверенные по словарю при
+# загрузке. Общей продуктивной формулы («убрать любой апостроф») нет.
+EN_CONTRACTIONS = {
+    "i'm": "im", "i'd": "id", "i've": "ive", "i'll": "ill",
+    "won't": "wont", "don't": "dont", "can't": "cant",
+    "isn't": "isnt", "aren't": "arent", "didn't": "didnt", "doesn't": "doesnt",
+    "couldn't": "couldnt", "wouldn't": "wouldnt", "shouldn't": "shouldnt",
+    "it's": "its", "that's": "thats", "let's": "lets",
+    "you're": "youre", "we're": "were", "they're": "theyre",
+}
 URL_SCHEMES = ("http://", "https://", "ftp://")
 TECH_PREFIXES = URL_SCHEMES + ("ssh://", "www.", "git@")
 TECH_MARKERS = ("://", "@", "--", ".com", ".ru", ".org", ".net", ".io", ".dev")
@@ -120,6 +131,10 @@ class LanguageModel:
         # исходным, поэтому top, окончания и вывод не меняются.
         self._folded_words = (frozenset(w.replace("ё", "е") for w in self.words)
                               if lang == "ru" else self.words)
+        # Сокращение считается известным, только если его форма без апострофа
+        # действительно есть в загруженном словаре.
+        self._contractions = frozenset(form for form, key in EN_CONTRACTIONS.items()
+                                       if lang == "en" and key in self.words)
 
     @classmethod
     def from_words(cls, lang: str, rows: list[tuple[str, float]], alphabet: str,
@@ -145,7 +160,13 @@ class LanguageModel:
         return low.replace("ё", "е") if self.lang == "ru" else low
 
     def is_word(self, word: str) -> bool:
-        return self._lookup_key(word) in self._folded_words
+        """Есть ли слово в словаре (с учётом ru ё/е и закрытых en-сокращений)."""
+        low = word.lower()
+        if low in self.words:
+            return True
+        if self.lang == "ru":
+            return self._lookup_key(low) in self._folded_words
+        return low in self._contractions
 
     @cached_property
     def endings(self) -> frozenset[str]:

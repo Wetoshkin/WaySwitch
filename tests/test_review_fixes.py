@@ -210,6 +210,18 @@ def test_exception_blocks_rules_too(real):
     assert corrected == []
 
 
+@pytest.mark.parametrize("word", ["I'm", "I'd", "won't", "don't", "can't"])
+def test_english_contractions_applied_in_controller(real, word):
+    ctrl, _backend, _typist, corrected = make_ctrl(real, group=RU)
+    km = real[0]
+    # Физические клавиши английского слова при включённой русской раскладке.
+    for ch in word:
+        code, shift = km.key_for(ch.lower(), US)
+        press(ctrl, code, shift or ch.isupper())
+    press(ctrl, kc.KEY_SPACE)
+    assert corrected and corrected[0][1] == word, corrected
+
+
 def test_cheto_particles_exception_and_undo_keep_entered_e(real):
     cfg = Config()
     cfg.general.learn_after_undos = 1
