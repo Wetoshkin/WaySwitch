@@ -100,6 +100,7 @@ class Onboarding:
         self.window.set_content(toolbar)
         self.window.connect("close-request", lambda *_: (self._finish(), False)[1])
         self._finished = False
+        self._checks_generation = 0
         self._sync()
 
     def present(self) -> None:
@@ -110,6 +111,8 @@ class Onboarding:
 
     def _go(self, index: int) -> None:
         index = max(0, min(self.carousel.get_n_pages() - 1, index))
+        if index != 1:
+            self._checks_generation += 1
         self.carousel.scroll_to(self.carousel.get_nth_page(index), True)
         if index == 1:
             self._run_checks()
@@ -186,15 +189,28 @@ class Onboarding:
             return
         from wayswitch import doctor
 
+        self._checks_generation += 1
+        generation = self._checks_generation
         self.checks_hint.set_label(_("Checking…"))
         self.continue_button.set_sensitive(False)
-        run_in_thread(doctor.run_checks, self._show_checks)
+        run_in_thread(
+            doctor.run_checks,
+            lambda result: self._show_checks(result, generation))
 
     def _show_portable_checks(self) -> None:
+        self._checks_generation += 1
+        generation = self._checks_generation
+        self.checks_hint.set_label(_("Checking…"))
+        self.continue_button.set_sensitive(False)
+        self.app.proxy.refresh(
+            lambda status: self._render_portable_checks(status, generation))
+
+    def _render_portable_checks(self, status: dict | None, generation: int) -> None:
         from gi.repository import Adw, Gtk
 
-        self.app.proxy.refresh()
-        connected = self.app.proxy.status is not None
+        if self._finished or generation != self._checks_generation:
+            return
+        connected = status is not None
         clear_list(self.checks_box)
         self.checks_hint.set_label(
             _("The native service is connected. Settings and gestures are shared with "
@@ -211,9 +227,11 @@ class Onboarding:
         self.checks_box.append(row)
         self.continue_button.set_sensitive(connected)
 
-    def _show_checks(self, result) -> None:
+    def _show_checks(self, result, generation: int) -> None:
         from gi.repository import Adw, Gtk
 
+        if self._finished or generation != self._checks_generation:
+            return
         clear_list(self.checks_box)
         if isinstance(result, Exception):
             self.checks_hint.set_label(

@@ -369,11 +369,15 @@ def debug_info() -> str:
 
     try:
         if portable.package_kind():
-            from wayswitch.gui.daemon_proxy import DaemonProxy
+            # debug_info выполняется в фоновом потоке: здесь уместен синхронный
+            # запрос, а асинхронный прокси не успеет ответить до возврата отчёта.
+            from wayswitch.cli import call_daemon
 
-            proxy = DaemonProxy(lambda _: None, lambda *_: None)
-            proxy.start()
-            report = portable.connection_report(proxy.status)
+            try:
+                (status,) = call_daemon("GetStatus")
+            except Exception:  # noqa: BLE001 — служба не запущена/не ответила
+                status = None
+            report = portable.connection_report(status)
         else:
             report = doctor.format_report(doctor.run_checks())
     except Exception as exc:  # noqa: BLE001
