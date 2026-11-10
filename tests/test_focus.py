@@ -928,6 +928,22 @@ def test_shared_session_watch_cleanup_preserves_other_probe_and_bus(event_connec
     assert not connections.session.closed
 
 
+def test_owned_watch_close_failure_is_quiet_and_keeps_shared_session(
+        event_connections, caplog):
+    connections, _registered = event_connections
+    watch = a11y._watch_focus_events(object(), lambda: None)
+
+    def failed_close(_cancellable):
+        connections[0].closed = True
+        raise RuntimeError("private provider payload")
+
+    connections[0].close_sync = failed_close
+    watch.close()
+    assert connections[0].closed
+    assert not connections.session.closed
+    assert "private provider payload" not in caplog.text
+
+
 def test_session_bus_loss_invalidates_snapshot_and_registration(event_connections):
     connections, _registered = event_connections
     invalidations = []
