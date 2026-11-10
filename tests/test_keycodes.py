@@ -25,6 +25,20 @@ def test_key_names_round_trip():
     assert kc.key_name(kc.KEY_LEFTSHIFT) == "leftshift"
 
 
+def test_printscreen_maps_to_sysrq_code():
+    # PrintScreen в evdev — KEY_SYSRQ (99); имя рекламируется для жеста.
+    assert kc.KEY_SYSRQ == 99
+    assert kc.KEY_NAMES["printscreen"] == kc.KEY_SYSRQ
+    assert kc.key_name(kc.KEY_SYSRQ) == "printscreen"
+    assert kc.KEY_SYSRQ in kc.GESTURE_KEYS
+    assert kc.KEY_SYSRQ not in kc.LOCK_KEYS
+
+
+def test_all_gesture_names_have_key_codes():
+    assert kc.GESTURE_KEY_NAMES <= kc.KEY_NAMES.keys()
+    assert {kc.KEY_NAMES[name] for name in kc.GESTURE_KEY_NAMES} == set(kc.GESTURE_KEYS)
+
+
 def test_lock_key_aliases_with_underscore():
     # README и спецификация приводят пример pause_hotkey = "scroll_lock".
     assert kc.KEY_NAMES["scroll_lock"] == kc.KEY_NAMES["scrolllock"] == kc.KEY_SCROLLLOCK
