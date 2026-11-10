@@ -361,7 +361,12 @@ def test_command_failure_and_error_are_real_completions(monkeypatch):
     assert results == [(False,), None]
 
 
-def test_selection_feedback_only_after_actual_dbus_result(monkeypatch):
+@pytest.mark.parametrize("locale, expected", [
+    ("en_locale", "Could not confirm the correction"),
+    ("ru_locale", "Исправление не удалось подтвердить"),
+])
+def test_selection_feedback_only_after_actual_dbus_result(monkeypatch, request, locale, expected):
+    request.getfixturevalue(locale)
     install_fake_gi(monkeypatch)
     from wayswitch.gui.app import notify_selection_result
 
@@ -381,7 +386,7 @@ def test_selection_feedback_only_after_actual_dbus_result(monkeypatch):
     daemon.requests.pop(0).complete((False,))
     assert len(sent) == 1
     assert sent[0][0] == "selection-failed"
-    assert sent[0][1].title == "Could not confirm the correction"
+    assert sent[0][1].title == expected
 
 
 def test_proxy_construction_failure_is_reported_without_blocking(monkeypatch):
