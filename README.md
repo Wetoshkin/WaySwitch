@@ -615,8 +615,15 @@ curl -fsSL https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/
 | Команда | Что покажет |
 |---|---|
 | `wayswitch doctor` | что работает, чего не хватает и как это исправить |
+| `wayswitch explain ghbdtn` | почему детектор исправил или оставил слово; `--from ru` — обратное направление |
 | `journalctl --user -u wayswitch -n 50` | последние строки журнала |
 | `wayswitch dry-run` | решения детектора, без изменений на экране |
+
+`wayswitch explain <слово>` разбирает только решение детектора для явно
+заданного слова: раскладки us/ru, пустой контекст, без обращения к службе
+и без изменения раскладки. Параметры: `--from en|ru` (по умолчанию `en` = us),
+`--sensitivity conservative|normal|aggressive`, `--json`. Команда появится
+в 1.1.4; в 1.1.3 её ещё нет.
 
 **Слово исправилось, а не должно было.** Сразу нажмите
 <kbd>Shift</kbd> <kbd>Shift</kbd> — слово вернётся. По умолчанию оно попадает
@@ -654,6 +661,7 @@ curl -fsSL https://raw.githubusercontent.com/Wetoshkin/WaySwitch/main/packaging/
 | Команда | Действие |
 |---|---|
 | `wayswitch doctor` | проверка системы |
+| `wayswitch explain <слово> [--from en/ru] [--sensitivity ...] [--json]` | разбор решения детектора для слова |
 | `wayswitch status [--json]` | состояние |
 | `wayswitch pause` / `resume` / `toggle` | пауза, продолжить, переключить |
 | `wayswitch fix` | исправить последнее слово (удобнее жестом) |

@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from wayswitch import __version__
+from wayswitch.config import SENSITIVITY_NAMES
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -32,6 +33,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("number-words", help="выделенное число прописью: 125 → сто двадцать пять")
     status = sub.add_parser("status", help="состояние демона")
     status.add_argument("--json", action="store_true", help="машиночитаемый вывод")
+    explain = sub.add_parser("explain", help="разобрать решение детектора для слова")
+    explain.add_argument("word", help="слово, набранное в исходной раскладке")
+    explain.add_argument("--from", dest="from_lang", choices=("en", "ru"), default="en",
+                         help="исходная раскладка: en = us (по умолчанию), ru")
+    explain.add_argument("--sensitivity", choices=SENSITIVITY_NAMES,
+                         help="порог детектора; по умолчанию из config.toml")
+    explain.add_argument("--json", action="store_true", help="машиночитаемый вывод")
     sub.add_parser("gui", help="открыть настройки")
     sub.add_parser("version")
     return p
@@ -184,6 +192,16 @@ def _devices() -> int:
     return 0
 
 
+def _explain(ns) -> int:
+    from wayswitch.explain import ExplainError, run_explain
+
+    try:
+        return run_explain(ns.word, ns.from_lang, ns.sensitivity, json_output=ns.json)
+    except ExplainError as e:
+        print(f"wayswitch explain: {e}", file=sys.stderr)
+        return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     ns = build_parser().parse_args(argv)
     if ns.command == "version":
@@ -203,6 +221,8 @@ def main(argv: list[str] | None = None) -> int:
         return exit_code(checks)
     if ns.command == "devices":
         return _devices()
+    if ns.command == "explain":
+        return _explain(ns)
     if ns.command == "waybar":
         return _waybar()
     if ns.command == "gui":

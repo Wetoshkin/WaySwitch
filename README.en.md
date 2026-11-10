@@ -282,8 +282,15 @@ on Silverblue and Kinoite — after a reboot). Preferences → System → **Remo
 | Command | What it shows |
 |---|---|
 | `wayswitch doctor` | what works, what is missing and how to fix it |
+| `wayswitch explain ghbdtn` | why the detector fixed or kept a word; `--from ru` reverses the direction |
 | `journalctl --user -u wayswitch -n 50` | the latest log lines |
 | `wayswitch dry-run` | detector decisions without touching the screen |
+
+`wayswitch explain <word>` evaluates only the detector for the word you pass:
+the explicit us/ru layouts and an empty context, without contacting the service
+or changing the layout. Options: `--from en|ru` (default `en` = us),
+`--sensitivity conservative|normal|aggressive`, `--json`. The command is not in
+1.1.3; it is included in 1.1.4.
 
 Passing the mandatory checks does not confirm that the focused field is accessible.
 If the active application is unknown, run `sleep 5; wayswitch doctor` and focus a
