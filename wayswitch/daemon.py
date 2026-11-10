@@ -29,6 +29,14 @@ STARTUP_DELAY = 5
 RESTART = 75  # не в RestartPreventExitStatus: systemd перезапустит службу
 
 
+def _close_probe(probe) -> None:
+    """Остановить probe, не превращая ошибку очистки в новую ошибку запуска."""
+    try:
+        probe.close()
+    except Exception:  # noqa: BLE001 — teardown must not expose provider diagnostics
+        pass
+
+
 def _open_uinput() -> UInputTypist:
     waiting = False
     while True:
@@ -211,6 +219,7 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     if not any(kind == "keyboard" for _, _, kind in watcher.devices()):
         log.error("ни одной клавиатуры не открыто (права на /dev/input?)")
         watcher.stop()
+        _close_probe(probe)
         backend.close()
         typist.close()
         return 1
@@ -265,6 +274,8 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     try:
         loop.run()
     finally:
+        # close() не ждёт поток: главный цикл не должен блокироваться на опросе.
+        _close_probe(probe)
         watcher.stop()
         backend.close()
         typist.close()
