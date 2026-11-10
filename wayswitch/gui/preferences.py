@@ -173,14 +173,12 @@ class Preferences:
         manual.add(self.row_key)
         # Клавиши действий над выделенным текстом: своя строка у каждой.
         self.sel_caps = {}
-        from wayswitch.backends.desktop import GNOME, detect_desktop
-
-        # Выделенный текст читает расширение GNOME Shell — в других средах
-        # клавиши ничего не сделают, о чём честно и пишем.
-        only_gnome = "" if detect_desktop() == GNOME else _(" (GNOME only for now)")
+        guidance = texts.selection_guidance(self.proxy.status)
+        if guidance:
+            manual.set_description(guidance)
         for field_name, title, subtitle, hint in texts.SELECTION_KEY_ROWS:
             row_title, row_hint = _(title), _(hint)
-            row = Adw.ActionRow(title=row_title, subtitle=_(subtitle) + only_gnome,
+            row = Adw.ActionRow(title=row_title, subtitle=_(subtitle),
                                 activatable=True)
             cap = keycap("")
             row.add_suffix(cap)

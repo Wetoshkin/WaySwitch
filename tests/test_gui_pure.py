@@ -426,6 +426,71 @@ def test_tray_summary(ru_locale):
     assert "48 слов" in text
 
 
+@pytest.mark.parametrize("fixture,status,expected", [
+    ("en_locale", None, "Not running"),
+    ("ru_locale", None, "Не запущен"),
+    ("en_locale", {"locked": True}, "Screen is locked"),
+    ("ru_locale", {"locked": True}, "Экран заблокирован"),
+    ("en_locale", {"lock_confirmation_required": True}, "Confirm COSMIC sign-in"),
+    ("ru_locale", {"lock_confirmation_required": True}, "Подтвердите вход в COSMIC"),
+    ("en_locale", {"paused": True}, "Paused"),
+    ("ru_locale", {"paused": True}, "На паузе"),
+    ("en_locale", {"layout_supported": False, "active": True},
+     "Waiting for a Russian or English layout"),
+    ("ru_locale", {"layout_supported": False, "active": True},
+     "Ожидание русской или английской раскладки"),
+    ("en_locale", {"active": False, "auto_correct": True}, "Manual only · 0 words this session"),
+    ("ru_locale", {"active": False, "auto_correct": True}, "Только вручную · 0 слов за сеанс"),
+    ("en_locale", {"active": True, "auto_correct": False}, "Manual only · 0 words this session"),
+    ("ru_locale", {"active": True, "auto_correct": False}, "Только вручную · 0 слов за сеанс"),
+])
+def test_tray_summary_reflects_state(request, fixture, status, expected):
+    request.getfixturevalue(fixture)
+    assert texts.tray_summary(status) == expected
+
+
+@pytest.mark.parametrize("fixture,expected", [
+    ("en_locale", "Correcting · 48 words this session · version 2.1.0 available"),
+    ("ru_locale", "Исправляет · 48 слов за сеанс · есть версия 2.1.0"),
+])
+def test_tray_summary_keeps_counters_and_version_when_correcting(request, fixture, expected):
+    request.getfixturevalue(fixture)
+    status = {"active": True, "auto_correct": True,
+              "corrections_total": 40, "manual_total": 8}
+    assert texts.tray_summary(status, "2.1.0") == expected
+
+
+def test_tray_summary_lock_is_stricter_than_pause_and_confirmation(ru_locale):
+    status = {"locked": True, "paused": True, "lock_confirmation_required": True}
+    assert texts.tray_summary(status) == "Экран заблокирован"
+
+
+def test_tray_summary_accepts_sparse_older_status(ru_locale):
+    # В старом ответе могло не быть active/auto_correct: не объявляем ручной
+    # режим и сохраняем счётчики.
+    assert "Исправляет" in texts.tray_summary({"corrections_total": 2})
+    assert "2 слова" in texts.tray_summary({"corrections_total": 2})
+
+
+@pytest.mark.parametrize("fixture,status,expected", [
+    ("en_locale", None, None),
+    ("en_locale", {}, None),
+    ("en_locale", {"selection_supported": True}, None),
+    ("en_locale", {"selection_supported": False},
+     "Selection actions need the accessibility service"),
+    ("ru_locale", {"selection_supported": False},
+     "Для действий с выделенным нужна служба доступности"),
+])
+def test_selection_guidance_only_when_confirmed_unavailable(request, fixture, status, expected):
+    request.getfixturevalue(fixture)
+    assert texts.selection_guidance(status) == expected
+
+
+def test_selection_settings_do_not_claim_gnome_only():
+    source = (GUI / "preferences.py").read_text(encoding="utf-8")
+    assert "GNOME only for now" not in source
+
+
 def test_history_keeps_newest_first_and_limit():
     h = texts.History(limit=3)
     for i in range(5):
@@ -537,3 +602,13 @@ def test_gui_modules_import_gi_lazily():
                 names = [a.name for a in node.names]
                 module = getattr(node, "module", "") or ""
                 assert not module.startswith("gi") and "gi" not in names, path.name
+
+
+@pytest.mark.parametrize("locale,expected", [
+    ("en_locale", "Manual only · 48 words this session · version 2.1.0 available"),
+    ("ru_locale", "Только вручную · 48 слов за сеанс · есть версия 2.1.0"),
+])
+def test_manual_tray_keeps_session_counters_and_update(request, locale, expected):
+    request.getfixturevalue(locale)
+    status = {"active": False, "corrections_total": 40, "manual_total": 8}
+    assert texts.tray_summary(status, "2.1.0") == expected
