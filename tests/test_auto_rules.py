@@ -57,6 +57,18 @@ def type_keys(env, keys):
         env["ctrl"].on_key(key.code, 0, 1)
 
 
+def type_case_word(env, word, group, shift=()):
+    """Слово с Shift на указанных буквах; Caps Lock задаётся в buffer.caps."""
+    for i, ch in enumerate(word):
+        key = keys_for_text(env["km"], ch.lower(), group)[0]
+        if i in shift:
+            env["ctrl"].on_key(kc.KEY_LEFTSHIFT, 1, 1)
+        env["ctrl"].on_key(key.code, 1, 1)
+        env["ctrl"].on_key(key.code, 0, 1)
+        if i in shift:
+            env["ctrl"].on_key(kc.KEY_LEFTSHIFT, 0, 1)
+
+
 def typed_chars(env) -> str:
     """Что напечатала печатающая машинка (без Backspace-ов), в группе бэкенда."""
     from wayswitch.buffer import KeyPress
@@ -185,6 +197,37 @@ def test_split_words_applied_in_controller():
     env["ctrl"].on_key(kc.KEY_SPACE, 0, 1)
     assert typed_chars(env) == "сонату Баха "
     assert env["backend"].set_calls == []
+
+
+# --- контекст языка после успешного правила ----------------------------------
+
+@pytest.mark.parametrize("rule,word,caps,shift", [
+    ("punct", "пирогб", False, ()),
+    ("split", "сонатуБаха", False, (6,)),
+    ("particles", "чтото", False, ()),
+    ("caps-lock", "привет", True, (0,)),
+    ("capitals", "ПРивет", False, (0, 1)),
+])
+def test_successful_rule_records_target_language_context(rule, word, caps, shift):
+    env = make_env()
+    env["ctrl"].set_caps(caps)
+    type_case_word(env, word, RU, shift)
+    env["ctrl"].on_key(kc.KEY_SPACE, 1, 1)
+    env["ctrl"].on_key(kc.KEY_SPACE, 0, 1)
+    assert backspaces(env) > 0, rule
+    assert list(env["ctrl"].context) == ["ru"], rule
+
+
+def test_caps_lock_switch_records_target_language_context():
+    env = make_env()
+    env["backend"].current_index = US
+    env["ctrl"].set_caps(True)
+    type_case_word(env, "ghbdtn", US, (0,))
+    env["ctrl"].on_key(kc.KEY_SPACE, 1, 1)
+    env["ctrl"].on_key(kc.KEY_SPACE, 0, 1)
+    assert env["backend"].current() == RU
+    assert backspaces(env) > 0
+    assert list(env["ctrl"].context) == ["ru"]
 
 
 # --- защита после правки текста ---------------------------------------------

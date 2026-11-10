@@ -184,6 +184,9 @@ class Controller:
                                   terminators=self._terminator_keys(config))
         self._rebuild_gesture(config)
         self.context: deque[str | None] = deque(maxlen=2)  # языки двух последних слов
+        # Поколение контекста: любой сброс делает отложенный done устаревшим,
+        # даже если между сбросом и done успел выполниться другой фикс.
+        self._context_epoch = 0
         self._require_lock_confirmation = require_lock_confirmation
         self.lock_confirmation_required = require_lock_confirmation
         self.paused = require_lock_confirmation
@@ -311,7 +314,7 @@ class Controller:
             self._busy_reset = True
         self._skip_word = False
         self.buffer.reset()
-        self.context.clear()
+        self._clear_context()
         self._last_fix = None
         self._hold_keys = None
         self._word_gesture = None
@@ -348,7 +351,7 @@ class Controller:
             self._busy_reset = True
         self._skip_word = False
         self.buffer.reset()
-        self.context.clear()
+        self._clear_context()
         self._last_fix = None
         self._hold_keys = None
         self._word_gesture = None
@@ -587,17 +590,17 @@ class Controller:
             if value == 1 and code == kc.KEY_SPACE:
                 self._skip_word = False
                 self.buffer.reset()
-                self.context.clear()
+                self._clear_context()
             return
         if event is None:
             return
         if event.kind == "reset":
-            self.context.clear()
+            self._clear_context()
             self._skip_word = False
             self._hold_keys = None
             return
         if event.reset_before:
-            self.context.clear()  # буфер очищен по таймауту перед этой клавишей
+            self._clear_context()  # буфер очищен по таймауту перед этой клавишей
         if not self._auto_allowed():
             return
         if event.kind == "word":
@@ -618,7 +621,7 @@ class Controller:
             self.buffer.note_press(code, device_id)
             if code not in kc.MODIFIER_KEYS and code not in kc.LOCK_KEYS:
                 self.buffer.reset()
-                self.context.clear()
+                self._clear_context()
         elif value == 0:
             self.buffer.note_release(code, device_id)
 
@@ -659,7 +662,7 @@ class Controller:
             self._busy_reset = True
             return
         self.buffer.click()
-        self.context.clear()
+        self._clear_context()
         self._skip_word = False
         self._hold_keys = None
         # Клик посреди тапа жеста — не жест: иначе Ctrl+клик переворачивал бы слово.
@@ -686,7 +689,7 @@ class Controller:
                 self._abort_requested = True
                 self._busy_reset = True
             self.buffer.reset()
-            self.context.clear()
+            self._clear_context()
             self._skip_word = False
             self._last_external_layout_at = self.clock()
         self._emit_status()
@@ -741,6 +744,22 @@ class Controller:
         может быть 0 или 1 элемент; Detector.decide() ожидает ровно 2-tuple
         (читает context[-1]/context[-2]) — дополняем слева None."""
         return (None,) * (2 - len(self.context)) + tuple(self.context)
+
+    def _clear_context(self) -> None:
+        """Сбросить контекст и обесценить все ожидающие колбэки done."""
+        self.context.clear()
+        self._context_epoch += 1
+
+    def _context_done(self, target_group: int) -> Callable[[bool, bool], None]:
+        """Добавить язык успешной коррекции, если её контекст ещё действителен."""
+        lang = self.detector.lang_of_group(target_group)
+        epoch = self._context_epoch
+
+        def done(ok: bool, secret: bool) -> None:
+            if ok and self._context_epoch == epoch:
+                self.context.append(lang)
+
+        return done
 
     def set_probe(self, probe) -> None:
         """Подменить источник сведений о фокусе (после смены настроек).
@@ -801,7 +820,7 @@ class Controller:
             self._skip_word |= bool(self.buffer.current_word()) or self._lost_input
         self._provisional_binding = False
         self.buffer.reset()  # физически зажатые клавиши остаются учтены
-        self.context.clear()
+        self._clear_context()
         self._hold_keys = None
         self._last_fix = None
         self._pending_gesture = None
@@ -916,21 +935,21 @@ class Controller:
             stem = self.detector.decode(keys[:-1], current)
             self._schedule_fix(keys, 1, current, f"{stem}{punct} ", manual=False,
                                reason="punct", group_before=current, switch=False,
-                               trigger=(device_id, code))
+                               trigger=(device_id, code), done=self._context_done(current))
             return
         split = self.detector.split_words_fix(keys, current) \
             if self.config.general.split_words_fix else None
         if split:
             self._schedule_fix(keys, 1, current, split + " ", manual=False,
                                reason="split", group_before=current, switch=False,
-                               trigger=(device_id, code))
+                               trigger=(device_id, code), done=self._context_done(current))
             return
         particles = self.detector.particles_fix(keys, current) \
             if self.config.general.particles_fix else None
         if particles:
             self._schedule_fix(keys, 1, current, particles + " ", manual=False,
                                reason="particles", group_before=current, switch=False,
-                               trigger=(device_id, code))
+                               trigger=(device_id, code), done=self._context_done(current))
             return
         caps = self.detector.caps_lock_fix(keys, current, other) \
             if self.config.general.caps_fix and self.buffer.caps \
@@ -939,29 +958,24 @@ class Controller:
             text, group = caps
             self._schedule_fix(keys, 1, group, text + " ", manual=False, reason="caps-lock",
                                group_before=current, switch=group != current,
-                               trigger=(device_id, code), caps_off=True)
+                               trigger=(device_id, code), caps_off=True,
+                               done=self._context_done(group))
             return
         capitals = self.detector.two_capitals_fix(keys, current) \
             if self.config.general.two_capitals_fix and not self.buffer.caps else None
         if capitals:
             self._schedule_fix(keys, 1, current, capitals + " ", manual=False,
                                reason="capitals", group_before=current, switch=False,
-                               trigger=(device_id, code))
+                               trigger=(device_id, code), done=self._context_done(current))
             return
         decision = self.detector.decide(
             keys, current, other, self._context_tuple(),
             two_capitals=self.config.general.two_capitals_fix and not self.buffer.caps)
         log.debug("решение: %s (%s)", decision.action, decision.reason)
         if decision.action == "fix":
-            lang = decision.b.lang
-
-            def done(ok: bool, secret: bool) -> None:
-                if ok:
-                    self.context.append(lang)
-
             self._schedule_fix(keys, 1, other, decision.target_text + " ", manual=False,
                                reason=decision.reason, group_before=current,
-                               trigger=(device_id, code), done=done)
+                               trigger=(device_id, code), done=self._context_done(other))
             return
         self.context.append(decision.a.lang if decision.a.in_dict else None)
 
@@ -1418,7 +1432,7 @@ class Controller:
             if (self._lost_input and _word_unfinished(self._busy_keys)) or result == FAILED:
                 self._skip_word = True
             self.buffer.reset()
-            self.context.clear()
+            self._clear_context()
             self._last_fix = None
             self.busy = False
             self._lost_input = False
@@ -1847,7 +1861,7 @@ class Controller:
             lost = True
         if replay:
             if lost:
-                self.context.clear()
+                self._clear_context()
             lost = False
         if result == ABORTED and not interrupted:
             if self._provisional_binding:
@@ -1859,7 +1873,7 @@ class Controller:
                     self._skip_word = True
                 self._provisional_binding = False
                 self.buffer.reset()
-                self.context.clear()
+                self._clear_context()
                 self._last_fix = None
             # Экран не тронут: на нём прежнее слово и то, что человек
             # допечатал. Досылаем эти нажатия в буфер с тем состоянием
@@ -1883,7 +1897,7 @@ class Controller:
         if result != DONE:
             log.info("исправление %s: %s", reason, result)
             self.buffer.reset()
-            self.context.clear()
+            self._clear_context()
             # Прервано физическим вводом — начатая серия Shift и отложенный
             # жест больше не имеют смысла (буфер пуст, жест дал бы лишний
             # переворот раскладки).
@@ -1914,7 +1928,7 @@ class Controller:
         fixed_end = len(self.buffer.phrase()) - tail
         if lost:
             self.buffer.reset()
-            self.context.clear()
+            self._clear_context()
         if manual:
             self.stats["manual"] += 1
             if reason != "undo":
