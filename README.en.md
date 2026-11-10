@@ -132,6 +132,14 @@ against the selected GitHub release metadata. Missing checksums or failed
 verification stop installation. This check requires `python3`; the installer
 reports the prerequisite if it is missing.
 
+If the selected release has no package, source installation uses that release
+tag instead of `main`: the tag is resolved to an immutable commit and the
+downloaded source is checked against it before installation. Changes to `main`
+have no effect. Selecting the release and checking the tag require `curl` and
+`python3`; the installer reports missing prerequisites. `WAYSWITCH_SRC` still
+installs and uninstalls the explicitly named local checkout without consulting
+a release.
+
 ### Flatpak and AppImage
 
 Portable settings clients are available. Install and update the
