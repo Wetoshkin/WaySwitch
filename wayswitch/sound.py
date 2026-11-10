@@ -12,6 +12,7 @@ import math
 import shutil
 import struct
 import subprocess
+import threading
 import wave
 from pathlib import Path
 
@@ -23,6 +24,12 @@ AMPLITUDE = 0.22  # доля полной шкалы: тихо, чтобы не 
 
 # Плееры в порядке предпочтения: PipeWire, PulseAudio, ALSA.
 PLAYERS = (("pw-play",), ("paplay",), ("aplay", "-q"))
+
+# Плеер получает запас времени на запуск поверх короткого звукового сигнала.
+PLAY_TIMEOUT_SEC = 2.0
+
+# Один сигнал за раз: очередь перекрывающихся зависших плееров не нужна.
+_PLAYBACK = threading.Lock()
 
 
 def wav_path(cache_dir: Path) -> Path:
@@ -59,19 +66,32 @@ def player_command(which=shutil.which) -> list[str] | None:
     return None
 
 
-def play(path: Path, which=shutil.which, run=subprocess.Popen) -> bool:
-    """Проиграть файл. True — команда запущена; False — играть нечем."""
+def play(path: Path, which=shutil.which, run=subprocess.run) -> bool:
+    """Запустить плеер с ограниченным ожиданием.
+
+    True — команда была запущена, в том числе если плеер завершился с ошибкой
+    или был снят subprocess.run по таймауту. False — играть нечем, запуск не
+    удался или уже звучит другой сигнал. Ожидание ограничено, но не мгновенно:
+    вызывать не из потока ввода.
+    """
     cmd = player_command(which)
     if cmd is None:
         return False
+    if not _PLAYBACK.acquire(blocking=False):
+        return False
     try:
-        run([*cmd, str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        run([*cmd, str(path)], stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, timeout=PLAY_TIMEOUT_SEC)
+        return True
+    except subprocess.TimeoutExpired:
         return True
     except OSError:
         return False
+    finally:
+        _PLAYBACK.release()
 
 
-def ensure_and_play(cache_dir: Path, which=shutil.which, run=subprocess.Popen) -> bool:
+def ensure_and_play(cache_dir: Path, which=shutil.which, run=subprocess.run) -> bool:
     """Сгенерировать файл при первом обращении и проиграть."""
     path = wav_path(cache_dir)
     if not path.exists():
