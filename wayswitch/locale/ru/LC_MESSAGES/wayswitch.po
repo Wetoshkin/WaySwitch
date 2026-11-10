@@ -52,10 +52,6 @@ msgstr "\n\nОтдельно обновите нативную службу в �
 msgid "\nCould not download WaySwitch from GitHub. Check that the internet connection works and press the button again."
 msgstr "\nНе удалось скачать WaySwitch с GitHub. Проверьте, что интернет работает, и нажмите кнопку ещё раз."
 
-# 7
-msgid " (GNOME only for now)"
-msgstr " (пока только в GNOME)"
-
 # 8
 msgid " · version {version} available"
 msgstr " · есть версия {version}"
@@ -904,6 +900,9 @@ msgstr "Поиск или часть названия окна"
 msgid "Selected text"
 msgstr "Выделенный текст"
 
+msgid "Selection actions need the accessibility service"
+msgstr "Для действий с выделенным нужна служба доступности"
+
 # 220
 msgid "Sensitivity"
 msgstr "Чувствительность"
@@ -1470,3 +1469,7 @@ msgstr "Левый Super"
 
 msgid "Right Super"
 msgstr "Правый Super"
+
+#, python-brace-format
+msgid "Manual only · {count} {words} this session"
+msgstr "Только вручную · {count} {words} за сеанс"

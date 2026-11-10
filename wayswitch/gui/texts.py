@@ -190,6 +190,13 @@ class SelectionFeedback:
     body: str
 
 
+def selection_guidance(status: dict | None) -> str | None:
+    """Причина подтверждённой недоступности действий с выделением."""
+    if status is not None and status.get("selection_supported") is False:
+        return _("Selection actions need the accessibility service")
+    return None
+
+
 def selection_feedback(result) -> SelectionFeedback | None:
     """Что показать по ответу DaemonProxy.call("FixSelection").
 
@@ -230,16 +237,25 @@ def tray_hint(desktop: str) -> str:
 
 
 def tray_summary(status: dict | None, update: str | None = None) -> str:
-    """Вторая строка в меню значка: «Исправляет · 48 слов за сеанс»."""
+    """Состояние службы и итоги сеанса для меню и подсказки значка."""
     if status is None:
         return _("Not running")
+    if status.get("locked"):
+        return _("Screen is locked")
+    if status.get("lock_confirmation_required"):
+        return _("Confirm COSMIC sign-in")
     if status.get("paused"):
         return _("Paused")
+    if status.get("layout_supported") is False:
+        return _("Waiting for a Russian or English layout")
     total = int(status.get("corrections_total", 0) or 0) + \
         int(status.get("manual_total", 0) or 0)
     words = i18n.ngettext("word", "words", total)
-    text = _("Correcting · {count} {words} this session").format(
-        count=total, words=words)
+    if not status.get("active", True) or not status.get("auto_correct", True):
+        template = _("Manual only · {count} {words} this session")
+    else:
+        template = _("Correcting · {count} {words} this session")
+    text = template.format(count=total, words=words)
     if update:
         text += _(" · version {version} available").format(version=update)
     return text
