@@ -578,10 +578,7 @@ def _watch_focus_events(query_connection, invalidate) -> _FocusWatch:
             bus.signal_unsubscribe(subscription)
         for bus, handler in closed_handlers:
             bus.disconnect(handler)
-        try:
-            connection.close_sync(None)
-        except GLib.Error:
-            pass
+        _close_private_connection(connection)
 
     def owner():
         return connection.call_sync(
@@ -930,11 +927,17 @@ def read_selection(expected: FocusSnapshot, valid: Callable[[], bool],
     except Exception:  # noqa: BLE001 — provider errors may contain document text
         return None
     finally:
-        if connection is not None:
-            try:
-                connection.close_sync(None)
-            except Exception:  # noqa: BLE001 — cleanup never exposes provider diagnostics
-                pass
+        _close_private_connection(connection)
+
+
+def _close_private_connection(connection) -> None:
+    """Освободить частное соединение, сохранив результат завершённого вызова."""
+    if connection is None:
+        return
+    try:
+        connection.close_sync(None)
+    except Exception:  # noqa: BLE001 — teardown never exposes provider diagnostics
+        pass
 
 
 def bridge_available() -> tuple[bool, str]:
@@ -944,6 +947,7 @@ def bridge_available() -> tuple[bool, str]:
     активно (сразу после входа, при заблокированном экране), ответ будет
     пустым, и doctor соврёт про неработающий at-spi.
     """
+    connection = None
     try:
         from gi.repository import Gio, GLib
 
@@ -951,15 +955,18 @@ def bridge_available() -> tuple[bool, str]:
         res = bus.call_sync("org.a11y.Bus", "/org/a11y/bus", "org.a11y.Bus", "GetAddress",
                             None, GLib.VariantType("(s)"), Gio.DBusCallFlags.NONE,
                             1500, None)
-        conn = Gio.DBusConnection.new_for_address_sync(
+        connection = Gio.DBusConnection.new_for_address_sync(
             res.unpack()[0], Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
             | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION, None, None)
-        got = conn.call_sync("org.a11y.atspi.Registry", "/org/a11y/atspi/accessible/root",
-                             ACC, "GetChildren", None, GLib.VariantType("(a(so))"),
-                             Gio.DBusCallFlags.NONE, 1500, None).unpack()
+        got = connection.call_sync(
+            "org.a11y.atspi.Registry", "/org/a11y/atspi/accessible/root", ACC,
+            "GetChildren", None, GLib.VariantType("(a(so))"),
+            Gio.DBusCallFlags.NONE, 1500, None).unpack()
         apps = [n for n, _p in got[0] if n]
     except Exception as exc:  # noqa: BLE001 — любая беда = мост недоступен
         return False, f"at-spi не отвечает ({exc})"
+    finally:
+        _close_private_connection(connection)
     if not apps:
         return False, "at-spi отвечает, но не видит ни одного приложения"
     return True, ""
@@ -971,29 +978,35 @@ def list_applications() -> list[str]:
     Один уровень дерева: дети корня — это приложения. Оболочки отброшены.
     Блокирует на D-Bus — звать из потока.
     """
-    from gi.repository import Gio, GLib
+    connection = None
+    try:
+        from gi.repository import Gio, GLib
 
-    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-    res = bus.call_sync("org.a11y.Bus", "/org/a11y/bus", "org.a11y.Bus", "GetAddress",
-                        None, GLib.VariantType("(s)"), Gio.DBusCallFlags.NONE, 1500, None)
-    conn = Gio.DBusConnection.new_for_address_sync(
-        res.unpack()[0], Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
-        | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION, None, None)
-    kids = conn.call_sync("org.a11y.atspi.Registry", "/org/a11y/atspi/accessible/root",
-                          ACC, "GetChildren", None, GLib.VariantType("(a(so))"),
-                          Gio.DBusCallFlags.NONE, 1500, None).unpack()[0]
-    names: list[str] = []
-    for bus_name, path in kids:
-        try:
-            got = conn.call_sync(bus_name, path, "org.freedesktop.DBus.Properties", "Get",
-                                 GLib.Variant("(ss)", (ACC, "Name")), GLib.VariantType("(v)"),
-                                 Gio.DBusCallFlags.NONE, 400, None).unpack()
-        except GLib.Error:
-            continue
-        name = str(got[0]).strip()
-        if name and name.lower() not in SHELL_APPS and name not in names:
-            names.append(name)
-    return names
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        res = bus.call_sync("org.a11y.Bus", "/org/a11y/bus", "org.a11y.Bus", "GetAddress",
+                            None, GLib.VariantType("(s)"), Gio.DBusCallFlags.NONE, 1500, None)
+        connection = Gio.DBusConnection.new_for_address_sync(
+            res.unpack()[0], Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
+            | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION, None, None)
+        kids = connection.call_sync(
+            "org.a11y.atspi.Registry", "/org/a11y/atspi/accessible/root", ACC,
+            "GetChildren", None, GLib.VariantType("(a(so))"),
+            Gio.DBusCallFlags.NONE, 1500, None).unpack()[0]
+        names: list[str] = []
+        for bus_name, path in kids:
+            try:
+                got = connection.call_sync(
+                    bus_name, path, "org.freedesktop.DBus.Properties", "Get",
+                    GLib.Variant("(ss)", (ACC, "Name")), GLib.VariantType("(v)"),
+                    Gio.DBusCallFlags.NONE, 400, None).unpack()
+            except GLib.Error:
+                continue
+            name = str(got[0]).strip()
+            if name and name.lower() not in SHELL_APPS and name not in names:
+                names.append(name)
+        return names
+    finally:
+        _close_private_connection(connection)
 
 
 def make_probe(enabled: bool) -> Probe:
