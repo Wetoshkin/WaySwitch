@@ -27,7 +27,7 @@
 
 **Automatic Russian–English keyboard layout correction for Linux on Wayland.**
 
-**1.1.4 — Russian/English interface localization and text-replacement stabilization.**
+**1.1.4 — explain diagnostics, Russian/English interface localization and text-replacement stabilization.**
 
 Packages and checksums: [latest published release](https://github.com/Wetoshkin/WaySwitch/releases/latest).
 See [project status](docs/PROGRESS.md) for completed changes, verification and remaining work.
@@ -286,11 +286,16 @@ on Silverblue and Kinoite — after a reboot). Preferences → System → **Remo
 | `journalctl --user -u wayswitch -n 50` | the latest log lines |
 | `wayswitch dry-run` | detector decisions without touching the screen |
 
-`wayswitch explain <word>` evaluates only the detector for the word you pass:
-the explicit us/ru layouts and an empty context, without contacting the service
-or changing the layout. Options: `--from en|ru` (default `en` = us),
-`--sensitivity conservative|normal|aggressive`, `--json`. The command is not in
-1.1.3; it is included in 1.1.4.
+`wayswitch explain <word>` evaluates only `Detector.decide` for the word you
+pass: the explicit us/ru layouts and an empty context. It reads `sensitivity`,
+and `two_capitals_fix` from `config.toml`, and exceptions from `exceptions.txt`.
+It writes nothing and
+does not contact the service, read focus, send keys, or change the layout.
+Options: `--from en|ru` (default `en` = us),
+`--sensitivity conservative|normal|aggressive`, `--json`. It does not evaluate
+punct/split/particles/caps, the early trigger or triple Shift; layout variants,
+AltGr, dead keys and XKB options are not considered. Requires Linux with
+libxkbcommon. The command is included in 1.1.4; it is not in 1.1.3.
 
 Passing the mandatory checks does not confirm that the focused field is accessible.
 If the active application is unknown, run `sleep 5; wayswitch doctor` and focus a
@@ -365,11 +370,28 @@ KDE checks cover Writer with KF6 and GTK3, and selection in Kate/KWrite
 and Writer. Calc was tested with GTK3 VCL; testing with KF6 was limited by
 a LibreOffice plugin failure.
 
-Writer checks cover both directions, undo after continued typing, automatic
-capitalization and two consecutive words. In 1.1.3,
-Calc on GNOME 51.1 passed eight automatic and eight manual corrections:
-F2 and direct input, slow and fast typing. See the project status. Chrome checks cover
-ordinary fields, editable page elements, passwords and readonly fields.
+Earlier Writer checks covered both directions, undo after continued typing,
+automatic capitalization and two consecutive words. In 1.1.3, Calc on GNOME 51.1
+passed eight automatic and eight manual corrections:
+F2 and direct input, slow and fast typing. See the project status.
+
+- For 1.1.4, a live CachyOS GNOME 51.1 Wayland session on an isolated GTK4
+  TextView passed 8 of 8 scenarios, including direct FixPhrase in both
+  directions, fresh and expired phrases with a prefix, an empty phrase, triple
+  Shift after a fresh correction, a manual layout switch and automatic
+  correction, and «ПРивет» with undo and a third Shift. Text, caret, layout,
+  counters and the absence of a spurious `Corrected` were checked. The loaded
+  extension used protocol 3, so the uinput fallback was tested; TypeText and
+  native Writer replacement were not exercised.
+- The same run found a lost space when a physical Space was held during
+  synthesized Space; the fix is included in 1.1.4 and passed a repeated live run. Native Writer replacement
+  for 1.1.4 was not verified: the private Flatpak Writer never mapped a fresh
+  window. Writer/Calc 1.1.3 results remain historical and do not confirm 1.1.4.
+  Sway, PrintScreen, async GUI, tray, sound and language-edge checks are still
+  pending. This does not confirm every desktop, app or native Writer
+  replacement.
+
+Chrome checks cover ordinary fields, editable page elements, passwords and readonly fields.
 The original eXpress message editor was tested in an isolated environment
 without sending messages; an authenticated chat has not been tested.
 
