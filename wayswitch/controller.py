@@ -10,7 +10,7 @@ import logging
 import time
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from wayswitch import a11y as focus
 from wayswitch import keycodes as kc
@@ -65,6 +65,24 @@ def apps_stamp() -> int | None:
     """Время изменения apps.txt в наносекундах (None — файла нет)."""
     path = apps_path()
     return path.stat().st_mtime_ns if path.exists() else None
+
+
+@dataclass
+class _WordGestureContext:
+    """Что второй Shift-тап успел сделать с последним словом.
+
+    Третьему тапу нужно знать выбранную группу и настоящий текст на экране:
+    после удачного переворота фраза может быть смешанной (старые слова в
+    прежней группе, последнее — уже в новой).
+    """
+
+    ok: bool
+    changed: bool = False
+    target_group: int = -1
+    prefix: list[KeyPress] = field(default_factory=list)
+    prefix_group: int = -1
+    word_text: str = ""
+    tail: int = 0
 
 
 @dataclass
@@ -188,6 +206,8 @@ class Controller:
         self._busy_reset = False  # клик/пауза/блокировка посреди исправления
         self._pending = 0  # отложенных (запланированных, но ещё не исполненных) фиксов
         self._pending_gesture: str | None = None  # жест, пришедший во время фикса
+        self._pending_after: str | None = None  # второй жест той же серии (слово → фраза)
+        self._word_gesture: _WordGestureContext | None = None
         self._last_fix: LastFix | None = None
         # Сколько раз подряд отменяли исправление слова: запоминаем слово как
         # исключение только с learn_after_undos-й отмены.
@@ -294,6 +314,8 @@ class Controller:
         self.context.clear()
         self._last_fix = None
         self._hold_keys = None
+        self._word_gesture = None
+        self._pending_after = None
         self._emit_status()
 
     def resume(self, *, confirm_lock: bool = False) -> bool:
@@ -314,6 +336,8 @@ class Controller:
                 self.lock_confirmation_required = self.paused = True
             self._busy_keys.clear()
             self._pending_gesture = None
+            self._pending_after = None
+            self._word_gesture = None
             self.gesture.reset()
             for gesture, _action in self._selection_gestures:
                 gesture.reset()
@@ -327,6 +351,8 @@ class Controller:
         self.context.clear()
         self._last_fix = None
         self._hold_keys = None
+        self._word_gesture = None
+        self._pending_after = None
         self._emit_status()
 
     def set_caps(self, on: bool) -> None:
@@ -444,6 +470,10 @@ class Controller:
                 self.buffer.note_press(code, device_id)
             return
         now = self.clock()
+        if value == 1 and code not in self._gesture_keys:
+            # Любая другая клавиша рвёт серию Shift: результат второго тапа
+            # больше не может управлять будущей фразой.
+            self._word_gesture = None
         if value == 1 and code in kc.EDIT_KEYS:
             self._last_edit_at = now
         if value == 1 and self.probe is not None \
@@ -510,7 +540,7 @@ class Controller:
             elif value == 0:
                 self.buffer.note_release(code, device_id)
             if gesture:
-                self._pending_gesture = gesture
+                self._queue_pending_gesture(gesture)
             return
         own = [(tap, action) for tap, g, action in selection_taps if code in g.keys]
         if own and not (self.paused or self.locked):
@@ -599,17 +629,29 @@ class Controller:
             log.error("ручное исправление не выполнено: %s", type(exc).__name__)
             self.busy = False
 
+    def _queue_pending_gesture(self, gesture: str) -> None:
+        """Запомнить жест до конца текущего/уже запланированного фикса."""
+        if self._pending_gesture is None:
+            self._pending_gesture = gesture
+        elif self._pending_gesture == "word" and gesture == "phrase":
+            # Третий тап не должен заменить слово: оно выбирает группу для фразы.
+            self._pending_after = "phrase"
+        else:
+            self._pending_gesture = gesture
+
     def _dispatch_gesture_unsafe(self, gesture: str) -> None:
         if self._pending:
             # Фикс уже запланирован, но ещё не исполнен (третий тап пришёл
             # раньше idle): жест обработаем после него, на обновлённом буфере.
-            self._pending_gesture = gesture
+            self._queue_pending_gesture(gesture)
         elif gesture == "word":
-            self.manual_word()
+            self.manual_word(from_gesture=True)
         else:
-            self.manual_phrase()
+            self.manual_phrase(from_gesture=True)
 
     def on_click(self) -> None:
+        self._word_gesture = None
+        self._pending_after = None
         if self._focus_waiting:
             self._focus_wait_boundary = True
         if self.busy:
@@ -621,18 +663,24 @@ class Controller:
         self._skip_word = False
         self._hold_keys = None
         # Клик посреди тапа жеста — не жест: иначе Ctrl+клик переворачивал бы слово.
+        self._word_gesture = None
+        self._pending_after = None
         self.gesture.reset()
         for g, _action in self._selection_gestures:
             g.reset()
 
     def on_scroll(self) -> None:
         """Колесо мыши: слово не трогаем, но тап-жест разрываем (Ctrl+колесо — масштаб)."""
+        self._word_gesture = None
+        self._pending_after = None
         self.gesture.reset()
         for g, _action in self._selection_gestures:
             g.reset()
 
     def on_layout_changed(self, index: int | None, external: bool) -> None:
         if external:
+            self._word_gesture = None
+            self._pending_after = None
             if self.busy:
                 self._operation_invalidated = True
                 self._abort_requested = True
@@ -757,6 +805,8 @@ class Controller:
         self._hold_keys = None
         self._last_fix = None
         self._pending_gesture = None
+        self._pending_after = None
+        self._word_gesture = None
         if self.busy and not initial_binding:
             self._operation_invalidated = self._busy_reset = True
         return False
@@ -963,10 +1013,19 @@ class Controller:
             return self._rebind_focus_after_wake(snap)
         return True
 
-    def manual_word(self) -> bool:
+    def _record_word_gesture(self, ok: bool, *, target_group: int, prefix: list[KeyPress],
+                             prefix_group: int, word_text: str, tail: int) -> None:
+        """Запомнить итог второго тапа для третьего (только жест, не D-Bus)."""
+        self._word_gesture = _WordGestureContext(
+            ok=ok, changed=bool(ok and target_group != prefix_group),
+            target_group=target_group, prefix=list(prefix), prefix_group=prefix_group,
+            word_text=word_text, tail=tail)
+
+    def manual_word(self, *, from_gesture: bool = False) -> bool:
         """Исправить последнее слово (или откатить, или просто переключить раскладку).
 
         True — исправление запланировано/выполнено, False — нечего делать."""
+        self._word_gesture = None
         if not self._manual_allowed() or not self._ready_for_manual_focus():
             return False
         if not self._sync_focus() or self._skip_word:
@@ -991,6 +1050,8 @@ class Controller:
                     applied = False
                 finally:
                     self.busy = False
+            if from_gesture:
+                self._word_gesture = _WordGestureContext(ok=False)
             self._emit_status()
             return applied
         last = self._last_fix
@@ -999,6 +1060,8 @@ class Controller:
         if undo_keys is not None:
             original = (last.original_text if last.original_text is not None
                         else self.keymap.decode(last.original_keys, last.group_before))
+            phrase = self.buffer.phrase()
+            prefix = phrase[:max(0, len(phrase) - tail - len(undo_keys))]
 
             def done(ok: bool, secret: bool) -> None:
                 if not ok:
@@ -1010,13 +1073,22 @@ class Controller:
                     self._note_undo(letters)
                 self._emit_status()
 
+            def finish(ok: bool, secret: bool) -> None:
+                done(ok, secret)
+                if from_gesture:
+                    self._record_word_gesture(
+                        ok, target_group=last.group_before, prefix=prefix,
+                        prefix_group=current, word_text=original, tail=tail)
+
             self._schedule_fix(undo_keys, tail, last.group_before, original + " " * tail,
-                               manual=True, reason="undo", group_before=current, done=done,
+                               manual=True, reason="undo", group_before=current, done=finish,
                                span=True, secret=secret or last.secret)
             return True
         text = self.keymap.decode(word, other)
+        phrase = self.buffer.phrase()
+        prefix = phrase[:max(0, len(phrase) - tail - len(word))]
         done = None
-        start = len(self.buffer.phrase()) - tail - len(word)
+        start = len(phrase) - tail - len(word)
         if (last is not None and last.early and other == last.group_before
                 and self.clock() - last.time <= self.config.general.undo_window_sec
                 and start == last.end - len(last.target_keys)
@@ -1036,8 +1108,16 @@ class Controller:
                         # его, а не любое следующее.
                         self._hold_keys = list(self.buffer.last_word_with_tail()[0])
 
+        def finish(ok: bool, secret: bool) -> None:
+            if done is not None:
+                done(ok, secret)
+            if from_gesture:
+                self._record_word_gesture(
+                    ok, target_group=other, prefix=prefix, prefix_group=current,
+                    word_text=text, tail=tail)
+
         self._schedule_fix(word, tail, other, text + " " * tail, manual=True,
-                           reason="manual", group_before=current, done=done,
+                           reason="manual", group_before=current, done=finish,
                            secret=secret or bool(done and last and last.secret))
         return True
 
@@ -1390,19 +1470,76 @@ class Controller:
             self.sleep(0.01)
         return True
 
-    def manual_phrase(self) -> bool:
-        if not self._manual_allowed() or not self._ready_for_manual_focus():
+    def _word_gesture_matches(self, context: _WordGestureContext,
+                              keys: list[KeyPress]) -> bool:
+        """Буфер всё ещё содержит ту же фразу и результат второго тапа."""
+        if len(keys) != len(context.prefix) + len(context.word_text) + context.tail:
+            return False
+        if keys[:len(context.prefix)] != context.prefix:
+            return False
+        end = len(keys) - context.tail
+        if context.tail and keys[end:] != [SPACE] * context.tail:
+            return False
+        middle = keys[len(context.prefix):end]
+        return self.keymap.decode(middle, context.target_group) == context.word_text
+
+    def _word_gesture_source(self, context: _WordGestureContext) -> str:
+        """Текст, который после второго тапа реально виден на экране."""
+        return (self.keymap.decode(context.prefix, context.prefix_group)
+                + context.word_text + " " * context.tail)
+
+    def manual_phrase(self, *, from_gesture: bool = False) -> bool:
+        """Перевести всю фразу в другую раскладку или переписать в выбранной.
+
+        Жест третьего Shift приходит после второго тапа: тот уже выбрал группу
+        (или отменил правку в прежней). Прямой вызов по D-Bus такого выбора не
+        делает и переводит фразу в противоположную группу.
+        """
+        if not self._manual_allowed():
+            return False
+        if self.buffer.expire(self.clock()):
+            if from_gesture:
+                self._word_gesture = None
+            return False
+        context = None
+        if from_gesture:
+            context = self._word_gesture
+            self._word_gesture = None
+            if context is None or not context.ok:
+                return False  # второй тап не состоялся — серия не должна срабатывать
+        if not self._ready_for_manual_focus():
+            return False
+        if self.buffer.expire(self.clock()):
             return False
         if not self._sync_focus() or self._skip_word:
             return False
-        current = self.backend.current()
-        keys = self.buffer.phrase()
-        if current is None or not keys:
+        groups = self._groups()
+        if groups is None:
             return False
-        # Раскладка уже переключена вторым Shift; декодируем всё в текущей группе.
-        text = self.keymap.decode(keys, current)
-        self._schedule_fix(keys, 0, current, text, manual=True, reason="phrase",
-                           group_before=current, whole_phrase=True, switch=False)
+        current, other = groups
+        keys = self.buffer.phrase()
+        if not keys:
+            return False
+        if from_gesture:
+            if current != context.target_group or not self._word_gesture_matches(context, keys):
+                return False  # серия устарела: буфер или раскладка уже другие
+            source = self._word_gesture_source(context)
+            if context.changed:
+                # Второй тап уже выбрал эту группу; переписываем фразу в ней.
+                target_group = current
+                switch = False
+            else:
+                # Откат правки в прежней группе выбора не сделал — переводим.
+                target_group = other
+                switch = True
+        else:
+            target_group = other
+            source = self.keymap.decode(keys, current)
+            switch = True
+        text = self.keymap.decode(keys, target_group)
+        self._schedule_fix(keys, 0, target_group, text, manual=True, reason="phrase",
+                           group_before=current, whole_phrase=True, switch=switch,
+                           source_text=source)
         return True
 
     # --- исполнение -------------------------------------------------------------
@@ -1412,7 +1549,8 @@ class Controller:
                       whole_phrase: bool = False, switch: bool = True,
                       trigger: tuple[int, int] | None = None,
                       done: Callable[[bool, bool], None] | None = None,
-                      span: bool = False, caps_off: bool = False, secret: bool = False) -> None:
+                      span: bool = False, caps_off: bool = False, secret: bool = False,
+                      source_text: str | None = None) -> None:
         """Отложить _apply_fix через self.schedule.
 
         Решение принято по снимку буфера; к моменту исполнения пользователь
@@ -1435,6 +1573,9 @@ class Controller:
                 if self.busy:
                     log.info("исправление %s отменено: другое исправление в работе", reason)
                     return
+                if whole_phrase and self.buffer.expire(self.clock()):
+                    log.info("исправление %s отменено: фраза устарела", reason)
+                    return
                 if not self._sync_focus() or self._buffer_focus != capture_focus:
                     return
                 if whole_phrase:
@@ -1452,7 +1593,8 @@ class Controller:
                 ok = self._apply_fix(snapshot, tail, target_group, text, manual=manual,
                                      reason=reason, group_before=group_before,
                                      whole_phrase=whole_phrase, switch=switch, trigger=trigger,
-                                     span=span, caps_off=caps_off, secret=secret, outcome=outcome)
+                                     span=span, caps_off=caps_off, secret=secret, outcome=outcome,
+                                     source_text=source_text)
             finally:
                 if done is not None:
                     done(ok, outcome.get("secret", secret))
@@ -1471,7 +1613,18 @@ class Controller:
                 or self.busy or self.paused or self.locked):
             return
         gesture, self._pending_gesture = self._pending_gesture, None
-        (self.manual_word if gesture == "word" else self.manual_phrase)()
+        follow = self._pending_after if gesture == "word" else None
+        self._pending_after = None
+        if follow is not None:
+            # Слово должно сначала выполниться и запомнить выбранную группу;
+            # фраза пойдёт из его done/после очереди.
+            self._pending_gesture = follow
+        if gesture == "word":
+            self.manual_word(from_gesture=True)
+        else:
+            self.manual_phrase(from_gesture=True)
+        if self._pending_gesture is not None and not self._pending and not self.busy:
+            self._run_pending_gesture()
 
     def _abort(self) -> bool:
         self.pump()
@@ -1595,7 +1748,7 @@ class Controller:
                    whole_phrase: bool = False, switch: bool = True,
                    trigger: tuple[int, int] | None = None, span: bool = False,
                    caps_off: bool = False, secret: bool = False,
-                   outcome: dict | None = None) -> bool:
+                   outcome: dict | None = None, source_text: str | None = None) -> bool:
         # Бэкенд может ошибаться насчёт текущей раскладки (IBus на GNOME 46+).
         # Проверяем ДО плана: после Backspace-ов откатывать уже нечего.
         if self._groups() is None or self.backend.current() != group_before:
@@ -1613,7 +1766,8 @@ class Controller:
             return False
         # До границы слова человек продолжает печатать: клавиатурная замена не атомарна.
         plan.require_verified = self._provisional_binding or reason in {"early", "url-early"}
-        original = self.keymap.decode(keys, group_before)
+        original = (source_text if source_text is not None
+                    else self.keymap.decode(keys, group_before))
         if self.dry_run:
             log.info("[dry-run] %s: исправление текста", reason)
             return False
@@ -1622,6 +1776,21 @@ class Controller:
         secret = secret or self._secret_focus()
         outcome = {} if outcome is None else outcome
         outcome["secret"] = secret
+        expired_phrase = False
+
+        def before_write() -> bool:
+            # Между решением и первой стирающей клавишей прошли ожидание
+            # отпускания и смена раскладки: фраза могла устареть.
+            nonlocal expired_phrase
+            if expired_phrase:
+                return False
+            if whole_phrase and (self.buffer.expire(self.clock())
+                                 or self.buffer.phrase() != list(keys)):
+                expired_phrase = True
+                outcome["expired"] = True
+                return False
+            return True
+
         self.busy = True
         self._abort_requested = False
         self._operation_invalidated = False
@@ -1652,7 +1821,8 @@ class Controller:
                                  restore_group=group_before if switch else None,
                                  hold=self._wait_shift_released, outcome=outcome, stop=self._stop,
                                  native_append=self._native_append_count,
-                                 native_focus=self._native_focus_snapshot)
+                                 native_focus=self._native_focus_snapshot,
+                                 before_write=before_write if whole_phrase else None)
         except Exception as exc:  # noqa: BLE001 — execute сам ловит, это страховка
             log.error("исправление %s: ошибка %s", reason, type(exc).__name__)
             result = "failed"
@@ -1700,7 +1870,9 @@ class Controller:
             log.info("исправление %s: %s", reason, result)
             self.gesture.reset()
             self._pending_gesture = None
-            self._emit_status()
+            self._pending_after = None
+            if not outcome.get("expired"):
+                self._emit_status()
             return False
         if lost:
             self._last_fix = None
@@ -1717,6 +1889,8 @@ class Controller:
             # переворот раскладки).
             self.gesture.reset()
             self._pending_gesture = None
+            self._pending_after = None
+            self._word_gesture = None
             self._emit_status()
             return False
         log.info("%s: исправлено за %.0f мс", reason, (self.clock() - started) * 1000)
