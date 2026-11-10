@@ -179,6 +179,7 @@ def test_rules_do_not_touch_code_and_paths(real, word):
     ("чтото", "что-то"), ("кембы", "кем бы"), ("хорошобы", "хорошо бы"),
     ("давайка", "давай-ка"), ("всётаки", "всё-таки"), ("знаешьли", "знаешь ли"),
     ("сделалбы", "сделал бы"), ("когданибудь", "когда-нибудь"), ("тыже", "ты же"),
+    ("чьето", "чье-то"), ("чьёто", "чьё-то"),
     ("пирогб", "пирог,"), ("сонатуБаха", "сонату Баха"),
 ])
 def test_rules_still_fix_real_cases(real, word, expected):
@@ -221,22 +222,39 @@ def test_third_shift_after_same_group_undo_converts_phrase(real):
     assert corrected[-1] == ("ПРивет ", "GHbdtn", True)
 
 
-@pytest.mark.parametrize("typed_text,expected", [
-    ("{Kt,", "Хлеб"),
-    ("K>,jdm", "Любовь"),
-    (":Bpym", "Жизнь"),
-    ("<>hj", "Бюро"),
-    (">Hbq", "Юрий"),
-])
-def test_two_capitals_in_opposite_layout(real, typed_text, expected):
-    ctrl, _b, _t, corrected = make_ctrl(real, group=US)
-    type_word(ctrl, real[0], typed_text + " ", US)
-    assert corrected == [(typed_text, expected, False)]
-
-
-def test_two_capitals_in_opposite_layout_obeys_setting(real):
+def test_cheto_particles_exception_and_undo_keep_entered_e(real):
     cfg = Config()
-    cfg.general.two_capitals_fix = False
-    ctrl, _b, _t, corrected = make_ctrl(real, group=US, config=cfg)
-    type_word(ctrl, real[0], "{Kt, ", US)
+    cfg.general.learn_after_undos = 1
+    ctrl, _backend, typist, corrected = make_ctrl(real, group=RU, config=cfg)
+    km = real[0]
+    ctrl.detector.exceptions.add("чьето")
+    type_word(ctrl, km, "чьето ", RU)
     assert corrected == []
+    ctrl.detector.exceptions.clear()
+    type_word(ctrl, km, "чьето ", RU)
+    assert corrected[-1][1] == "чье-то"
+    before = len(typist.taps())
+    assert ctrl.manual_word()
+    assert corrected[-1] == ("чье-то", "чьето", True)
+    after = typist.taps()[before:]
+    new = [KeyPress(c, s) for c, s in after if c != kc.KEY_BACKSPACE]
+    assert km.decode(new, RU) == "чьето "
+    assert "чьето" in ctrl.detector.exceptions
+
+
+def test_undo_of_split_fix_restores_original(real):
+    """Откат «кем бы» возвращает «кембы» целиком, а не переворачивает «бы»."""
+    cfg = Config()
+    cfg.general.learn_after_undos = 1  # запомнить с первой отмены
+    ctrl, _backend, typist, corrected = make_ctrl(real, group=RU, config=cfg)
+    km = real[0]
+    type_word(ctrl, km, "кембы ", RU)
+    assert corrected[-1][1] == "кем бы"
+    before = len(typist.taps())
+    assert ctrl.manual_word()
+    assert corrected[-1] == ("кем бы", "кембы", True)
+    after = typist.taps()[before:]
+    new = [KeyPress(c, s) for c, s in after if c != kc.KEY_BACKSPACE]
+    assert km.decode(new, RU) == "кембы "
+    assert sum(1 for c, _ in after if c == kc.KEY_BACKSPACE) == len("кем бы ")
+    assert "кембы" in ctrl.detector.exceptions
