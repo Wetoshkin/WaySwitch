@@ -810,10 +810,13 @@ def query_shell_context() -> ShellContext | None:
             error = Gio.DBusError.get_remote_error(exc)
         except (AttributeError, TypeError):
             return None
-        if error in {"org.freedesktop.DBus.Error.UnknownMethod",
-                     "org.freedesktop.DBus.Error.UnknownInterface",
-                     "org.freedesktop.DBus.Error.ServiceUnknown",
+        if error in {"org.freedesktop.DBus.Error.ServiceUnknown",
                      "org.freedesktop.DBus.Error.NameHasNoOwner"}:
+            # Пустой контекст оставляет доступным AT-SPI вне GNOME.
+            return ShellContext()
+        if error in {"org.freedesktop.DBus.Error.UnknownMethod",
+                     "org.freedesktop.DBus.Error.UnknownInterface"}:
+            # Совместимость с расширением до появления GetFocusedContext.
             return ShellContext(query_shell_app_ids())
         return None
 
