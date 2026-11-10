@@ -1724,18 +1724,12 @@ class Controller:
         return snap
 
     def _blocking_keys_held(self, trigger: tuple[int, int] | None) -> bool:
-        """Есть ли физически зажатые клавиши, мешающие печати.
+        """Есть ли зажатые клавиши, мешающие печати, кроме самого триггера.
 
-        Клавиша-триггер (`trigger`) сюда не считается: buffer.feed() кладёт её
-        в _held ещё до генерации события «слово»/«буква», а её отпускание могло
-        ещё не дойти до нас (фикс исполняется в ближайшем idle после нажатия),
-        так что оно не «зависшее», а просто ещё не доставлено. Любая ДРУГАЯ
-        зажатая клавиша (с другого устройства или нажатая раньше) блокирует
-        печать. Shift тоже блокирует: синтетическое отпускание из
-        ReleaseModifiers не сбрасывает физически зажатый Shift в libinput
-        (release с чужого устройства отбрасывается), и перепечатка ушла бы в
-        верхнем регистре; Shift отпускают за миллисекунды, а жест и так
-        срабатывает на отпускании. Ctrl/Alt/Super не считаются: с ними буфер
+        Триггер не считается: его key-up мог ещё не дойти, и его отдельно ждёт
+        `_wait_trigger_release`. Shift блокирует: синтетическое отпускание не
+        сбрасывает физически зажатый Shift в libinput, и печать ушла бы в
+        верхнем регистре. Ctrl/Alt/Super не считаются: с ними буфер
         сбрасывается ещё в feed().
         """
         held = self.buffer.held_physical()
@@ -1751,6 +1745,24 @@ class Controller:
         # физически отпустят клавиши), так что нужно настоящее время.
         deadline = time.monotonic() + RELEASE_WAIT
         while self._blocking_keys_held(trigger):
+            if time.monotonic() > deadline:
+                return False
+            self.pump()
+            self.sleep(0.005)
+        return True
+
+    def _wait_trigger_release(self, trigger: tuple[int, int] | None) -> bool:
+        """Дождаться key-up клавиши-триггера.
+
+        Пока она зажата, GNOME/libinput сливает синтетический press того же
+        кода с физическим: нового логического нажатия нет, и завершающий
+        пробел теряется (two_capitals, switch=False). Ждём ограниченно; не
+        дождались — отменяем исправление до первой записи.
+        """
+        if trigger is None:
+            return True
+        deadline = time.monotonic() + RELEASE_WAIT
+        while trigger in self.buffer.held_physical():
             if time.monotonic() > deadline:
                 return False
             self.pump()
@@ -1825,7 +1837,8 @@ class Controller:
                     self._buffer_window = fresh.window
             if (self._abort_requested or self._busy_reset or self._operation_invalidated
                     or self.paused or self.locked or self.screen_locked()
-                    or not self._wait_release(trigger)):
+                    or not self._wait_release(trigger)
+                    or not self._wait_trigger_release(trigger)):
                 log.info("исправление отменено: изменилось состояние ввода")
                 result = ABORTED
             else:

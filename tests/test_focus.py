@@ -13,7 +13,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.fakes import RU, US, FakeBackend, RecordingTypist, keys_for_text, make_keymap
+from tests.fakes import (
+    RU,
+    US,
+    FakeBackend,
+    RecordingTypist,
+    keys_for_text,
+    make_keymap,
+    run_after_key,
+)
 from wayswitch import a11y
 from wayswitch import config as cfgmod
 from wayswitch import keycodes as kc
@@ -62,10 +70,24 @@ def make_env(probe=None, apps=("telegram",), config=None):
     return dict(km=km, det=det, ctrl=ctrl, backend=backend, typist=typist, clock=clock)
 
 
+def press(env, code, shift=False):
+    """Нажать клавишу; фиксы из её колбэков исполнятся после отпускания."""
+    ctrl = env["ctrl"]
+
+    def send():
+        if shift:
+            ctrl.on_key(kc.KEY_LEFTSHIFT, 1, 1)
+        ctrl.on_key(code, 1, 1)
+        ctrl.on_key(code, 0, 1)
+        if shift:
+            ctrl.on_key(kc.KEY_LEFTSHIFT, 0, 1)
+
+    run_after_key(ctrl, send)
+
+
 def type_keys(env, keys):
     for key in keys:
-        env["ctrl"].on_key(key.code, 1, 1)
-        env["ctrl"].on_key(key.code, 0, 1)
+        press(env, key.code, key.shift)
 
 
 def typed_chars(env) -> str:
@@ -1098,8 +1120,7 @@ def test_controller_skips_excluded_app():
     clock = Clock()
     env = make_env(probe=FakeProbe(clock, app="TelegramDesktop"), apps=["telegram"])
     type_keys(env, keys_for_text(env["km"], "ghbdtn", US))
-    env["ctrl"].on_key(kc.KEY_SPACE, 1, 1)
-    env["ctrl"].on_key(kc.KEY_SPACE, 0, 1)
+    press(env, kc.KEY_SPACE)
     assert env["typist"].taps() == []
     assert env["backend"].set_calls == []
     assert env["ctrl"].context[-1] is None
@@ -1109,8 +1130,7 @@ def test_controller_skips_password_field():
     clock = Clock()
     env = make_env(probe=FakeProbe(clock, app="firefox", password=True), apps=[])
     type_keys(env, keys_for_text(env["km"], "ghbdtn", US))
-    env["ctrl"].on_key(kc.KEY_SPACE, 1, 1)
-    env["ctrl"].on_key(kc.KEY_SPACE, 0, 1)
+    press(env, kc.KEY_SPACE)
     assert env["typist"].taps() == []
 
 
@@ -1119,8 +1139,7 @@ def test_controller_fixes_in_other_app():
     clock = Clock()
     env = make_env(probe=FakeProbe(clock, app="gedit"), apps=["telegram"])
     type_keys(env, keys_for_text(env["km"], "руддщ", RU))
-    env["ctrl"].on_key(kc.KEY_SPACE, 1, 1)
-    env["ctrl"].on_key(kc.KEY_SPACE, 0, 1)
+    press(env, kc.KEY_SPACE)
     assert env["backend"].set_calls == [US]
 
 
@@ -1129,8 +1148,7 @@ def test_controller_pokes_probe_on_word():
     probe = FakeProbe(clock, app="gedit")
     env = make_env(probe=probe)
     type_keys(env, keys_for_text(env["km"], "ghbdtn", US))
-    env["ctrl"].on_key(kc.KEY_SPACE, 1, 1)
-    env["ctrl"].on_key(kc.KEY_SPACE, 0, 1)
+    press(env, kc.KEY_SPACE)
     assert probe.pokes >= 1
 
 

@@ -11,6 +11,7 @@ from tests.fakes import (
     SafeProbe,
     keys_for_text,
     make_keymap,
+    run_after_key,
 )
 from tests.test_controller import NativeTypist
 from wayswitch import a11y
@@ -65,12 +66,16 @@ def make(real, group, config=None, selection="", monkeypatch=None, native=False)
 
 
 def press(ctrl, code, shift=False):
-    if shift:
-        ctrl.on_key(kc.KEY_LEFTSHIFT, 1, 1)
-    ctrl.on_key(code, 1, 1)
-    ctrl.on_key(code, 0, 1)
-    if shift:
-        ctrl.on_key(kc.KEY_LEFTSHIFT, 0, 1)
+    """Нажать клавишу; фиксы из её колбэков исполнятся после отпускания."""
+    def send():
+        if shift:
+            ctrl.on_key(kc.KEY_LEFTSHIFT, 1, 1)
+        ctrl.on_key(code, 1, 1)
+        ctrl.on_key(code, 0, 1)
+        if shift:
+            ctrl.on_key(kc.KEY_LEFTSHIFT, 0, 1)
+
+    run_after_key(ctrl, send)
 
 
 def type_caps_word(ctrl, km, word, group):

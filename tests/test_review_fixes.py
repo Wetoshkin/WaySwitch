@@ -16,6 +16,7 @@ from tests.fakes import (
     RecordingTypist,
     SafeProbe,
     make_keymap,
+    run_after_key,
 )
 from wayswitch import keycodes as kc
 from wayswitch.a11y import FocusSnapshot
@@ -58,12 +59,16 @@ def make_ctrl(real, group=RU, config=None, typist=None, **kw):
 
 
 def press(ctrl, code, shift=False, device=1):
-    if shift:
-        ctrl.on_key(kc.KEY_LEFTSHIFT, 1, device)
-    ctrl.on_key(code, 1, device)
-    ctrl.on_key(code, 0, device)
-    if shift:
-        ctrl.on_key(kc.KEY_LEFTSHIFT, 0, device)
+    """Нажать клавишу; фиксы из её колбэков исполнятся после отпускания."""
+    def send():
+        if shift:
+            ctrl.on_key(kc.KEY_LEFTSHIFT, 1, device)
+        ctrl.on_key(code, 1, device)
+        ctrl.on_key(code, 0, device)
+        if shift:
+            ctrl.on_key(kc.KEY_LEFTSHIFT, 0, device)
+
+    run_after_key(ctrl, send)
 
 
 def type_word(ctrl, km, text, group):
