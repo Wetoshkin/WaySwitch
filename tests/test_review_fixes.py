@@ -200,6 +200,27 @@ def test_two_capitals(real, word, group, expected):
     assert got == expected
 
 
+def tap_shift(ctrl, times=1):
+    for _ in range(times):
+        ctrl.on_key(kc.KEY_RIGHTSHIFT, 1, 1)
+        ctrl.on_key(kc.KEY_RIGHTSHIFT, 0, 1)
+
+
+def test_third_shift_after_same_group_undo_converts_phrase(real):
+    """Второй тап отменил правку в той же раскладке и группу не сменил.
+    Третий тап должен перевести всю фразу в противоположную группу, а не
+    перепечатать её в прежней."""
+    ctrl, backend, _typist, corrected = make_ctrl(real, group=RU)
+    type_word(ctrl, real[0], "ПРивет ", RU)
+    assert corrected[0] == ("ПРивет", "Привет", False)
+    tap_shift(ctrl, 2)  # откат правки «две заглавные»; группа осталась RU
+    assert backend.current() == RU
+    tap_shift(ctrl, 1)  # третий тап: фраза должна уйти в US
+    assert backend.current() == US
+    assert real[0].decode(ctrl.buffer.phrase(), US) == "GHbdtn "
+    assert corrected[-1] == ("ПРивет ", "GHbdtn", True)
+
+
 # --- исключения и откат правил ---------------------------------------------------------
 
 def test_exception_blocks_rules_too(real):

@@ -126,6 +126,110 @@ def test_triple_shift_fixes_phrase(env):
     assert env["backend"].current() == RU
 
 
+@pytest.mark.parametrize(
+    ("start", "typed", "target", "fixed"),
+    [(US, "ghbdtn vbh", RU, "привет мир"), (RU, "привет мир", US, "ghbdtn vbh")],
+)
+def test_direct_manual_phrase_converts_to_opposite_layout(env, start, typed, target, fixed):
+    """D-Bus FixPhrase приходит мимо второго Shift: фразу нужно перевести,
+    а не перепечатать в той же раскладке."""
+    env["ctrl"].config.general.auto_correct = False
+    env["backend"].current_index = start
+    type_text(env, typed)
+    assert env["ctrl"].manual_phrase() is True
+    assert env["backend"].current() == target
+    assert typed_text(env).endswith(fixed)
+    assert env["ctrl"].stats["manual"] == 1
+    assert env["corrected"] == [(typed, fixed, True)]
+
+
+def test_direct_manual_phrase_empty_buffer_is_noop(env):
+    ctrl = env["ctrl"]
+    statuses = []
+    ctrl.on_status = statuses.append
+    assert ctrl.manual_phrase() is False
+    assert env["typist"].events == [] and env["backend"].set_calls == []
+    assert ctrl.stats == {"corrections": 0, "manual": 0, "undo": 0}
+    assert env["corrected"] == [] and statuses == []
+
+
+def test_direct_manual_phrase_expired_buffer_is_noop(env):
+    ctrl = env["ctrl"]
+    ctrl.config.general.auto_correct = False
+    type_text(env, "ghbdtn vbh")
+    env["clock"].now += 9  # phrase_timeout_sec = 8
+    statuses = []
+    ctrl.on_status = statuses.append
+    assert ctrl.manual_phrase() is False
+    assert env["typist"].events == [] and env["backend"].set_calls == []
+    assert ctrl.stats == {"corrections": 0, "manual": 0, "undo": 0}
+    assert env["corrected"] == [] and statuses == []
+    assert ctrl.buffer.is_empty()
+
+
+def test_deferred_manual_phrase_expires_before_execution(env):
+    ctrl = env["ctrl"]
+    ctrl.config.general.auto_correct = False
+    queue = deferred(env)
+    type_text(env, "ghbdtn vbh")
+    assert ctrl.manual_phrase() is True  # решение принято и запланировано
+    assert len(queue) == 1
+    env["clock"].now += 9
+    drain(queue)
+    assert env["typist"].events == [] and env["backend"].set_calls == []
+    assert ctrl.stats == {"corrections": 0, "manual": 0, "undo": 0}
+    assert env["corrected"] == []
+    assert ctrl.buffer.is_empty()
+
+
+def test_manual_phrase_expiry_during_release_wait_prevents_write(env):
+    ctrl = env["ctrl"]
+    ctrl.config.general.auto_correct = False
+    type_text(env, "ghbdtn vbh")
+    ctrl.buffer.note_press(kc.KEY_LEFTSHIFT, 2)  # Shift держит вторая клавиатура
+    fired = []
+
+    def pump():
+        if not fired:
+            fired.append(True)
+            env["clock"].now += 9  # фраза устаревает, пока ждём отпускания
+            ctrl.buffer.note_release(kc.KEY_LEFTSHIFT, 2)
+
+    ctrl.pump = pump
+    statuses = []
+    ctrl.on_status = statuses.append
+    assert ctrl.manual_phrase() is True
+    assert fired
+    assert kc.KEY_BACKSPACE not in [code for code, _shift in env["typist"].taps()]
+    assert ctrl.stats["manual"] == 0
+    assert env["corrected"] == [] and statuses == []
+    assert ctrl.buffer.is_empty()
+
+
+def test_failed_second_tap_does_not_drive_third_shift_phrase(env):
+    ctrl = env["ctrl"]
+    ctrl.config.general.auto_correct = False
+    type_text(env, "ghbdtn vbh")
+    real_apply = ctrl._apply_fix
+    failed = []
+
+    def fail_once(*args, **kwargs):
+        if not failed:
+            failed.append(True)
+            return False  # второй тап не изменил ни экран, ни буфер
+        return real_apply(*args, **kwargs)
+
+    ctrl._apply_fix = fail_once
+    double_shift(env, times=2)
+    assert failed
+    keys_before = list(ctrl.buffer.phrase())
+    before_events = list(env["typist"].events)
+    double_shift(env, times=1)  # третий тап после неудачного второго
+    assert env["typist"].events == before_events
+    assert ctrl.buffer.phrase() == keys_before
+    assert env["backend"].current() == US
+
+
 @pytest.mark.parametrize("change", ["external", "invalidate", "after-ack"])
 def test_cosmic_layout_changes_abort_before_first_edit(env, change):
     from tests.test_cosmic import backend
@@ -510,6 +614,23 @@ def test_scheduled_early_url_and_manual_fixes_are_deferred_too(env):
     assert env["typist"].events == []
     drain(queue)
     assert typed_text(env) == "\b" * 6 + "привет"
+
+
+def test_third_shift_queued_behind_pending_word_gesture_runs_after_it(env):
+    """Второй тап ждал в очереди за автофиксом, третий пришёл следом.
+    Фраза не должна потерять слово: оно выбирает группу, затем идёт фраза."""
+    ctrl = env["ctrl"]
+    queue = deferred(env)
+    type_text(env, "ghbdtn ")
+    assert ctrl._pending == 1
+    type_text(env, "vbh", group=US)
+    double_shift(env, times=3)
+    assert ctrl._pending_gesture == "word" and ctrl._pending_after == "phrase"
+    drain(queue)
+    assert ctrl._pending_gesture is None and ctrl._pending_after is None
+    assert env["backend"].current() == RU
+    assert env["km"].decode(ctrl.buffer.phrase(), RU) == "привет мир"
+    assert typed_text(env).endswith("привет мир")
 
 
 def test_third_shift_tap_before_scheduled_word_fix_runs_becomes_phrase(env):
@@ -1116,6 +1237,24 @@ class NativeTypist(RecordingTypist):
         return SpanResult("done", True)
 
 
+def test_third_shift_after_second_tap_uses_screen_source_for_native_span(env):
+    """После второго тапа экран — смесь: первое слово осталось в US («ghbdtn»),
+    последнее уже в RU («мир»). Native-замена обязана получить именно этот
+    источник, а не декодирование всей фразы в одной группе."""
+    probe = LateFieldProbe(env["clock"])
+    probe.confirmed = True
+    native = NativeTypist()
+    ctrl = env["ctrl"]
+    ctrl.set_probe(probe)
+    ctrl.typist = env["typist"] = native
+    ctrl.config.general.auto_correct = False
+    type_text(env, "ghbdtn vbh")
+    double_shift(env, times=3)
+    assert native.native[-1] == ("ghbdtn мир", "привет мир")
+    assert env["backend"].current() == RU
+    assert env["km"].decode(ctrl.buffer.phrase(), RU) == "привет мир"
+
+
 def test_direct_typing_keeps_buffer_and_uses_verified_span(env):
     probe = AppearingProbe(env["clock"])
     native = NativeTypist()
@@ -1344,3 +1483,43 @@ def test_partial_word_never_crosses_writer_windows(env):
     type_text(env, "hbdtn ")
     assert not native.native
     assert not env["corrected"]
+
+
+def test_new_failed_shift_series_cannot_reuse_previous_word_result(env):
+    ctrl = env["ctrl"]
+    ctrl.config.general.auto_correct = False
+    type_text(env, "ghbdtn vbh")
+    double_shift(env, times=2)
+    env["clock"].now += 1
+    ready = ctrl._ready_for_manual_focus
+    ctrl._ready_for_manual_focus = lambda: False
+    double_shift(env, times=2)
+    ctrl._ready_for_manual_focus = ready
+    events = list(env["typist"].events)
+    corrected = list(env["corrected"])
+    double_shift(env, times=1)
+    assert env["typist"].events == events
+    assert env["corrected"] == corrected
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_phrase_expiring_during_layout_ack_never_writes_text(env, native):
+    ctrl = env["ctrl"]
+    ctrl.config.general.auto_correct = False
+    if native:
+        probe = LateFieldProbe(env["clock"])
+        probe.confirmed = True
+        ctrl.set_probe(probe)
+        ctrl.typist = env["typist"] = NativeTypist()
+    type_text(env, "ghbdtn vbh")
+    applied = env["backend"].wait_applied
+
+    def wait(group, timeout):
+        env["clock"].now += 9
+        return applied(group, timeout)
+
+    env["backend"].wait_applied = wait
+    assert ctrl.manual_phrase()
+    assert not env["typist"].taps()
+    assert not env["corrected"]
+    assert ctrl.stats["manual"] == 0
