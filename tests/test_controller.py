@@ -713,11 +713,11 @@ def test_trigger_release_prevents_lost_space(env, group, typed, expected, old):
         real_key(code, value)
 
     typist.key = recording_key
-    released = []
+    pumps = []
 
     def pump():
-        if not released:
-            released.append(True)
+        pumps.append(True)
+        if len(pumps) == 2:
             order.append(("release",))
             release_key(ctrl, trigger)
 
