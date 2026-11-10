@@ -10,7 +10,15 @@ from wayswitch.gui import gesture_keys, texts
 from wayswitch.gui.app import parse_gui_args, update_text
 from wayswitch.gui.autostart import tray_desktop_text
 from wayswitch.gui.tray import menu_layout
-from wayswitch.keycodes import KEY_A, KEY_BACKSPACE, KEY_ESC, KEY_F7, KEY_LEFTCTRL, KEY_RIGHTALT
+from wayswitch.keycodes import (
+    KEY_A,
+    KEY_BACKSPACE,
+    KEY_ESC,
+    KEY_F7,
+    KEY_LEFTCTRL,
+    KEY_RIGHTALT,
+    KEY_SYSRQ,
+)
 
 GUI = Path(__file__).resolve().parents[1] / "wayswitch" / "gui"
 
@@ -472,6 +480,7 @@ def test_gesture_human_names(ru_locale):
     assert gesture_keys.human_name("leftctrl") == "Левый Ctrl"
     assert gesture_keys.human_name("rightalt") == "Правый Alt"
     assert gesture_keys.human_name("f7") == "F7"
+    assert gesture_keys.human_name("printscreen") == "PrintScreen"
 
 
 def test_gesture_human_names_english(en_locale):
@@ -486,6 +495,7 @@ def test_gesture_capture():
     assert gesture_keys.capture(KEY_LEFTCTRL) == ("key", "leftctrl")
     assert gesture_keys.capture(KEY_RIGHTALT) == ("key", "rightalt")
     assert gesture_keys.capture(KEY_F7) == ("key", "f7")
+    assert gesture_keys.capture(KEY_SYSRQ) == ("key", "printscreen")
     # Буква не годится: её нажатие — это набранная буква.
     assert gesture_keys.capture(KEY_A)[0] == "reject"
 

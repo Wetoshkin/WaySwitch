@@ -810,6 +810,22 @@ def test_tap_key_custom_key_works(env):
     assert typed_text(env) == "\b" * 6 + "привет"
 
 
+def test_tap_key_printscreen_is_bound_to_sysrq_and_discards_unsafe_buffer(env):
+    """PrintScreen привязывается к KEY_SYSRQ, а не к запасному левому Ctrl."""
+    cfg = Config()
+    cfg.gesture.manual = "tap_key"
+    cfg.gesture.tap_key = "printscreen"
+    env["ctrl"].reload_config(cfg)
+    assert env["ctrl"].gesture.keys == frozenset({kc.KEY_SYSRQ})
+    type_text(env, "ghbdtn")
+    env["ctrl"].on_key(kc.KEY_SYSRQ, 1, 1)
+    env["ctrl"].on_key(kc.KEY_SYSRQ, 0, 1)
+    assert env["typist"].taps() == []
+    assert env["backend"].set_calls == [RU]
+    assert env["corrected"] == []
+    assert env["ctrl"].buffer.is_empty()
+
+
 def test_left_ctrl_is_not_gesture_when_another_key_mapped(env):
     cfg = Config()
     cfg.gesture.manual = "tap_key"

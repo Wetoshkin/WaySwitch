@@ -41,6 +41,7 @@ KEY_F12 = 88
 KEY_KPENTER = 96
 KEY_RIGHTCTRL = 97
 KEY_KPSLASH = 98
+KEY_SYSRQ = 99
 KEY_RIGHTALT = 100
 KEY_HOME = 102
 KEY_UP = 103
@@ -127,7 +128,8 @@ KEY_NAMES: dict[str, int] = {
     "insert": KEY_INSERT, "delete": KEY_DELETE, "home": KEY_HOME, "end": KEY_END,
     "pageup": KEY_PAGEUP, "pagedown": KEY_PAGEDOWN,
     "page_up": KEY_PAGEUP, "page_down": KEY_PAGEDOWN,
-    "pause": KEY_PAUSE, "scrolllock": KEY_SCROLLLOCK, "capslock": KEY_CAPSLOCK,
+    "pause": KEY_PAUSE, "printscreen": KEY_SYSRQ,
+    "scrolllock": KEY_SCROLLLOCK, "capslock": KEY_CAPSLOCK,
     "numlock": KEY_NUMLOCK,
     # Написание с подчёркиванием (как в README/спецификации и у X11-keysym'ов).
     "scroll_lock": KEY_SCROLLLOCK, "caps_lock": KEY_CAPSLOCK, "num_lock": KEY_NUMLOCK,
