@@ -335,18 +335,54 @@ def test_selection_keys_conflicts(gesture):
         cfgmod._validate(cfg)
 
 
-def test_caps_rule_off_when_caps_key_is_remapped(real):
+@pytest.mark.parametrize("options", [
+    ["caps:escape"],
+    ["grp:caps_toggle"],
+])
+def test_caps_rule_off_when_caps_key_is_remapped(real, options):
     km = real[0]
 
     class CapsToggle(SelBackend):
         def xkb_options(self):
-            return ["grp:caps_toggle"]
+            return options
 
-    ctrl, _b, typist, corrected = make(real, RU)
+    ctrl, _b, typist, _corrected = make(real, RU)
     ctrl.backend = CapsToggle(current=RU)
     ctrl.set_caps(True)
     type_caps_word(ctrl, km, "привет", RU)
     assert kc.KEY_CAPSLOCK not in [c for c, _ in typist.taps()]
+
+
+def test_sway_unknown_xkb_options_block_synthetic_caps(real):
+    from tests.test_compositors import FakeSway, make_sway
+
+    km = real[0]
+    backend, _ = make_sway(FakeSway(index=RU))
+    ctrl, _b, typist, _corrected = make(real, RU)
+    ctrl.backend = backend
+    assert backend.xkb_options() is None
+    ctrl.set_caps(True)
+    type_caps_word(ctrl, km, "привет", RU)
+    assert kc.KEY_CAPSLOCK not in [c for c, _ in typist.taps()]
+
+
+def test_sway_unknown_xkb_options_keep_auto_and_manual_correction(real):
+    from tests.test_compositors import FakeSway, make_sway
+
+    km = real[0]
+    backend, _ = make_sway(FakeSway(index=US))
+    ctrl, _b, typist, corrected = make(real, US)
+    ctrl.backend = backend
+    for key in keys_for_text(km, "ghbdtn ", US):
+        press(ctrl, key.code)
+    assert corrected == [("ghbdtn", "привет", False)]
+    assert backend.current() == RU
+
+    typist.events.clear()
+    assert ctrl.manual_word()
+    assert corrected[-1] == ("привет", "ghbdtn", True)
+    assert backend.current() == US
+    assert typed(km, typist, US) == "ghbdtn "
 
 
 def test_cosmic_never_synthesizes_caps_with_unknown_xkb_options(real):
