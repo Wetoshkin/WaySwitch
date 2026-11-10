@@ -26,6 +26,10 @@ class ConfigError(ValueError):
     """Неверное значение в конфиге."""
 
 
+class ConfigSchemaError(ConfigError):
+    """Файл записан неизвестной или несовместимой версией WaySwitch."""
+
+
 @dataclass
 class General:
     auto_correct: bool = True
@@ -84,6 +88,11 @@ class Gesture:
 
 
 OLD_SETTLE_MS = 30  # умолчание до 2.0.0a2
+# Маркер формата лежит в отдельной верхней секции: старые читатели не знают
+# её и пропускают целиком, поэтому новый файл для них остаётся читаемым.
+CONFIG_SCHEMA = 1
+_SCHEMA_SECTION = "meta"
+_SCHEMA_KEY = "schema"
 
 
 @dataclass
@@ -283,9 +292,41 @@ def selection_key_conflict(ge: Gesture, name: str, manual: str | None = None,
     return None
 
 
+def _schema_version(data: dict) -> int:
+    """Версия формата: 0 — файл без маркера, 1 — текущий.
+
+    Неизвестные верхние секции по-прежнему игнорируются, но секция-маркер
+    известна: без неё нельзя отличить старое умолчание 30 мс от явного
+    выбора. Неизвестную или будущую версию не угадываем.
+    """
+    if _SCHEMA_SECTION not in data:
+        return 0
+    marker = data[_SCHEMA_SECTION]
+    if not isinstance(marker, dict):
+        raise ConfigSchemaError(f"[{_SCHEMA_SECTION}] должна быть секцией")
+    unknown = set(marker) - {_SCHEMA_KEY}
+    if unknown:
+        raise ConfigSchemaError(
+            f"неизвестные ключи в [{_SCHEMA_SECTION}]: {sorted(unknown)}")
+    version = marker.get(_SCHEMA_KEY)
+    if isinstance(version, bool) or not isinstance(version, int):
+        raise ConfigSchemaError(
+            f"{_SCHEMA_SECTION}.{_SCHEMA_KEY}: ожидалось целое число")
+    if version != CONFIG_SCHEMA:
+        if version > CONFIG_SCHEMA:
+            raise ConfigSchemaError(
+                f"конфиг создан более новой версией WaySwitch "
+                f"(schema {version}, поддерживается {CONFIG_SCHEMA}); "
+                "файл не перезаписан")
+        raise ConfigSchemaError(
+            f"{_SCHEMA_SECTION}.{_SCHEMA_KEY}: неподдерживаемое значение {version}")
+    return version
+
+
 def from_dict(data: dict) -> Config:
     """Собрать конфиг из словаря TOML. Неизвестные секции игнорируются,
     неизвестные ключи внутри известных секций — ошибка (опечатка)."""
+    schema = _schema_version(data)
     kwargs = {}
     for name, cls in _SECTIONS.items():
         section = data.get(name, {})
@@ -293,16 +334,19 @@ def from_dict(data: dict) -> Config:
             raise ConfigError(f"[{name}] должна быть секцией")
         kwargs[name] = _section_from_dict(cls, section)
     cfg = Config(**kwargs)
-    if cfg.typing.settle_ms == OLD_SETTLE_MS:
+    if schema == 0 and cfg.typing.settle_ms == OLD_SETTLE_MS:
         # Прежние версии записывали в файл все ключи, и старое умолчание
         # 30 мс закрепилось бы навсегда — а с ним терялся пробел после слова.
+        # В файле с маркером 30 — уже явный выбор человека.
         cfg.typing.settle_ms = Typing.settle_ms
     _validate(cfg)
     return cfg
 
 
 def to_dict(cfg: Config) -> dict:
-    return asdict(cfg)
+    # Маркер — часть формата: без него from_dict(to_dict(cfg)) принял бы
+    # явные 30 мс за старое умолчание и заменил бы их на 120.
+    return {_SCHEMA_SECTION: {_SCHEMA_KEY: CONFIG_SCHEMA}, **asdict(cfg)}
 
 
 def _toml_scalar(value) -> str:
@@ -337,9 +381,22 @@ def load(path: Path | None = None) -> Config:
     return from_dict(data)
 
 
+def _check_existing_schema(path: Path) -> None:
+    """Не перезаписывать файл, маркер которого мы не понимаем."""
+    try:
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+    except (FileNotFoundError, tomllib.TOMLDecodeError):
+        # Битый файл, как и раньше, можно заменить осознанной правкой в GUI.
+        return
+    _schema_version(data)
+
+
 def save(cfg: Config, path: Path | None = None) -> None:
     _validate(cfg)
     path = path or default_path()
+    if path.exists():
+        _check_existing_schema(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(dumps(cfg), encoding="utf-8")

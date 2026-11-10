@@ -516,6 +516,98 @@ def test_config_rejects_letter_as_tap_key(tmp_path):
     raise AssertionError("буква в tap_key должна отвергаться")
 
 
+# --- слияние правок окна «Параметры» ------------------------------------------------
+
+def _fake_glib(monkeypatch):
+    import sys
+    import types
+
+    class GLib:
+        SOURCE_REMOVE = False
+
+        @staticmethod
+        def source_remove(_source):
+            pass
+
+    gi = types.ModuleType("gi")
+    repository = types.ModuleType("gi.repository")
+    repository.GLib = GLib
+    gi.repository = repository
+    monkeypatch.setitem(sys.modules, "gi", gi)
+    monkeypatch.setitem(sys.modules, "gi.repository", repository)
+
+
+class _Proxy:
+    def __init__(self):
+        self.calls = []
+
+    def call(self, name):
+        self.calls.append(name)
+
+
+def _preferences_for_flush(monkeypatch, tmp_path):
+    import copy
+
+    from wayswitch import config as cfgmod
+    from wayswitch.gui import preferences
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    _fake_glib(monkeypatch)
+    prefs = object.__new__(preferences.Preferences)
+    prefs.cfg = cfgmod.Config()
+    prefs._saved = copy.deepcopy(prefs.cfg)
+    prefs._loading = False
+    prefs._save_source = 0
+    prefs._dirty = {}
+    prefs._replace = False
+    prefs.broken = None
+    prefs.proxy = _Proxy()
+    prefs.toasts = []
+    prefs.toast = lambda text, *args, **kwargs: prefs.toasts.append(text)
+    prefs._load_correction = lambda: None
+    prefs._load_system = lambda: None
+    return prefs
+
+
+def test_preferences_flush_preserves_explicit_settle_ms(tmp_path, monkeypatch):
+    import copy
+
+    from wayswitch import config as cfgmod
+
+    prefs = _preferences_for_flush(monkeypatch, tmp_path)
+    prefs.cfg = cfgmod.Config()
+    prefs.cfg.typing.settle_ms = 30
+    cfgmod.save(prefs.cfg)
+    prefs.cfg = cfgmod.load()
+    prefs._saved = copy.deepcopy(prefs.cfg)
+    prefs._dirty = {("general", "sensitivity"): "aggressive"}
+
+    prefs._flush()
+
+    saved = cfgmod.load(cfgmod.default_path())
+    assert saved.general.sensitivity == "aggressive"
+    assert saved.typing.settle_ms == 30
+    assert "[meta]" in cfgmod.default_path().read_text(encoding="utf-8")
+    assert prefs.proxy.calls == ["Reload"]
+
+
+def test_preferences_flush_never_overwrites_future_schema(tmp_path, monkeypatch):
+    from wayswitch import config as cfgmod
+
+    prefs = _preferences_for_flush(monkeypatch, tmp_path)
+    path = cfgmod.default_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    original = "[meta]\nschema = 2\n\n[typing]\nsettle_ms = 30\n"
+    path.write_text(original, encoding="utf-8")
+    prefs._dirty = {("general", "auto_correct"): False}
+
+    prefs._flush()
+
+    assert path.read_text(encoding="utf-8") == original
+    assert prefs.proxy.calls == []
+    assert prefs.toasts
+
+
 # --- стиль и чистота ----------------------------------------------------------------
 
 def test_css_has_accent_for_both_libadwaita_generations():

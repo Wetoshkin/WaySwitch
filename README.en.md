@@ -223,7 +223,8 @@ is paused or the screen is locked.
 
 ## Settings
 
-Everything is set with the mouse and applied immediately. Open **WaySwitch**
+Everything is set with the mouse and applied immediately; the typing delay
+takes effect after the service restarts (see below). Open **WaySwitch**
 from the app menu; preferences are under <kbd>☰</kbd> or
 <kbd>Ctrl</kbd>+<kbd>,</kbd>. On **Sway and Hyprland** the indicator is a
 Waybar module (`wayswitch waybar`), pausing is bound to a hotkey (`wayswitch toggle`; the last word is
@@ -240,6 +241,14 @@ choose the language at startup from `LANGUAGE`, `LC_ALL`, `LC_MESSAGES` and
 `POSIX`, an unknown or an unset locale give English (the source language).
 For `C`/`POSIX`, `LANGUAGE` does not enable the Russian catalog. The Plasma
 widget uses KDE's system language. Localization is not in a published release yet.
+
+The `[meta]` section with `schema = 1` identifies the `config.toml` format. Files without the marker are treated as legacy: their
+`settle_ms = 30` is migrated to 120. An explicit 30 saved by this version stays
+30. An older WaySwitch version ignores the marker and replaces 30 with 120 again
+when it saves the file. Saving over a file with an unsupported format marker
+is rejected. The typing delay is read when the service starts: restart the
+service after changing it (`systemctl --user restart wayswitch` for a system
+install); other settings reload immediately.
 
 ## Updating
 

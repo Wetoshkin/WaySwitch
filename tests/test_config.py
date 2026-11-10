@@ -85,6 +85,76 @@ def test_old_default_settle_ms_is_migrated():
     assert from_dict({"typing": {"settle_ms": 200}}).typing.settle_ms == 200
 
 
+def test_legacy_file_migrates_once_and_saves_marker(tmp_path: Path):
+    path = tmp_path / "legacy.toml"
+    path.write_text("[typing]\nsettle_ms = 30\n", encoding="utf-8")
+
+    assert cfgmod.load(path).typing.settle_ms == 120
+    assert cfgmod.load(path).typing.settle_ms == 120
+
+    cfgmod.save(cfgmod.load(path), path)
+    text = path.read_text(encoding="utf-8")
+    assert "[meta]" in text and "schema = 1" in text
+    assert cfgmod.load(path).typing.settle_ms == 120
+
+
+@pytest.mark.parametrize("settle", [0, 30, 45, 119, 120, 2000])
+def test_saved_settle_ms_survives_repeated_save_and_load(tmp_path: Path, settle: int):
+    path = tmp_path / "c.toml"
+    cfg = cfgmod.Config()
+    cfg.typing.settle_ms = settle
+    cfgmod.save(cfg, path)
+
+    assert cfgmod.load(path).typing.settle_ms == settle
+    cfgmod.save(cfgmod.load(path), path)
+    assert cfgmod.load(path).typing.settle_ms == settle
+
+
+def test_current_marker_keeps_default_and_explicit_values():
+    assert cfgmod.from_dict({"typing": {}}).typing.settle_ms == 120
+    marked = cfgmod.to_dict(cfgmod.Config())
+    assert marked[cfgmod._SCHEMA_SECTION][cfgmod._SCHEMA_KEY] == cfgmod.CONFIG_SCHEMA
+    assert cfgmod.from_dict(marked).typing.settle_ms == 120
+
+    cfg = cfgmod.Config()
+    cfg.typing.settle_ms = 30
+    assert cfgmod.from_dict(cfgmod.to_dict(cfg)).typing.settle_ms == 30
+
+
+def test_to_dict_roundtrip_and_unknown_top_level_section():
+    cfg = cfgmod.Config()
+    cfg.typing.settle_ms = 30
+    data = cfgmod.to_dict(cfg)
+    data["future"] = {"x": 1}
+    assert cfgmod.from_dict(data) == cfg
+
+
+@pytest.mark.parametrize("marker", [
+    {"schema": 2},
+    {"schema": 0},
+    {"schema": -1},
+    {"schema": "1"},
+    {"schema": True},
+    {},
+    {"schema": 1, "extra": 1},
+    [],
+])
+def test_invalid_or_future_marker_is_rejected(marker):
+    with pytest.raises(cfgmod.ConfigSchemaError):
+        cfgmod.from_dict({"meta": marker})
+
+
+def test_save_does_not_overwrite_unknown_schema(tmp_path: Path):
+    path = tmp_path / "future.toml"
+    original = "[meta]\nschema = 2\n\n[typing]\nsettle_ms = 30\n"
+    path.write_text(original, encoding="utf-8")
+
+    with pytest.raises(cfgmod.ConfigSchemaError):
+        cfgmod.save(cfgmod.Config(), path)
+
+    assert path.read_text(encoding="utf-8") == original
+
+
 def test_lists_in_foreign_encoding_do_not_crash(tmp_path):
     from wayswitch.config import load_apps, load_exceptions
 
@@ -104,3 +174,18 @@ def test_selection_key_conflict_matches_validation():
     g.tap_key, g.pause_hotkey = "rightctrl", "scrolllock"
     assert selection_key_conflict(g, "rightctrl", manual="tap_key")
     assert selection_key_conflict(g, "scrolllock")
+
+
+def test_save_preserves_config_when_existing_schema_cannot_be_read(tmp_path, monkeypatch):
+    path = tmp_path / "config.toml"
+    original = "[meta]\nschema = 2\n"
+    path.write_text(original, encoding="utf8")
+
+    def denied(*args, **kwargs):
+        raise PermissionError("unreadable config")
+
+    monkeypatch.setattr(cfgmod, "open", denied, raising=False)
+    with pytest.raises(PermissionError):
+        cfgmod.save(cfgmod.Config(), path)
+    assert path.read_text(encoding="utf8") == original
+    assert not path.with_suffix(".tmp").exists()
