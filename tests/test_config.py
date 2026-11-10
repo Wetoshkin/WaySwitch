@@ -42,6 +42,42 @@ def test_pause_hotkey_accepts_documented_spelling():
     assert cfg.gesture.pause_hotkey == "scroll_lock"
 
 
+def test_printscreen_tap_key_round_trip(tmp_path: Path):
+    cfg = cfgmod.from_dict({"gesture": {"manual": "tap_key", "tap_key": "printscreen"}})
+    path = tmp_path / "c.toml"
+    cfgmod.save(cfg, path)
+    assert 'tap_key = "printscreen"' in path.read_text(encoding="utf-8")
+    assert cfgmod.load(path).gesture.tap_key == "printscreen"
+
+
+@pytest.mark.parametrize(("tap_key", "pause_hotkey"), [
+    ("esc", "escape"),
+    ("menu", "compose"),
+    ("scrolllock", "scroll_lock"),
+])
+def test_tap_key_conflicts_with_pause_hotkey_by_code(tap_key, pause_hotkey):
+    with pytest.raises(cfgmod.ConfigError):
+        cfgmod.from_dict({"gesture": {"manual": "tap_key", "tap_key": tap_key,
+                                      "pause_hotkey": pause_hotkey}})
+
+
+@pytest.mark.parametrize(("tap_key", "pause_hotkey"), [
+    ("esc", "pause"),
+    ("menu", "scrolllock"),
+])
+def test_distinct_tap_key_and_pause_hotkey_are_accepted(tap_key, pause_hotkey):
+    cfg = cfgmod.from_dict({"gesture": {"manual": "tap_key", "tap_key": tap_key,
+                                        "pause_hotkey": pause_hotkey}})
+    assert cfg.gesture.tap_key == tap_key
+    assert cfg.gesture.pause_hotkey == pause_hotkey
+
+
+def test_default_gesture_keys_do_not_conflict():
+    cfg = cfgmod.from_dict({})
+    assert cfg.gesture.manual == "double_shift"
+    assert cfg.gesture.pause_hotkey == ""
+
+
 def test_unknown_section_ignored_but_unknown_key_rejected():
     cfg = cfgmod.from_dict({"future": {"x": 1}})
     assert cfg.general.auto_correct is True
@@ -104,3 +140,8 @@ def test_selection_key_conflict_matches_validation():
     g.tap_key, g.pause_hotkey = "rightctrl", "scrolllock"
     assert selection_key_conflict(g, "rightctrl", manual="tap_key")
     assert selection_key_conflict(g, "scrolllock")
+    g.tap_key, g.pause_hotkey = "esc", "menu"
+    assert selection_key_conflict(g, "escape", manual="tap_key")
+    assert selection_key_conflict(g, "compose")
+    g.selection_key = "scroll_lock"
+    assert selection_key_conflict(g, "scrolllock", field="translit_key")

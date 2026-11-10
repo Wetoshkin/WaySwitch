@@ -287,11 +287,12 @@ class Preferences:
             # Backspace в диалоге: «без клавиши» — жест выключается.
             self.cb_manual.set_selected(cfgmod.MANUAL_MODES.index("none"))
             return
+        code = cfgmod.key_code(name)
         for field_name in cfgmod.SELECTION_KEY_FIELDS:
-            if name == getattr(self.cfg.gesture, field_name):
+            if code == cfgmod.key_code(getattr(self.cfg.gesture, field_name)):
                 self.toast(_("This key is already used for another action"))
                 return
-        if self.cfg.gesture.pause_hotkey and name == self.cfg.gesture.pause_hotkey.lower():
+        if self.cfg.gesture.pause_hotkey and code == cfgmod.key_code(self.cfg.gesture.pause_hotkey):
             self.toast(_("This key pauses WaySwitch"))
             return
         self._set("gesture", "tap_key", name)

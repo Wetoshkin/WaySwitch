@@ -220,7 +220,7 @@ def _validate(cfg: Config) -> None:
         raise ConfigError(
             f"tap_key: недопустимая клавиша жеста {ge.tap_key!r}, "
             f"можно: leftctrl, rightctrl, scrolllock, pause, f1…f12 и подобные")
-    tap, pause = ge.tap_key.lower(), ge.pause_hotkey.lower()
+    tap, pause = key_code(ge.tap_key), key_code(ge.pause_hotkey)
     for field_name in SELECTION_KEY_FIELDS:
         sel = getattr(ge, field_name).lower()
         if not sel:
@@ -250,6 +250,12 @@ SELECTION_KEY_FIELDS = {"selection_key": "исправляет выделенн�
                         "numbers_key": "пишет число прописью"}
 
 
+def key_code(name: str) -> int | str | None:
+    """Разрешить алиасы клавиши в код для сравнения назначений."""
+    name = name.lower()
+    return KEY_NAMES.get(name, name) if name else None
+
+
 def selection_key_conflict(ge: Gesture, name: str, manual: str | None = None,
                            field: str = "selection_key") -> str | None:
     """С чем клавиша действия над выделенным столкнулась бы (или None).
@@ -261,24 +267,19 @@ def selection_key_conflict(ge: Gesture, name: str, manual: str | None = None,
     """
     manual = manual or ge.manual
 
-    def code(key_name: str):
-        # Сравниваем коды, а не имена: «esc» и «escape» — одна клавиша.
-        key_name = key_name.lower()
-        return KEY_NAMES.get(key_name, key_name) if key_name else None
-
     if not name:
         return None
-    name = code(name)
+    name = key_code(name)
     for other, does in SELECTION_KEY_FIELDS.items():
-        if other != field and name == code(getattr(ge, other)):
+        if other != field and name == key_code(getattr(ge, other)):
             return f"эта клавиша уже {does}"
-    if manual == "tap_key" and name == code(ge.tap_key):
+    if manual == "tap_key" and name == key_code(ge.tap_key):
         return "эта клавиша уже исправляет последнее слово"
-    if manual == "double_shift" and name in (code("leftshift"), code("rightshift")):
+    if manual == "double_shift" and name in (key_code("leftshift"), key_code("rightshift")):
         return "Shift уже занят жестом «двойной Shift»"
-    if manual == "pause_key" and name == code("pause"):
+    if manual == "pause_key" and name == key_code("pause"):
         return "Pause уже занята жестом «клавиша Pause»"
-    if ge.pause_hotkey and name == code(ge.pause_hotkey):
+    if ge.pause_hotkey and name == key_code(ge.pause_hotkey):
         return "эта клавиша ставит WaySwitch на паузу"
     return None
 
