@@ -504,12 +504,11 @@ class Detector:
             return keep("digits")
         if _mixed_alphabets(a.core):
             return keep("mixed")
-        if _is_camel(a.core):
-            if (two_capitals and a.valid and not a.in_dict and a.text.isalpha()
-                    and a.text[:2].isupper() and a.text[2:].islower()):
-                capitals = self.two_capitals_fix(keys, other_group)
-            if capitals is None:
-                return keep("camel")
+        if two_capitals and not a.in_dict:
+            # «ХЛеб» в US выглядит как «{Kt,»: регистр проверяем в целевой группе.
+            capitals = self.two_capitals_fix(keys, other_group)
+        if _is_camel(a.core) and capitals is None:
+            return keep("camel")
         al = a.text.lower()
         inner = _inner(a.core, LETTERS[a.lang])
         if any(m in al for m in TECH_MARKERS) or any(m in inner for m in PATH_MARKERS) \

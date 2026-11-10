@@ -30,6 +30,14 @@ def det():
     return Detector(km, models, exceptions=set(), sensitivity=SENSITIVITY["normal"])
 
 
+@pytest.fixture
+def two_capitals_det(det):
+    words = RU_WORDS + [("хлеб", 40.0), ("любовь", 40.0), ("жизнь", 40.0),
+                        ("бюро", 40.0), ("юрий", 40.0)]
+    det.models["ru"] = LanguageModel.from_words("ru", words, RU_ALPHABET, top_n=5)
+    return det
+
+
 def typed(text, group):
     return keys_for_text(make_keymap(), text, group)
 
@@ -162,6 +170,37 @@ def test_joint_two_capitals_respects_exception(det):
     det.exceptions.add("ghbdtn")
     d = det.decide(typed("GHbdtn", US), US, RU, two_capitals=True)
     assert (d.action, d.reason) == ("keep", "exception")
+
+
+@pytest.mark.parametrize("source,target", [
+    ("{Kt,", "Хлеб"),
+    ("K>,jdm", "Любовь"),
+    (":Bpym", "Жизнь"),
+    ("<>hj", "Бюро"),
+    (">Hbq", "Юрий"),
+])
+def test_two_capitals_in_opposite_layout(two_capitals_det, source, target):
+    # В исходной гипотезе первые символы могут быть пунктуацией: «Х» и «Л»
+    # в US — это «{» и «K», а «б» — запятая.
+    d = two_capitals_det.decide(typed(source, US), US, RU, two_capitals=True)
+    assert (d.action, d.target_text, d.reason) == ("fix", target, "capitals-layout")
+
+
+def test_two_capitals_in_opposite_layout_is_opt_in(two_capitals_det):
+    d = two_capitals_det.decide(typed("{Kt,", US), US, RU)
+    assert (d.action, d.reason) == ("keep", "camel")
+
+
+@pytest.mark.parametrize("text", ["", "П", "ПР", "ПРи"])
+def test_two_capitals_fix_handles_short_text_without_index_error(det, text):
+    assert det.two_capitals_fix(typed(text, RU), RU) is None
+
+
+@pytest.mark.parametrize("target", ["ХЛеб,", "ХЛеб!", "ХЛеб-", "ХЛеб/"])
+def test_two_capitals_in_opposite_layout_keeps_trailing_punctuation(
+        two_capitals_det, target):
+    d = two_capitals_det.decide(typed(target, RU), US, RU, two_capitals=True)
+    assert d.action == "keep", (target, d.reason, d.target_text)
 
 
 def test_exception_list_blocks_fix(det):
