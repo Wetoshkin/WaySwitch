@@ -629,3 +629,20 @@ def test_gui_modules_import_gi_lazily():
                 names = [a.name for a in node.names]
                 module = getattr(node, "module", "") or ""
                 assert not module.startswith("gi") and "gi" not in names, path.name
+
+
+@pytest.mark.parametrize("locale,expected", [
+    ("en_locale", "Settings could not be loaded — defaults are shown"),
+    ("ru_locale", "Настройки не удалось загрузить — показаны исходные значения"),
+])
+def test_preferences_load_failure_shows_default_values(request, locale, expected):
+    from types import SimpleNamespace
+
+    from wayswitch.gui.preferences import Preferences
+
+    request.getfixturevalue(locale)
+    messages = []
+    prefs = SimpleNamespace(dialog=SimpleNamespace(present=lambda parent: None),
+                            broken="unsupported schema", toast=messages.append)
+    Preferences.present(prefs, None)
+    assert messages == [expected]

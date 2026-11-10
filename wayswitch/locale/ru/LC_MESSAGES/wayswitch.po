@@ -1029,8 +1029,8 @@ msgid "The service log is read in a terminal on the host system:\n\njournalctl -
 msgstr "Журнал службы читается в терминале основной системы:\n\njournalctl --user -u wayswitch.service -n 200 --no-pager\n\n"
 
 # 251
-msgid "The settings file is damaged — defaults are shown. It will be overwritten on the first change"
-msgstr "Файл настроек повреждён — показаны исходные значения. Он перезапишется при первом изменении"
+msgid "Settings could not be loaded — defaults are shown"
+msgstr "Настройки не удалось загрузить — показаны исходные значения"
 
 # 252
 msgid "The “↶” button remembers a word: WaySwitch will not correct it again. If a word was corrected by mistake — press the correction gesture right away (double Shift by default), and it will come back."
