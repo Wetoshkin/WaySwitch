@@ -181,6 +181,14 @@ def test_old_shell_extension_preserves_atspi_focus(monkeypatch, role, password, 
     assert a11y.skip_reason(probe, ["editor"], False, 100.0) == "приложение Editor"
 
 
+class RemoteDBusError(RuntimeError):
+    """Ошибка D-Bus с именем, как его вернул бы Gio.DBusError.get_remote_error."""
+
+    def __init__(self, name):
+        super().__init__(f"GDBus.Error:{name}: simulated")
+        self.remote_error = name
+
+
 def shell_bus(monkeypatch, results):
     calls = []
 
@@ -195,7 +203,8 @@ def shell_bus(monkeypatch, results):
         Gio=SimpleNamespace(BusType=SimpleNamespace(SESSION=0),
                             DBusCallFlags=SimpleNamespace(NONE=0),
                             DBusError=SimpleNamespace(
-                                get_remote_error=lambda e: str(e).split(":")[0]),
+                                get_remote_error=lambda e: getattr(e, "remote_error", None)
+                                or str(e).split(":")[0]),
                             bus_get_sync=lambda *_: SimpleNamespace(call_sync=call_sync)),
         GLib=SimpleNamespace(Variant=lambda signature, values: (signature, values),
                              VariantType=lambda signature: signature))
@@ -264,6 +273,65 @@ def test_transient_shell_context_error_never_downgrades_to_legacy_safe_focus(
     monkeypatch.setattr(a11y, "_DbusTree", lambda _: tree)
     assert a11y.query_focus().app is None
     assert "GetFocusedApp" not in calls
+
+
+@pytest.mark.parametrize("error", ["org.freedesktop.DBus.Error.ServiceUnknown",
+                                  "org.freedesktop.DBus.Error.NameHasNoOwner"])
+def test_absent_shell_service_returns_empty_context_without_legacy_call(monkeypatch, error):
+    calls = shell_bus(monkeypatch, [RemoteDBusError(error)])
+    assert a11y.query_shell_context() == a11y.ShellContext()
+    assert calls == ["GetFocusedContext"]
+
+
+@pytest.mark.parametrize("error", ["org.freedesktop.DBus.Error.UnknownMethod",
+                                  "org.freedesktop.DBus.Error.UnknownInterface"])
+def test_old_shell_extension_falls_back_to_focused_app(monkeypatch, error):
+    calls = shell_bus(monkeypatch, [RemoteDBusError(error), (["editor.desktop"],)])
+    assert a11y.query_shell_context() == a11y.ShellContext(("editor.desktop",))
+    assert calls == ["GetFocusedContext", "GetFocusedApp"]
+
+
+@pytest.mark.parametrize("error", ["org.freedesktop.DBus.Error.NoReply",
+                                  "org.freedesktop.DBus.Error.Timeout",
+                                  "org.freedesktop.DBus.Error.Failed"])
+def test_unexpected_shell_error_keeps_context_unknown(monkeypatch, error):
+    calls = shell_bus(monkeypatch, [RemoteDBusError(error)])
+    assert a11y.query_shell_context() is None
+    assert calls == ["GetFocusedContext"]
+
+
+def test_shell_absence_is_not_cached_across_discovery(monkeypatch):
+    calls = shell_bus(monkeypatch, [
+        RemoteDBusError("org.freedesktop.DBus.Error.ServiceUnknown"),
+        (["editor.desktop"], False, False, 0, 0, 0),
+        RemoteDBusError("org.freedesktop.DBus.Error.NameHasNoOwner"),
+    ])
+    assert a11y.query_shell_context() == a11y.ShellContext()
+    assert a11y.query_shell_context() == a11y.ShellContext(("editor.desktop",))
+    assert a11y.query_shell_context() == a11y.ShellContext()
+    assert calls == ["GetFocusedContext"] * 3
+
+
+def test_query_focus_keeps_native_atspi_when_shell_service_is_absent(monkeypatch):
+    calls = shell_bus(monkeypatch,
+                      [RemoteDBusError("org.freedesktop.DBus.Error.ServiceUnknown")])
+    tree = editable_tree()
+    tree.nodes[a11y.ROOT] = tree.nodes.pop("root")
+    monkeypatch.setattr(a11y, "_a11y_connection", lambda: object())
+    monkeypatch.setattr(a11y, "_DbusTree", lambda _: tree)
+    assert a11y.query_focus() == FocusSnapshot("Editor", app_ids=(), field="field")
+    assert calls == ["GetFocusedContext", "GetFocusedContext"]
+
+
+def test_read_selection_does_not_probe_absent_shell_service_twice(monkeypatch):
+    calls = shell_bus(monkeypatch,
+                      [RemoteDBusError("org.freedesktop.DBus.Error.ServiceUnknown")])
+    connection = SimpleNamespace(close_sync=lambda _cancellable: None)
+    monkeypatch.setattr(a11y, "_new_a11y_connection", lambda: connection)
+    expected = FocusSnapshot("Editor", False, time.monotonic(), ("editor.desktop",),
+                             ("path",))
+    assert a11y.read_selection(expected, lambda: True, 16) is None
+    assert calls == ["GetFocusedContext"]
 
 
 def test_trusted_shell_pid_scopes_frameless_application(monkeypatch):
