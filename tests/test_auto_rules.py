@@ -117,6 +117,16 @@ def test_particles_space():
     assert env["det"].particles_fix(keys, RU) == "кем бы"
 
 
+@pytest.mark.parametrize("typed,expected", [
+    ("чьето", "чье-то"),   # набранную «е» не заменяем на «ё»
+    ("чьёто", "чьё-то"),
+])
+def test_particles_preserve_entered_e_or_yo(typed, expected):
+    env = make_env()
+    keys = keys_for_text(env["km"], typed, RU)
+    assert env["det"].particles_fix(keys, RU) == expected
+
+
 def test_particles_skips_known_word():
     env = make_env()
     keys = keys_for_text(env["km"], "пирог", RU)
