@@ -27,7 +27,7 @@
 
 **Automatic Russian–English keyboard layout correction for Linux on Wayland.**
 
-**1.1.3 — text replacement fixes for GNOME, Hermes and Calc.**
+**1.1.4 — Russian/English interface localization and text-replacement stabilization.**
 
 Packages and checksums: [latest published release](https://github.com/Wetoshkin/WaySwitch/releases/latest).
 See [project status](docs/PROGRESS.md) for completed changes, verification and remaining work.
@@ -38,8 +38,8 @@ works on Wayland in GNOME, COSMIC, KDE Plasma, Sway and Hyprland. Xfce, MATE,
 Budgie and LXQt require a Wayland session on labwc or Wayfire. See the
 [compatibility table](#status) for conditions and Umbriel/NixOS validation.
 **X11 and Cinnamon (including the default Linux Mint session) are unsupported.**
-The interface is in Russian; correction supports the
-Russian ↔ English pair.
+The interface is available in Russian and English, selected from the system
+locale; correction supports the Russian ↔ English pair.
 
 <p align="center">
   <img src=".github/assets/how-en.png" alt="Type руддщ, press Space, get hello" width="100%">
@@ -253,7 +253,8 @@ choose the language at startup from `LANGUAGE`, `LC_ALL`, `LC_MESSAGES` and
 `LANG`. A Russian locale gives the Russian interface; English, `C`, `C.UTF-8`,
 `POSIX`, an unknown or an unset locale give English (the source language).
 For `C`/`POSIX`, `LANGUAGE` does not enable the Russian catalog. The Plasma
-widget uses KDE's system language. Localization is not in a published release yet.
+widget uses KDE's system language. Localization is part of 1.1.4; the published
+1.1.3 did not include it.
 
 The `[meta]` section with `schema = 1` identifies the `config.toml` format. Files without the marker are treated as legacy: their
 `settle_ms = 30` is migrated to 120. An explicit 30 saved by this version stays

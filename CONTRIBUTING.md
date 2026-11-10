@@ -82,6 +82,37 @@ SHA PR и CI; после слияния начинайте следующую з
 `[Не опубликовано]` автоматически в релиз не попадает; если раздела для тега
 нет, публикация останавливается.
 
+## Чек-лист выпуска
+
+Этот чек-лист обязателен для каждого выпуска, а не только для текущего.
+Перед тегом и после публикации проверьте по порядку:
+
+1. Сверьте версию в `wayswitch/__init__.py`, `pyproject.toml`, Arch
+   `PKGBUILD`/`.SRCINFO`, метаданных расширения GNOME, виджета Plasma и
+   Flatpak. Исторические разделы выпусков и тестовые версии не переписывайте.
+2. Проверьте и при необходимости обновите GitHub README на русском и
+   английском, пользовательскую документацию в `docs/`, `CHANGELOG.md` и
+   заметки релиза. Не приписывайте выпуску непроверенные исправления.
+3. Проверьте ссылки на версии, команды установки и обновления,
+   `packaging/get.sh`, `packaging/install.sh`, поддерживаемые рабочие столы и
+   приложения, а также границы реальных проверок. Отдельно проверьте, что
+   заявленный перевод действительно входит во все форматы пакета.
+4. Если выпуск меняет пользовательские тексты или страницу проекта,
+   обновите сайт и его копию установщика; каталог `site/` и инфраструктурные
+   файлы не добавляйте в Git или веб-корень. Выкладывайте сайт только после
+   проверки опубликованного выпуска.
+5. До тега пройдите development-gate и все обязательные проверки версий,
+   пакетов и истории. Не ослабляйте их и не добавляйте исключений ради
+   выпуска.
+6. После публикации проверьте доступность релиза, тег и точный исходный
+   коммит, наличие всех пакетов и совпадение SHA256. Только после этого
+   сообщайте об исправлении в выпуске и закрывайте issue.
+7. Не указывайте модели, ИИ-помощников или другие инструменты как авторов,
+   участников или соавторов проекта и его выпуска.
+
+Итоговый `development-gate` должен быть успешен до слияния; порядок проверок
+и публикации не сокращается.
+
 Не включайте в Git личные настройки, файлы агентов, рабочие планы/отчёты,
 необработанные журналы и тестовые образы. На Windows загрузки и временные
 файлы храните на D:, на удалённых стендах — внутри папки проекта; образы VM
@@ -107,3 +138,10 @@ Run the commands above before submitting a change. Keep platform imports
 local in the pure Python modules and include a focused regression test
 when changing behaviour. Mention which checks you actually ran, including
 whether the change was tested in a live Wayland session.
+
+Every release follows the release checklist above: audit both READMEs, the
+user documentation, changelog, release notes and the website when affected;
+check version references, installers, supported desktops/apps, real-test
+limits and translations; and verify the published release, tag, packages and
+SHA256 before claiming a fix. Do not relax the development gate or version
+checks, and do not credit models or helper tools as authors.

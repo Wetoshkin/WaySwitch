@@ -59,6 +59,16 @@ def test_committed_changelog_has_published_1_1_3_and_unreleased():
     assert PROGRESS.format("v1.1.3") in notes
 
 
+def test_committed_changelog_has_prepared_1_1_4_notes():
+    text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    notes = release_notes.notes_for(text, "v1.1.4")
+    assert "## Изменения в 1.1.4" in notes
+    assert notes.strip()
+    assert "Новых изменений после 1.1.4" not in notes
+    assert "AppImage добавлены PNG" not in notes
+    assert PROGRESS.format("v1.1.4") in notes
+
+
 def test_release_workflow_uses_the_tag_notes_and_keeps_package_checks():
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     assert 'python3 tools/release_notes.py "$GITHUB_REF_NAME" > notes.md' in workflow
