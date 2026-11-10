@@ -65,8 +65,7 @@ class Preferences:
     def present(self, parent) -> None:
         self.dialog.present(parent)
         if self.broken:
-            self.toast(_("The settings file is damaged — defaults are shown. "
-                         "It will be overwritten on the first change"))
+            self.toast(_("Settings could not be loaded — defaults are shown"))
 
     # --- сохранение ----------------------------------------------------------
 
