@@ -119,7 +119,7 @@ def test_terminal_failure_is_reported_without_installation_claim(monkeypatch):
     assert not companion.handoff(info, confirmed=True)
 
 
-def test_confirmed_handoff_sanitizes_host_environment(monkeypatch):
+def test_confirmed_handoff_sanitizes_host_environment(monkeypatch, en_locale):
     info, _ = probe({("apt-cache", "policy", "wayswitch"): (0, "Candidate: 1.1.4-1\n")})
     monkeypatch.setenv("WAYSWITCH_PACKAGE", "appimage")
     monkeypatch.setenv("PYTHONPATH", "/tmp/bundle")
@@ -147,7 +147,8 @@ def test_confirmed_handoff_sanitizes_host_environment(monkeypatch):
      "sudo pacman -Syu wayswitch", False),
     ("arch", ("paru", "-Si", "aur/wayswitch"), "Version : 1.1.4-1\n",
      "paru -S aur/wayswitch", False),
-    ("opensuse-tumbleweed", ("zypper", "--no-refresh", "--xmlout", "info", "wayswitch"),
+    ("opensuse-tumbleweed", ("zypper", "--no-refresh", "--xmlout", "search", "--match-exact",
+                            "--type", "package", "--details", "wayswitch"),
      '<stream><solvable name="wayswitch" edition="1.1.4-1"/></stream>',
      "sudo zypper install -- wayswitch=1.1.4-1", True),
 ])

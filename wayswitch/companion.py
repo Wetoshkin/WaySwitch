@@ -112,7 +112,8 @@ def check(gui: str, *, env=None, os_release=None, run=updater.run_command,
     elif manager == "zypper":
         import xml.etree.ElementTree as ET
 
-        result = run(["zypper", "--no-refresh", "--xmlout", "info", "wayswitch"])
+        result = run(["zypper", "--no-refresh", "--xmlout", "search", "--match-exact",
+                      "--type", "package", "--details", "wayswitch"])
         try:
             root = ET.fromstring(result.stdout)
             editions = {item.get("edition", "") for item in root.iter("solvable")
