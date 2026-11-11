@@ -95,6 +95,10 @@ def connection_report(status: dict | None) -> str:
 
 
 def show_instructions(parent, action: str = "setup"):
+    if action == "setup" and package_kind() == "appimage":
+        from wayswitch.gui.companion_dialog import show
+
+        return show(parent)
     from gi.repository import Adw, Gdk, Gio
 
     text = instructions(action)

@@ -147,6 +147,8 @@ a release.
 
 ### Flatpak and AppImage
 
+The pending AppImage setup assistant shows the distribution, native package manager and version compatibility. After confirmation it hands installation to the system package manager in a terminal; mismatched versions receive instructions. Arch and AUR require manual review. See [native-service handoff](docs/appimage-companion.md).
+
 Portable settings clients are available. Install and update the
 native WaySwitch service on the host using the command above. Use the service
 and GUI from the same [release](https://github.com/Wetoshkin/WaySwitch/releases).
