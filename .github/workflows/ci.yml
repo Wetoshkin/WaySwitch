@@ -65,7 +65,11 @@ jobs:
           wayswitch version
           python3 -c "import wayswitch, wayswitch.cli"
           test -f /usr/lib/systemd/user/wayswitch.service
-          wayswitch doctor || true
+          result=0
+          dbus-run-session -- wayswitch doctor --delay 1 > report.txt || result=$?
+          test "$result" -le 1
+          grep -Fx "WaySwitch $(wayswitch version | cut -d' ' -f2)" report.txt
+          grep -F 'Демон недоступен по D-Bus' report.txt
       - uses: actions/upload-artifact@v4
         with:
           name: wayswitch-deb
