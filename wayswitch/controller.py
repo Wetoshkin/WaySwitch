@@ -223,6 +223,7 @@ class Controller:
         # раскладки: в это окно автоисправление не вмешивается.
         self._last_edit_at: float | None = None
         self._last_external_layout_at: float | None = None
+        self._layout_shortcut_partial_at: float | None = None
         self.stats = {"corrections": 0, "manual": 0, "undo": 0}
         self._pause_key = kc.KEY_NAMES.get(config.gesture.pause_hotkey.lower()) \
             if config.gesture.pause_hotkey else None
@@ -313,6 +314,7 @@ class Controller:
 
     def pause(self) -> None:
         self.paused = True
+        self._layout_shortcut_partial_at = None
         if self.busy:
             self._abort_requested = True  # пауза посреди фикса — не дописывать слово
             self._busy_reset = True
@@ -340,6 +342,7 @@ class Controller:
     def set_locked(self, on: bool) -> None:
         self.locked = on
         if on:
+            self._layout_shortcut_partial_at = None
             if self._require_lock_confirmation:
                 self.lock_confirmation_required = self.paused = True
             self._busy_keys.clear()
@@ -487,6 +490,9 @@ class Controller:
                 self.buffer.note_press(code, device_id)
             return
         now = self.clock()
+        if (value == 1 and code in kc.COMMAND_MODIFIERS and self.buffer.current_word()
+                and not (self.busy or self.paused or self.locked)):
+            self._layout_shortcut_partial_at = now
         if value == 1 and code not in self._gesture_keys:
             # Любая другая клавиша рвёт серию Shift: результат второго тапа
             # больше не может управлять будущей фразой.
@@ -584,6 +590,8 @@ class Controller:
             # контекст больше не действует.
             self._provisional_binding = False
             self._buffer_private = False
+        if value == 1 and code not in kc.MODIFIER_KEYS and not self.buffer.command_held():
+            self._layout_shortcut_partial_at = None
         event = self.buffer.feed(code, value, device_id, now)
         if event is not None and event.reset_before:
             self._buffer_private = False
@@ -671,6 +679,7 @@ class Controller:
 
     def on_click(self) -> None:
         self._focus_boundary_at = self.clock()
+        self._layout_shortcut_partial_at = None
         self._buffer_focus = self._buffer_owner = None
         self._buffer_window = None
         self._word_gesture = None
@@ -712,7 +721,11 @@ class Controller:
             # Пауза нужна только если смена раскладки прервала уже набранное
             # слово. Целиком новое слово из пустого буфера начинается после
             # смены и не может быть суффиксом прежнего.
-            had_partial_word = bool(self.buffer.current_word())
+            shortcut = self._layout_shortcut_partial_at
+            had_partial_word = bool(self.buffer.current_word()) or (
+                shortcut is not None
+                and 0 <= self.clock() - shortcut < self.config.general.edit_guard_sec)
+            self._layout_shortcut_partial_at = None
             self.buffer.reset()
             self._clear_context()
             self._skip_word = False
@@ -796,6 +809,7 @@ class Controller:
         """
         old, self.probe = self.probe, probe
         self._probe_epoch += 1
+        self._layout_shortcut_partial_at = None
         self._buffer_owner = None
         close = getattr(old, "close", None)
         if close is not None:
@@ -867,6 +881,7 @@ class Controller:
         else:
             self._skip_word |= bool(self.buffer.current_word()) or self._lost_input
         self._provisional_binding = False
+        self._layout_shortcut_partial_at = None
         self._buffer_owner = None
         self.buffer.reset()
         self._clear_context()

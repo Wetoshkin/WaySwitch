@@ -2098,3 +2098,46 @@ def test_layout_switch_with_held_modifier_allows_fresh_word(env):
     type_text(env, "ghbdtn ")
     assert ctrl.stats["corrections"] == 1
     assert env["corrected"] == [("ghbdtn", "привет", False)]
+
+
+@pytest.mark.parametrize("modifier", [kc.KEY_LEFTMETA, kc.KEY_LEFTCTRL, kc.KEY_LEFTALT])
+@pytest.mark.parametrize("partial", [False, True])
+def test_layout_shortcut_preserves_interrupted_word_evidence(env, modifier, partial):
+    ctrl = env["ctrl"]
+    if partial:
+        type_text(env, "prefix")
+    ctrl.on_key(modifier, 1, 1)
+    tap(env, kc.KEY_SPACE)
+    ctrl.on_key(modifier, 0, 1)
+    ctrl.on_layout_changed(None, True)
+    type_text(env, "ghbdtn ")
+    assert ctrl.stats["corrections"] == (0 if partial else 1)
+    assert env["corrected"] == ([] if partial else [("ghbdtn", "привет", False)])
+
+
+def test_old_command_shortcut_does_not_delay_later_fresh_layout_switch(env):
+    ctrl = env["ctrl"]
+    type_text(env, "prefix")
+    tap(env, kc.KEY_LEFTMETA)
+    env["clock"].now += 2.0
+    ctrl.on_layout_changed(None, True)
+    type_text(env, "ghbdtn ")
+    assert ctrl.stats["corrections"] == 1
+
+
+@pytest.mark.parametrize("boundary", ["click", "pause", "lock"])
+def test_shortcut_partial_word_is_forgotten_at_new_input_boundary(env, boundary):
+    ctrl = env["ctrl"]
+    type_text(env, "prefix")
+    tap(env, kc.KEY_LEFTMETA)
+    if boundary == "click":
+        ctrl.on_click()
+    elif boundary == "pause":
+        ctrl.pause()
+        ctrl.resume()
+    else:
+        ctrl.set_locked(True)
+        ctrl.set_locked(False)
+    ctrl.on_layout_changed(None, True)
+    type_text(env, "ghbdtn ")
+    assert ctrl.stats["corrections"] == 1
