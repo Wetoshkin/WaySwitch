@@ -13,16 +13,38 @@ class AppDefined(Exception):
     pass
 
 
-def capture_app(monkeypatch):
+def capture_app(monkeypatch, argv=None, package_kind="flatpak"):
     """Определить вложенный App из app.main, не запуская GTK."""
     from wayswitch.gui import app
 
     classes = []
 
+    class SimpleAction:
+        def __init__(self, name, _parameter_type):
+            self.name = name
+
+        @staticmethod
+        def new(name, parameter_type):
+            return SimpleAction(name, parameter_type)
+
+        def connect(self, _signal, _callback):
+            pass
+
     class Application:
         def __init_subclass__(cls):
             classes.append(cls)
             raise AppDefined
+
+        def __init__(self, **_kwargs):
+            self.holds = 0
+            self.actions = {}
+            self.accels = {}
+
+        def add_action(self, action):
+            self.actions[action.name] = action
+
+        def set_accels_for_action(self, action, accels):
+            self.accels[action] = accels
 
         def hold(self):
             self.holds = getattr(self, 'holds', 0) + 1
@@ -31,7 +53,7 @@ def capture_app(monkeypatch):
             self.holds -= 1
 
         def do_startup(self):
-            pass
+            self.base_started = True
 
         def do_shutdown(self):
             self.base_shutdown = True
@@ -40,7 +62,11 @@ def capture_app(monkeypatch):
     gi.require_version = lambda *args: None
     repository = types.ModuleType("gi.repository")
     repository.Adw = SimpleNamespace(Application=Application)
-    repository.Gio = SimpleNamespace()
+    repository.Gio = SimpleNamespace(
+        SimpleAction=SimpleAction,
+        ApplicationFlags=SimpleNamespace(FLAGS_NONE=0))
+    repository.Gdk = SimpleNamespace(Display=SimpleNamespace(get_default=lambda: None))
+    repository.Gtk = SimpleNamespace()
     repository.GLib = SimpleNamespace(SOURCE_REMOVE=False, timeouts=[])
 
     def timeout_add(ms, callback):
@@ -48,13 +74,74 @@ def capture_app(monkeypatch):
         return 1
 
     repository.GLib.timeout_add = timeout_add
+    repository.GLib.timeout_add_seconds = lambda *_args: 1
     Application.glib = repository.GLib
     monkeypatch.setitem(sys.modules, "gi", gi)
     monkeypatch.setitem(sys.modules, "gi.repository", repository)
-    monkeypatch.setattr(app.portable, "package_kind", lambda: "flatpak")
+    monkeypatch.setattr(app.portable, "package_kind",
+                        lambda kind=package_kind: kind)
+    monkeypatch.setattr(app.autostart, "migrate_tray", lambda: False)
     with pytest.raises(AppDefined):
-        app.main([])
+        app.main([] if argv is None else argv)
     return classes[0]
+
+
+class FakeWindow:
+    def __init__(self, request_close):
+        self.request_close = request_close
+        self.visible = False
+        self.present_count = 0
+        self.close_results = []
+
+    def set_visible(self, visible):
+        self.visible = visible
+
+    def present(self):
+        self.visible = True
+        self.present_count += 1
+
+    def close(self):
+        result = self.request_close()
+        self.close_results.append(result)
+        return result
+
+
+class FakeMain:
+    def __init__(self, request_close):
+        self.window = FakeWindow(request_close)
+
+    def present(self):
+        self.window.present()
+
+
+def make_app(app_class, monkeypatch):
+    """Создать App с заглушками GI и окна; окно создаётся при показе."""
+    from wayswitch.gui import onboarding
+
+    instance = app_class()
+    starts = []
+    closes = []
+    instance.proxy = SimpleNamespace(
+        start=lambda: starts.append("proxy"),
+        close=lambda: closes.append("proxy"),
+        call=lambda *_args, **_kwargs: True,
+        status=None,
+    )
+    instance.tray = SimpleNamespace(
+        start=lambda: starts.append("tray"),
+        update=lambda *_args: None,
+    )
+
+    def ensure_main():
+        if instance._main is None:
+            instance._main = FakeMain(lambda: app_class._on_close(instance))
+        return instance._main
+
+    instance._ensure_main = ensure_main
+    instance.starts = starts
+    instance.closes = closes
+    monkeypatch.setattr(onboarding, "needed", lambda: False)
+    return instance
 
 
 def test_app_shutdown_closes_proxy(monkeypatch):
@@ -130,6 +217,137 @@ def test_quit_stop_transport_error_quits_once(monkeypatch):
 
     instance._quit_stop()
 
+    assert quits == [True]
+
+
+def test_native_default_holds_application_and_closes_to_tray(monkeypatch):
+    app_class = capture_app(monkeypatch, package_kind=None)
+    instance = make_app(app_class, monkeypatch)
+    history = instance.history
+    proxy = instance.proxy
+
+    app_class.do_startup(instance)
+    assert instance.holds == 1
+    assert instance.starts == ["proxy", "tray"]
+
+    app_class.do_activate(instance)
+    main = instance._main
+    assert main.window.visible is True
+
+    assert app_class._on_close(instance) is True
+    assert instance._main is main
+    assert main.window.visible is False
+    assert instance.history is history
+    assert instance.proxy is proxy
+    assert instance.closes == []
+    assert getattr(instance, "base_shutdown", False) is False
+
+    app_class.do_activate(instance)
+    assert instance._main is main
+    assert main.window.visible is True
+
+
+def test_native_tray_activation_restores_retained_window(monkeypatch):
+    app_class = capture_app(monkeypatch, argv=["--tray"], package_kind=None)
+    instance = make_app(app_class, monkeypatch)
+
+    app_class.do_startup(instance)
+    assert instance.holds == 1
+    app_class.do_activate(instance)
+    assert instance._main is None  # первая активация --tray окно не открывает
+
+    app_class.do_activate(instance)
+    main = instance._main
+    assert main.window.visible is True
+    assert app_class._on_close(instance) is True
+    assert instance._main is main
+    assert main.window.visible is False
+
+    app_class.do_activate(instance)
+    assert instance._main is main
+    assert main.window.visible is True
+
+
+@pytest.mark.parametrize("kind", ["appimage", "flatpak"])
+def test_portable_default_window_close_keeps_only_window_lifetime(monkeypatch, kind):
+    app_class = capture_app(monkeypatch, package_kind=kind)
+    instance = make_app(app_class, monkeypatch)
+
+    app_class.do_startup(instance)
+    assert instance.holds == 0
+    app_class.do_activate(instance)
+    assert instance._main.window.visible is True
+
+    assert app_class._on_close(instance) is False
+    assert instance._main is None
+    assert getattr(instance, "base_shutdown", False) is False
+
+
+@pytest.mark.parametrize("kind", ["appimage", "flatpak"])
+def test_portable_tray_keeps_window_after_close(monkeypatch, kind):
+    app_class = capture_app(monkeypatch, argv=["--tray"], package_kind=kind)
+    instance = make_app(app_class, monkeypatch)
+
+    app_class.do_startup(instance)
+    assert instance.holds == 1
+    app_class.do_activate(instance)
+    assert instance._main is None
+    app_class.do_activate(instance)
+    main = instance._main
+
+    assert app_class._on_close(instance) is True
+    assert instance._main is main
+    assert main.window.visible is False
+
+    app_class.do_activate(instance)
+    assert instance._main is main
+    assert main.window.visible is True
+
+
+def test_native_background_close_hides_window_without_shutdown(monkeypatch):
+    app_class = capture_app(monkeypatch, package_kind=None)
+    instance = make_app(app_class, monkeypatch)
+    app_class.do_startup(instance)
+    app_class.do_activate(instance)
+    main = instance._main
+
+    instance._quit_background()
+
+    assert main.window.close_results == [True]
+    assert instance._main is main
+    assert main.window.visible is False
+    assert instance.closes == []
+    assert getattr(instance, "base_shutdown", False) is False
+
+
+@pytest.mark.parametrize("kind", ["appimage", "flatpak"])
+def test_portable_background_close_ends_window(monkeypatch, kind):
+    app_class = capture_app(monkeypatch, package_kind=kind)
+    instance = make_app(app_class, monkeypatch)
+    app_class.do_startup(instance)
+    app_class.do_activate(instance)
+    main = instance._main
+
+    instance._quit_background()
+
+    assert main.window.close_results == [False]
+    assert instance._main is None
+
+
+def test_native_explicit_stop_stops_service_and_quits(monkeypatch):
+    from wayswitch.gui import autostart
+
+    app_class = capture_app(monkeypatch, package_kind=None)
+    instance = make_app(app_class, monkeypatch)
+    stopped = []
+    quits = []
+    monkeypatch.setattr(autostart, "stop_service", lambda: stopped.append(True))
+    instance._stopping = False
+    instance.quit = lambda: quits.append(True)
+
+    app_class._quit_stop(instance)
+
+    assert stopped == [True]
     assert quits == [True]
 
 
