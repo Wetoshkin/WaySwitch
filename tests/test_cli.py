@@ -3,6 +3,8 @@ import pytest
 from wayswitch import __version__
 from wayswitch.cli import build_parser
 
+pytestmark = pytest.mark.usefixtures("ru_locale")
+
 SELECTION_COMMANDS = [
     ("fix-selection", "FixSelection", "исправлено"),
     ("translit", "TranslitSelection", "готово"),

@@ -523,3 +523,5 @@ Coverage of WaySwitch:
 
 Code — MIT. Dictionaries in `wayswitch/data` are built from
 [FrequencyWords](https://github.com/hermitdave/FrequencyWords), CC-BY-SA 4.0.
+
+The CLI (`--help`, `doctor`, `explain` and command messages) uses the same locale as the GUI. English is the fallback for C/POSIX, missing or unknown locales. JSON, command names, decision reasons and `wayswitch version` remain locale independent.
