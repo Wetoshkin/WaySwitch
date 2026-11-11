@@ -1,7 +1,9 @@
 """Update sources and package-manager boundaries, without a live Linux host."""
 
 import hashlib
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -254,7 +256,8 @@ def test_alt_package_uses_apt_rpm_and_keeps_rpm_format(tmp_path):
 def test_staging_records_declared_source(shell, tmp_path, marker):
     root = Path(__file__).resolve().parents[1]
     destination = tmp_path / "stage"
-    result = subprocess.run([shell, str(root / "tools" / "stage.sh"),
+    bash = shell if sys.platform == "win32" else shutil.which("bash")
+    result = subprocess.run([bash, str(root / "tools" / "stage.sh"),
                              destination.as_posix(), "/usr/lib/wayswitch", marker],
                             capture_output=True, encoding="utf-8")
     assert result.returncode == 0, result.stderr
@@ -288,10 +291,15 @@ def test_successful_update_only_restarts_previously_running_service(shell, tmp_p
     info = updater.UpdateInfo(updater.Source("system", "apt", "wayswitch", "1.1.4-1"),
                                updates.Release("1.1.4-2", ""), "available", "true", True)
     script = updater.install_script(info, app_id="test.app", pid=0)
+    commands = tmp_path / "bin"
+    commands.mkdir()
+    query = commands / "dpkg-query"
+    query.write_text("#!/bin/sh\nprintf 1.1.4-2\n", encoding="utf-8", newline="\n")
+    query.chmod(0o755)
     prefix = f'''
+PATH="$PWD/bin:$PATH"
 flock() {{ :; }}
 systemctl() {{ echo "$*" >> service-calls; echo {service}; }}
-dpkg-query() {{ printf 1.1.4-2; }}
 dpkg() {{ :; }}
 python3() {{ :; }}
 gapplication() {{ touch gui-closed; }}
