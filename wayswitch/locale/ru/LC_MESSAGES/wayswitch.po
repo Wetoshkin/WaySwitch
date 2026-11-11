@@ -1473,3 +1473,129 @@ msgstr "Правый Super"
 #, python-brace-format
 msgid "Manual only · {count} {words} this session"
 msgstr "Только вручную · {count} {words} за сеанс"
+
+msgid "\n\nIf the installed service does not support this command yet, use its original package manager or installation method."
+msgstr "\n\nЕсли установленная служба ещё не поддерживает эту команду, обновите её через прежний пакетный менеджер или способ установки."
+
+msgid "\n\nUpdate the native service separately in a terminal on the host system through its original source:\n\n"
+msgstr "\n\nНативную службу обновляйте отдельно в терминале основной системы через её прежний источник:\n\n"
+
+msgid "Arch repository updates include a system upgrade. Run the shown command yourself after reviewing the complete transaction."
+msgstr "Обновление пакета из репозитория Arch включает обновление системы. Выполните показанную команду самостоятельно после проверки полного списка изменений."
+
+msgid "Check the existing installation source"
+msgstr "Проверять прежний источник установки"
+
+msgid "Check the existing installation source periodically. Repository packages keep using their package manager"
+msgstr "Периодически проверять прежний источник установки. Пакеты репозиториев продолжают обновляться через свой пакетный менеджер"
+
+msgid "Copy service update command"
+msgstr "Скопировать команду обновления службы"
+
+msgid "Could not check the installation source"
+msgstr "Не удалось проверить источник установки"
+
+msgid "Could not check {source}. No update result was confirmed."
+msgstr "Не удалось проверить {source}. Наличие обновлений не подтверждено."
+
+msgid "Could not open a terminal. Copy the command and run it in your terminal."
+msgstr "Не удалось открыть терминал. Скопируйте команду и выполните её в своём терминале."
+
+msgid "Downloaded Flatpak bundle · GitHub Releases"
+msgstr "Скачанный пакет Flatpak · выпуски GitHub"
+
+msgid "GitHub Releases"
+msgstr "Выпуски GitHub"
+
+msgid "I installed a downloaded .flatpak bundle…"
+msgstr "Я устанавливал скачанный файл .flatpak…"
+
+msgid "Install in terminal"
+msgstr "Установить через терминал"
+
+msgid "Installation is running in the terminal. Its result will be verified before restarting."
+msgstr "Установка выполняется в терминале. Перед перезапуском её результат будет проверен."
+
+msgid "Installation runs visibly in a terminal; confirm the transaction and enter your password if requested. GNOME extension updates may require signing out and back in."
+msgstr "Ход установки виден в терминале: подтвердите список изменений и при необходимости введите пароль. Для обновления расширения GNOME может потребоваться выйти из сеанса и войти снова."
+
+msgid "Installation source could not be confirmed"
+msgstr "Источник установки не удалось подтвердить"
+
+msgid "Native service version: {version}. Update it separately on the host through its original source:"
+msgstr "Версия нативной службы: {version}. Обновляйте её отдельно на основной системе через прежний источник:"
+
+msgid "No newer package was found in {source}"
+msgstr "В источнике {source} более новый пакет не найден"
+
+msgid "Open Updates to review the changes and install through your existing installation source."
+msgstr "Откройте «Обновления», чтобы просмотреть изменения и установить новую версию через прежний источник установки."
+
+msgid "Packages are verified against the release's SHA256SUMS before installation."
+msgstr "Перед установкой пакеты проверяются по SHA256SUMS выбранного выпуска."
+
+msgid "Press Enter to close this window."
+msgstr "Нажмите Enter, чтобы закрыть это окно."
+
+msgid "Release notes for repository packages are supplied by their maintainer. The package manager or AUR helper shows the proposed transaction."
+msgstr "Сведения об изменениях пакета репозитория предоставляет сопровождающий. Пакетный менеджер или помощник AUR показывает предлагаемый список изменений установки."
+
+msgid "Run this command on the host for a repository installation. For a local bundle, use the verified bundle instructions below. Update the native service separately through its own installation source."
+msgstr "Для установки из репозитория выполните эту команду на основной системе. Для скачанного файла выберите ниже обновление локального пакета с проверкой суммы. Нативную службу обновляйте отдельно через её собственный источник установки."
+
+msgid "Source: {source}\nInstalled: {version} (window {gui})"
+msgstr "Источник: {source}\nУстановлено: {version} (окно {gui})"
+
+msgid "System repositories ({manager})"
+msgstr "Системные репозитории ({manager})"
+
+msgid "The AUR recipe must be updated by its maintainer. Review build-file changes when the helper asks; the installation source stays AUR."
+msgstr "Рецепт AUR должен обновить сопровождающий. Просмотрите изменения файлов сборки по запросу помощника; источником установки остаётся AUR."
+
+msgid "The update or its verification failed. The window was kept open. Review the terminal output before trying again."
+msgstr "Обновление или его проверка завершились ошибкой. Окно осталось открытым. Перед повторной попыткой проверьте вывод терминала."
+
+msgid "The update was installed. Close and reopen WaySwitch to load the new version."
+msgstr "Обновление установлено. Закройте и снова откройте WaySwitch, чтобы загрузить новую версию."
+
+msgid "This uses your package manager's repository metadata. A new GitHub release may not yet be packaged here. Package revisions are included."
+msgstr "Используются сведения о репозиториях вашего пакетного менеджера. Нового выпуска GitHub здесь пока может не быть. Учитываются также ревизии сборки пакета."
+
+msgid "Update installed and verified. Reopening WaySwitch."
+msgstr "Обновление установлено и проверено. WaySwitch запускается заново."
+
+msgid "Update the WaySwitch package or pinned input in your Nix configuration first, then rebuild using your usual command."
+msgstr "Сначала обновите пакет WaySwitch или закреплённый источник в конфигурации Nix, затем выполните пересборку привычной командой."
+
+msgid "Update the deployment using your system updater. Layered local RPMs need a replacement from their original source. A reboot may be required."
+msgstr "Обновляйте развёртывание через системный центр обновлений. Локальные наложенные RPM нужно заменять пакетами из их прежнего источника. Может потребоваться перезагрузка."
+
+msgid "Updates through {source}: manual steps required"
+msgstr "Обновления через {source}: требуются ручные действия"
+
+msgid "Updates…"
+msgstr "Обновления…"
+
+msgid "Use the installation method you originally chose. No other source will be selected automatically."
+msgstr "Используйте прежний способ установки. Другой источник не будет выбран автоматически."
+
+msgid "Version {version} is available from {source}"
+msgstr "Версия {version} доступна в источнике {source}"
+
+msgid "Window and service instructions"
+msgstr "Инструкции для окна и службы"
+
+msgid "Review PKGBUILD and every other build file in the displayed directory. Type yes to build and install, or anything else to cancel:"
+msgstr "Проверьте PKGBUILD и остальные файлы сборки в показанном каталоге. Введите yes для сборки и установки или другой ответ для отмены:"
+
+msgid "This command updates the entire system deployment. Review it in the terminal; it is not run automatically."
+msgstr "Эта команда обновляет всё системное развёртывание. Проверьте её в терминале; автоматически она не запускается."
+
+msgid "This prepares a new deployment. Reboot after reviewing and applying the command; the running session is not replaced."
+msgstr "Будет подготовлено новое развёртывание. После проверки и выполнения команды перезагрузите систему; работающий сеанс не заменяется."
+
+msgid "The original AppImage path is unavailable or not writable. The command downloads a verified new file into the current directory without overwriting an existing file. Close the old window and replace its file yourself."
+msgstr "Путь исходного AppImage недоступен или нет прав на запись. Команда скачивает проверенный новый файл в текущий каталог, не перезаписывая существующие файлы. Закройте старое окно и замените его файл самостоятельно."
+
+msgid "Command for manual update"
+msgstr "Команда для ручного обновления"

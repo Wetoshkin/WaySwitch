@@ -69,7 +69,9 @@ def instructions(action: str = "setup") -> str:
               "window and replace the AppImage file.")
         return (_("Window update:\n\n") + gui +
                 _("\n\nUpdate the native service separately in a terminal on the host "
-                  "system:\n\n") + manual_command(False) +
+                  "system through its original source:\n\n") + "wayswitch update --install" +
+                _("\n\nIf the installed service does not support this command yet, use its "
+                  "original package manager or installation method.") +
                 _("\n\nAfter updating the GNOME extension, sign in again."))
     if action == "remove":
         gui = (_("flatpak uninstall {id}").format(id=FLATPAK_ID)

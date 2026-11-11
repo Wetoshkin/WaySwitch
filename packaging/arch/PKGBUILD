@@ -23,5 +23,5 @@ sha256sums=('8298ab91645ac5797e6aa0c6401eb119dc2671acef4c3a24768fdfd05fa8f0f9')
 
 package() {
     cd "WaySwitch-$_commit"
-    bash tools/stage.sh "$pkgdir" /usr/lib/wayswitch
+    bash tools/stage.sh "$pkgdir" /usr/lib/wayswitch aur
 }

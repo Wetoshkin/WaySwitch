@@ -36,7 +36,7 @@ LXQt.
 %build
 
 %install
-bash %{ws_src}/tools/stage.sh %{buildroot} /usr/lib/wayswitch
+bash %{ws_src}/tools/stage.sh %{buildroot} /usr/lib/wayswitch %{?ws_update_source}%{!?ws_update_source:system}
 # Лицензии и README ставит сам rpm из %%license и %%doc.
 rm -rf %{buildroot}/usr/share/licenses %{buildroot}/usr/share/doc
 cp %{ws_src}/LICENSE %{ws_src}/README.md .

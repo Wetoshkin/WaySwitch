@@ -57,6 +57,75 @@ def capture_app(monkeypatch):
     return classes[0]
 
 
+def test_package_update_check_uses_source_worker_and_publishes_candidate(monkeypatch):
+    from wayswitch import updater, updates
+    from wayswitch.gui import app, widgets
+
+    app_class = capture_app(monkeypatch)
+    instance = object.__new__(app_class)
+    instance._main = None
+    instance.proxy = SimpleNamespace(status={})
+    rendered = []
+    instance.tray = SimpleNamespace(update=lambda status, version: rendered.append(version))
+    instance._notify_update = lambda result: None
+    monkeypatch.setattr(app.cfgmod, "load", app.cfgmod.Config)
+    info = updater.UpdateInfo(updater.Source("system", "apt", "wayswitch", "1.1.4-1"),
+                               updates.Release("1.1.4-2", ""), "available")
+    monkeypatch.setattr(updater, "check", lambda *a, **kw: info)
+    monkeypatch.setattr(updates, "should_notify", lambda *a: False)
+    pending = []
+    monkeypatch.setattr(widgets, "run_in_thread", lambda work, done: pending.append((work, done)))
+    results = []
+    instance.check_updates(force=True, done=results.append)
+    assert not results and not rendered
+    work, done = pending.pop()
+    done(work())
+    assert results == [info] and rendered == ["1.1.4-2"]
+    assert instance.update_info is info and instance.update.version == "1.1.4-2"
+
+
+def test_gui_version_query_needs_no_gtk(monkeypatch, capsys):
+    from wayswitch import __version__
+    from wayswitch.gui import app
+
+    monkeypatch.setitem(sys.modules, "gi", None)
+    assert app.main(["--version"]) == 0
+    assert capsys.readouterr().out.strip() == __version__
+
+
+def test_late_update_result_does_not_touch_closed_gui(monkeypatch):
+    from wayswitch import updater
+    from wayswitch.gui import app, widgets
+
+    app_class = capture_app(monkeypatch)
+    instance = object.__new__(app_class)
+    monkeypatch.setattr(app.cfgmod, "load", app.cfgmod.Config)
+    pending = []
+    monkeypatch.setattr(widgets, "run_in_thread", lambda work, done: pending.append(done))
+    instance.check_updates(force=True, done=lambda _: pytest.fail("closed dialog updated"))
+    instance._update_closed = True
+    pending.pop()(updater.UpdateInfo(updater.Source("system", "apt", "wayswitch")))
+    assert not instance._checking_updates
+
+
+def test_unexpected_check_failure_does_not_keep_old_success_status(monkeypatch):
+    from wayswitch import updater
+    from wayswitch.gui import app, widgets
+
+    app_class = capture_app(monkeypatch)
+    instance = object.__new__(app_class)
+    instance.update_info = updater.UpdateInfo(updater.Source("system", "apt", "wayswitch"),
+                                               state="current")
+    instance.update = None
+    instance._main = None
+    instance.proxy = SimpleNamespace(status={})
+    instance.tray = SimpleNamespace(update=lambda *args: None)
+    monkeypatch.setattr(app.cfgmod, "load", app.cfgmod.Config)
+    monkeypatch.setattr(widgets, "run_in_thread", lambda work, done: done(OSError("failure")))
+    instance.check_updates(force=True)
+    assert instance.update_info.state == "error" and not instance._update_checked
+
+
 def test_app_shutdown_closes_proxy(monkeypatch):
     app_class = capture_app(monkeypatch)
     instance = object.__new__(app_class)
