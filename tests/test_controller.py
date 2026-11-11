@@ -1683,6 +1683,30 @@ def test_recreated_field_keeps_buffer_and_uses_verified_span(env):
     assert env["corrected"] == [("ghbdtn", "привет", False)]
 
 
+@pytest.mark.parametrize("guarded,app_ids", [
+    (False, ("libreoffice-calc",)),
+    (False, ("calc", "libreoffice-calc")),
+    (True, ("libreoffice-calc",)),
+])
+def test_recreated_field_with_shell_identity_uses_verified_span(env, guarded, app_ids):
+    class IdentifiedProbe(TwoFieldsProbe):
+        def snapshot(self):
+            return super().snapshot()._replace(app_ids=app_ids)
+
+    if guarded:
+        require_focus_guard(env)
+    probe = IdentifiedProbe(env["clock"])
+    native = NativeTypist()
+    env["ctrl"].set_probe(probe)
+    env["ctrl"].typist = env["typist"] = native
+    type_text(env, "g")
+    probe.second = True
+    type_text(env, "hbdtn ")
+    assert native.native == [("ghbdtn ", "привет ")]
+    assert native.taps() == []
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+
+
 def test_recreated_field_without_native_never_writes_keys(env):
     probe = TwoFieldsProbe(env["clock"])
     env["ctrl"].set_probe(probe)

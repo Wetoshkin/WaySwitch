@@ -463,16 +463,18 @@ class Controller:
         приложение) то же — буфер последнего слова ещё действителен. Если же
         подтверждено другое поле, идём обычной проверкой: она сбросит буфер.
         """
+        owner = self._focus_owner(snap)
+        app = self._scope_app(snap, owner)
         old = self._buffer_focus
         if old is not None:
             old_probe, _, old_field, old_app, old_protection = old
             if (old_protection is not None
                     and (old_probe is not self.probe
-                         or (old_field, old_app) != (snap.field, snap.app))):
+                         or (old_field, old_app) != (snap.field, app))):
                 return self._sync_focus()
-        self._buffer_focus = (self.probe, snap.generation, snap.field, snap.app,
+        self._buffer_focus = (self.probe, snap.generation, snap.field, app,
                               snap.protection(self.clock()))
-        self._buffer_owner = (self._focus_owner(snap)
+        self._buffer_owner = (owner
                               if snap.protection(self.clock()) is False else None)
         self._buffer_window = snap.window
         return True
@@ -824,9 +826,9 @@ class Controller:
                                       and old_owner is not None and old_owner[2] is not None):
                 if old is None:
                     self._buffer_focus = (self.probe, snap.generation, snap.field,
-                                          owner[3][0] if owner[3] else snap.app, protection)
+                                          self._scope_app(snap, owner), protection)
                 return True
-        app = snap.app if guarded else owner[3][0] if owner[3] else snap.app
+        app = self._scope_app(snap, owner)
         scope = (self.probe, snap.generation, snap.field, app, protection)
         self._buffer_focus = scope
         old_window, self._buffer_window = self._buffer_window, snap.window
@@ -923,6 +925,10 @@ class Controller:
 
     def _focus_owner(self, snap) -> tuple:
         return (self.probe, snap.app, snap.field, snap.app_ids, snap.window)
+
+    def _scope_app(self, snap, owner):
+        return (owner[3][0] if not self._focus_guard_active() and owner[3]
+                else snap.app)
 
     @staticmethod
     def _same_focus_owner(old, new) -> bool:
@@ -1946,11 +1952,13 @@ class Controller:
                 fresh = self._refresh_focus_for_verified(plan.focus)
                 if fresh is not None:
                     plan.focus = fresh
+                    owner = self._focus_owner(fresh)
                     # Связка буфера должна указывать на то же поле, иначе _stop()
                     # в native-протоколе увидит «смену поля» и отменит исправление.
                     self._buffer_focus = (self.probe, fresh.generation, fresh.field,
-                                          fresh.app, fresh.protection(self.clock()))
-                    self._buffer_owner = (self._focus_owner(fresh)
+                                          self._scope_app(fresh, owner),
+                                          fresh.protection(self.clock()))
+                    self._buffer_owner = (owner
                                           if fresh.protection(self.clock()) is False
                                           else None)
                     self._buffer_window = fresh.window
