@@ -10,7 +10,15 @@ from wayswitch.gui import gesture_keys, texts
 from wayswitch.gui.app import parse_gui_args, update_text
 from wayswitch.gui.autostart import tray_desktop_text
 from wayswitch.gui.tray import menu_layout
-from wayswitch.keycodes import KEY_A, KEY_BACKSPACE, KEY_ESC, KEY_F7, KEY_LEFTCTRL, KEY_RIGHTALT
+from wayswitch.keycodes import (
+    KEY_A,
+    KEY_BACKSPACE,
+    KEY_ESC,
+    KEY_F7,
+    KEY_LEFTCTRL,
+    KEY_RIGHTALT,
+    KEY_SYSRQ,
+)
 
 GUI = Path(__file__).resolve().parents[1] / "wayswitch" / "gui"
 
@@ -426,6 +434,71 @@ def test_tray_summary(ru_locale):
     assert "48 слов" in text
 
 
+@pytest.mark.parametrize("fixture,status,expected", [
+    ("en_locale", None, "Not running"),
+    ("ru_locale", None, "Не запущен"),
+    ("en_locale", {"locked": True}, "Screen is locked"),
+    ("ru_locale", {"locked": True}, "Экран заблокирован"),
+    ("en_locale", {"lock_confirmation_required": True}, "Confirm COSMIC sign-in"),
+    ("ru_locale", {"lock_confirmation_required": True}, "Подтвердите вход в COSMIC"),
+    ("en_locale", {"paused": True}, "Paused"),
+    ("ru_locale", {"paused": True}, "На паузе"),
+    ("en_locale", {"layout_supported": False, "active": True},
+     "Waiting for a Russian or English layout"),
+    ("ru_locale", {"layout_supported": False, "active": True},
+     "Ожидание русской или английской раскладки"),
+    ("en_locale", {"active": False, "auto_correct": True}, "Manual only · 0 words this session"),
+    ("ru_locale", {"active": False, "auto_correct": True}, "Только вручную · 0 слов за сеанс"),
+    ("en_locale", {"active": True, "auto_correct": False}, "Manual only · 0 words this session"),
+    ("ru_locale", {"active": True, "auto_correct": False}, "Только вручную · 0 слов за сеанс"),
+])
+def test_tray_summary_reflects_state(request, fixture, status, expected):
+    request.getfixturevalue(fixture)
+    assert texts.tray_summary(status) == expected
+
+
+@pytest.mark.parametrize("fixture,expected", [
+    ("en_locale", "Correcting · 48 words this session · version 2.1.0 available"),
+    ("ru_locale", "Исправляет · 48 слов за сеанс · есть версия 2.1.0"),
+])
+def test_tray_summary_keeps_counters_and_version_when_correcting(request, fixture, expected):
+    request.getfixturevalue(fixture)
+    status = {"active": True, "auto_correct": True,
+              "corrections_total": 40, "manual_total": 8}
+    assert texts.tray_summary(status, "2.1.0") == expected
+
+
+def test_tray_summary_lock_is_stricter_than_pause_and_confirmation(ru_locale):
+    status = {"locked": True, "paused": True, "lock_confirmation_required": True}
+    assert texts.tray_summary(status) == "Экран заблокирован"
+
+
+def test_tray_summary_accepts_sparse_older_status(ru_locale):
+    # В старом ответе могло не быть active/auto_correct: не объявляем ручной
+    # режим и сохраняем счётчики.
+    assert "Исправляет" in texts.tray_summary({"corrections_total": 2})
+    assert "2 слова" in texts.tray_summary({"corrections_total": 2})
+
+
+@pytest.mark.parametrize("fixture,status,expected", [
+    ("en_locale", None, None),
+    ("en_locale", {}, None),
+    ("en_locale", {"selection_supported": True}, None),
+    ("en_locale", {"selection_supported": False},
+     "Selection actions need the accessibility service"),
+    ("ru_locale", {"selection_supported": False},
+     "Для действий с выделенным нужна служба доступности"),
+])
+def test_selection_guidance_only_when_confirmed_unavailable(request, fixture, status, expected):
+    request.getfixturevalue(fixture)
+    assert texts.selection_guidance(status) == expected
+
+
+def test_selection_settings_do_not_claim_gnome_only():
+    source = (GUI / "preferences.py").read_text(encoding="utf-8")
+    assert "GNOME only for now" not in source
+
+
 def test_history_keeps_newest_first_and_limit():
     h = texts.History(limit=3)
     for i in range(5):
@@ -472,6 +545,7 @@ def test_gesture_human_names(ru_locale):
     assert gesture_keys.human_name("leftctrl") == "Левый Ctrl"
     assert gesture_keys.human_name("rightalt") == "Правый Alt"
     assert gesture_keys.human_name("f7") == "F7"
+    assert gesture_keys.human_name("printscreen") == "PrintScreen"
 
 
 def test_gesture_human_names_english(en_locale):
@@ -486,6 +560,7 @@ def test_gesture_capture():
     assert gesture_keys.capture(KEY_LEFTCTRL) == ("key", "leftctrl")
     assert gesture_keys.capture(KEY_RIGHTALT) == ("key", "rightalt")
     assert gesture_keys.capture(KEY_F7) == ("key", "f7")
+    assert gesture_keys.capture(KEY_SYSRQ) == ("key", "printscreen")
     # Буква не годится: её нажатие — это набранная буква.
     assert gesture_keys.capture(KEY_A)[0] == "reject"
 
@@ -516,6 +591,98 @@ def test_config_rejects_letter_as_tap_key(tmp_path):
     raise AssertionError("буква в tap_key должна отвергаться")
 
 
+# --- слияние правок окна «Параметры» ------------------------------------------------
+
+def _fake_glib(monkeypatch):
+    import sys
+    import types
+
+    class GLib:
+        SOURCE_REMOVE = False
+
+        @staticmethod
+        def source_remove(_source):
+            pass
+
+    gi = types.ModuleType("gi")
+    repository = types.ModuleType("gi.repository")
+    repository.GLib = GLib
+    gi.repository = repository
+    monkeypatch.setitem(sys.modules, "gi", gi)
+    monkeypatch.setitem(sys.modules, "gi.repository", repository)
+
+
+class _Proxy:
+    def __init__(self):
+        self.calls = []
+
+    def call(self, name):
+        self.calls.append(name)
+
+
+def _preferences_for_flush(monkeypatch, tmp_path):
+    import copy
+
+    from wayswitch import config as cfgmod
+    from wayswitch.gui import preferences
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    _fake_glib(monkeypatch)
+    prefs = object.__new__(preferences.Preferences)
+    prefs.cfg = cfgmod.Config()
+    prefs._saved = copy.deepcopy(prefs.cfg)
+    prefs._loading = False
+    prefs._save_source = 0
+    prefs._dirty = {}
+    prefs._replace = False
+    prefs.broken = None
+    prefs.proxy = _Proxy()
+    prefs.toasts = []
+    prefs.toast = lambda text, *args, **kwargs: prefs.toasts.append(text)
+    prefs._load_correction = lambda: None
+    prefs._load_system = lambda: None
+    return prefs
+
+
+def test_preferences_flush_preserves_explicit_settle_ms(tmp_path, monkeypatch):
+    import copy
+
+    from wayswitch import config as cfgmod
+
+    prefs = _preferences_for_flush(monkeypatch, tmp_path)
+    prefs.cfg = cfgmod.Config()
+    prefs.cfg.typing.settle_ms = 30
+    cfgmod.save(prefs.cfg)
+    prefs.cfg = cfgmod.load()
+    prefs._saved = copy.deepcopy(prefs.cfg)
+    prefs._dirty = {("general", "sensitivity"): "aggressive"}
+
+    prefs._flush()
+
+    saved = cfgmod.load(cfgmod.default_path())
+    assert saved.general.sensitivity == "aggressive"
+    assert saved.typing.settle_ms == 30
+    assert "[meta]" in cfgmod.default_path().read_text(encoding="utf-8")
+    assert prefs.proxy.calls == ["Reload"]
+
+
+def test_preferences_flush_never_overwrites_future_schema(tmp_path, monkeypatch):
+    from wayswitch import config as cfgmod
+
+    prefs = _preferences_for_flush(monkeypatch, tmp_path)
+    path = cfgmod.default_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    original = "[meta]\nschema = 2\n\n[typing]\nsettle_ms = 30\n"
+    path.write_text(original, encoding="utf-8")
+    prefs._dirty = {("general", "auto_correct"): False}
+
+    prefs._flush()
+
+    assert path.read_text(encoding="utf-8") == original
+    assert prefs.proxy.calls == []
+    assert prefs.toasts
+
+
 # --- стиль и чистота ----------------------------------------------------------------
 
 def test_css_has_accent_for_both_libadwaita_generations():
@@ -537,3 +704,30 @@ def test_gui_modules_import_gi_lazily():
                 names = [a.name for a in node.names]
                 module = getattr(node, "module", "") or ""
                 assert not module.startswith("gi") and "gi" not in names, path.name
+
+
+@pytest.mark.parametrize("locale,expected", [
+    ("en_locale", "Settings could not be loaded — defaults are shown"),
+    ("ru_locale", "Настройки не удалось загрузить — показаны исходные значения"),
+])
+def test_preferences_load_failure_shows_default_values(request, locale, expected):
+    from types import SimpleNamespace
+
+    from wayswitch.gui.preferences import Preferences
+
+    request.getfixturevalue(locale)
+    messages = []
+    prefs = SimpleNamespace(dialog=SimpleNamespace(present=lambda parent: None),
+                            broken="unsupported schema", toast=messages.append)
+    Preferences.present(prefs, None)
+    assert messages == [expected]
+
+
+@pytest.mark.parametrize("locale,expected", [
+    ("en_locale", "Manual only · 48 words this session · version 2.1.0 available"),
+    ("ru_locale", "Только вручную · 48 слов за сеанс · есть версия 2.1.0"),
+])
+def test_manual_tray_keeps_session_counters_and_update(request, locale, expected):
+    request.getfixturevalue(locale)
+    status = {"active": False, "corrections_total": 40, "manual_total": 8}
+    assert texts.tray_summary(status, "2.1.0") == expected

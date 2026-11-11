@@ -634,6 +634,7 @@ def test_physical_append_after_anchor_before_commit_is_replayed():
     assert ctrl.typist.calls == []
     assert not ctrl._skip_word
     assert ctrl.keymap.decode(ctrl.buffer.current_word(), RU) == "е"
+    assert list(ctrl.context) == []  # потерянный ввод сбросил контекст, replay его не вернул
 
 
 def test_native_append_keeps_buffer_consistent_with_layout_used_by_real_field():

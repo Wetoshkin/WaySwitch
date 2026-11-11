@@ -1,6 +1,14 @@
 import pytest
 
-from tests.fakes import RU, US, FakeBackend, RecordingTypist, SafeProbe, make_keymap
+from tests.fakes import (
+    RU,
+    US,
+    FakeBackend,
+    RecordingTypist,
+    SafeProbe,
+    make_keymap,
+    run_after_key,
+)
 from wayswitch import controller as controller_mod
 from wayswitch import keycodes as kc
 from wayswitch.a11y import FocusSnapshot
@@ -35,21 +43,50 @@ def env():
                       on_corrected=lambda o, f, m: corrected.append((o, f, m)),
                       persist_exception=exceptions.append, probe=SafeProbe(clock))
     return dict(km=km, ctrl=ctrl, backend=backend, typist=typist, clock=clock,
-                corrected=corrected, exceptions=exceptions)
+                corrected=corrected, exceptions=exceptions,
+                default_schedule=ctrl.schedule)
+
+
+def _run_or_defer(env, send):
+    """Пропустить физическое нажатие через модель idle, если тест не задал
+    собственную очередь. `deferred(env)` подменяет schedule — тогда решение
+    остаётся за тестом, и помощник ничего не исполняет сам."""
+    ctrl = env["ctrl"]
+    if ctrl.schedule is env["default_schedule"]:
+        run_after_key(ctrl, send)
+    else:
+        send()
 
 
 def type_text(env, text, group=None, dev=1):
-    """Печатает текст физическими нажатиями в текущей раскладке бэкенда."""
+    """Печатает текст физическими нажатиями в текущей раскладке бэкенда.
+
+    Фиксы, запланированные из колбэка нажатия, исполняются после отпускания
+    клавиши (как GLib idle после evdev), а не посреди ещё зажатой клавиши.
+    """
     group = env["backend"].current() if group is None else group
     for ch in text:
         code, shift = env["km"].key_for(ch, group)
-        if shift:
-            env["ctrl"].on_key(kc.KEY_LEFTSHIFT, 1, dev)
+
+        def press(code=code, shift=shift):
+            if shift:
+                env["ctrl"].on_key(kc.KEY_LEFTSHIFT, 1, dev)
+            env["ctrl"].on_key(code, 1, dev)
+            env["ctrl"].on_key(code, 0, dev)
+            if shift:
+                env["ctrl"].on_key(kc.KEY_LEFTSHIFT, 0, dev)
+
+        _run_or_defer(env, press)
+        env["clock"].now += 0.05
+
+
+def tap(env, code, dev=1):
+    """Нажать и отпустить одну клавишу, исполняя фикс уже после key-up."""
+    def press():
         env["ctrl"].on_key(code, 1, dev)
         env["ctrl"].on_key(code, 0, dev)
-        if shift:
-            env["ctrl"].on_key(kc.KEY_LEFTSHIFT, 0, dev)
-        env["clock"].now += 0.05
+
+    _run_or_defer(env, press)
 
 
 def double_shift(env, times=2):
@@ -124,6 +161,110 @@ def test_triple_shift_fixes_phrase(env):
     assert typed_text(env).endswith("привет мир")
     assert env["km"].decode(env["ctrl"].buffer.phrase(), RU) == "привет мир"
     assert env["backend"].current() == RU
+
+
+@pytest.mark.parametrize(
+    ("start", "typed", "target", "fixed"),
+    [(US, "ghbdtn vbh", RU, "привет мир"), (RU, "привет мир", US, "ghbdtn vbh")],
+)
+def test_direct_manual_phrase_converts_to_opposite_layout(env, start, typed, target, fixed):
+    """D-Bus FixPhrase приходит мимо второго Shift: фразу нужно перевести,
+    а не перепечатать в той же раскладке."""
+    env["ctrl"].config.general.auto_correct = False
+    env["backend"].current_index = start
+    type_text(env, typed)
+    assert env["ctrl"].manual_phrase() is True
+    assert env["backend"].current() == target
+    assert typed_text(env).endswith(fixed)
+    assert env["ctrl"].stats["manual"] == 1
+    assert env["corrected"] == [(typed, fixed, True)]
+
+
+def test_direct_manual_phrase_empty_buffer_is_noop(env):
+    ctrl = env["ctrl"]
+    statuses = []
+    ctrl.on_status = statuses.append
+    assert ctrl.manual_phrase() is False
+    assert env["typist"].events == [] and env["backend"].set_calls == []
+    assert ctrl.stats == {"corrections": 0, "manual": 0, "undo": 0}
+    assert env["corrected"] == [] and statuses == []
+
+
+def test_direct_manual_phrase_expired_buffer_is_noop(env):
+    ctrl = env["ctrl"]
+    ctrl.config.general.auto_correct = False
+    type_text(env, "ghbdtn vbh")
+    env["clock"].now += 9  # phrase_timeout_sec = 8
+    statuses = []
+    ctrl.on_status = statuses.append
+    assert ctrl.manual_phrase() is False
+    assert env["typist"].events == [] and env["backend"].set_calls == []
+    assert ctrl.stats == {"corrections": 0, "manual": 0, "undo": 0}
+    assert env["corrected"] == [] and statuses == []
+    assert ctrl.buffer.is_empty()
+
+
+def test_deferred_manual_phrase_expires_before_execution(env):
+    ctrl = env["ctrl"]
+    ctrl.config.general.auto_correct = False
+    queue = deferred(env)
+    type_text(env, "ghbdtn vbh")
+    assert ctrl.manual_phrase() is True  # решение принято и запланировано
+    assert len(queue) == 1
+    env["clock"].now += 9
+    drain(queue)
+    assert env["typist"].events == [] and env["backend"].set_calls == []
+    assert ctrl.stats == {"corrections": 0, "manual": 0, "undo": 0}
+    assert env["corrected"] == []
+    assert ctrl.buffer.is_empty()
+
+
+def test_manual_phrase_expiry_during_release_wait_prevents_write(env):
+    ctrl = env["ctrl"]
+    ctrl.config.general.auto_correct = False
+    type_text(env, "ghbdtn vbh")
+    ctrl.buffer.note_press(kc.KEY_LEFTSHIFT, 2)  # Shift держит вторая клавиатура
+    fired = []
+
+    def pump():
+        if not fired:
+            fired.append(True)
+            env["clock"].now += 9  # фраза устаревает, пока ждём отпускания
+            ctrl.buffer.note_release(kc.KEY_LEFTSHIFT, 2)
+
+    ctrl.pump = pump
+    statuses = []
+    ctrl.on_status = statuses.append
+    assert ctrl.manual_phrase() is True
+    assert fired
+    assert kc.KEY_BACKSPACE not in [code for code, _shift in env["typist"].taps()]
+    assert ctrl.stats["manual"] == 0
+    assert env["corrected"] == [] and statuses == []
+    assert ctrl.buffer.is_empty()
+
+
+def test_failed_second_tap_does_not_drive_third_shift_phrase(env):
+    ctrl = env["ctrl"]
+    ctrl.config.general.auto_correct = False
+    type_text(env, "ghbdtn vbh")
+    real_apply = ctrl._apply_fix
+    failed = []
+
+    def fail_once(*args, **kwargs):
+        if not failed:
+            failed.append(True)
+            return False  # второй тап не изменил ни экран, ни буфер
+        return real_apply(*args, **kwargs)
+
+    ctrl._apply_fix = fail_once
+    double_shift(env, times=2)
+    assert failed
+    keys_before = list(ctrl.buffer.phrase())
+    before_events = list(env["typist"].events)
+    double_shift(env, times=1)  # третий тап после неудачного второго
+    assert env["typist"].events == before_events
+    assert ctrl.buffer.phrase() == keys_before
+    assert env["backend"].current() == US
 
 
 @pytest.mark.parametrize("change", ["external", "invalidate", "after-ack"])
@@ -455,6 +596,55 @@ def test_failed_fix_leaves_context_empty(env):
     assert env["ctrl"].buffer.is_empty()
 
 
+def test_callback_pause_does_not_repopulate_context(env):
+    ctrl = env["ctrl"]
+    ctrl.on_fixed = lambda manual: ctrl.pause()
+    type_text(env, "HEllo ")
+    assert ctrl.paused
+    assert list(ctrl.context) == []
+
+
+def test_callback_click_does_not_repopulate_context(env):
+    ctrl = env["ctrl"]
+    ctrl.on_fixed = lambda manual: ctrl.on_click()
+    type_text(env, "HEllo ")
+    assert ctrl.buffer.is_empty()
+    assert list(ctrl.context) == []
+
+
+def test_callback_focus_boundary_does_not_repopulate_context(env):
+    ctrl = env["ctrl"]
+    snap = {"current": ctrl.probe.snapshot()}
+    ctrl.probe.snapshot = lambda: snap["current"]
+
+    def focus_boundary(manual):
+        snap["current"] = snap["current"]._replace(
+            field=(":test", "/field"), generation=1)
+        assert ctrl._sync_focus() is False
+
+    ctrl.on_fixed = focus_boundary
+    type_text(env, "HEllo ")
+    assert list(ctrl.context) == []
+
+
+def test_nested_success_before_outer_done_does_not_restore_invalidated_context(env):
+    ctrl = env["ctrl"]
+    fired = []
+
+    def on_fixed(manual):
+        if fired:
+            return
+        fired.append(True)
+        ctrl.pause()
+        assert ctrl.resume()
+        type_text(env, "ghbdtn ")  # успешный вложенный фикс до outer done
+
+    ctrl.on_fixed = on_fixed
+    type_text(env, "HEllo ")
+    assert fired
+    assert list(ctrl.context) == ["ru"]
+
+
 # --- исполнение вне диспатча evdev (schedule) -------------------------------
 
 def deferred(env):
@@ -467,6 +657,226 @@ def deferred(env):
 def drain(queue):
     while queue:
         queue.pop(0)()
+
+
+class CollisionTypist(RecordingTypist):
+    """GTK/libinput aggregation: a synthetic key-down is lost while the physical
+    key of the same code is still held."""
+
+    def __init__(self, held):
+        super().__init__()
+        self.held = held
+        self.suppressed = []
+
+    def key(self, code, value):
+        if value == 1 and any(c == code for _, c in self.held()):
+            self.suppressed.append(code)
+            return
+        super().key(code, value)
+
+
+def start_held_trigger_fix(env, typed, group, key=kc.KEY_SPACE, dev=1):
+    """Набрать слово, нажать терминатор и оставить его физически зажатым."""
+    ctrl = env["ctrl"]
+    env["backend"].current_index = group
+    typist = CollisionTypist(lambda: ctrl.buffer.held_physical())
+    env["typist"] = ctrl.typist = typist
+    queue = deferred(env)
+    type_text(env, typed)  # schedule уже очередь: ни один фикс не исполнен
+    ctrl.on_key(key, 1, dev)
+    assert len(queue) == 1
+    return ctrl, typist, queue, (dev, key)
+
+
+def release_key(ctrl, pair):
+    ctrl.on_key(pair[1], 0, pair[0])
+
+
+def release_all(ctrl, held):
+    for dev, code in held:
+        ctrl.on_key(code, 0, dev)
+
+
+@pytest.mark.parametrize(
+    ("group", "typed", "expected", "old"),
+    [(RU, "ПРивет", "Привет ", "ПРивет"),
+     (US, "ghbdtn", "привет ", "ghbdtn"),
+     (RU, "руддщ", "hello ", "руддщ")],
+)
+def test_trigger_release_prevents_lost_space(env, group, typed, expected, old):
+    ctrl, typist, queue, trigger = start_held_trigger_fix(env, typed, group)
+    order = []
+    real_key = typist.key
+
+    def recording_key(code, value):
+        order.append(("write", code, value))
+        real_key(code, value)
+
+    typist.key = recording_key
+    pumps = []
+
+    def pump():
+        pumps.append(True)
+        if len(pumps) == 2:
+            order.append(("release",))
+            release_key(ctrl, trigger)
+
+    ctrl.pump = pump
+    drain(queue)
+    writes = [i for i, event in enumerate(order) if event[0] == "write"]
+    assert writes and order.index(("release",)) < writes[0]
+    assert typist.suppressed == []          # синтетический пробел не потерян
+    assert typed_text(env).endswith(expected)
+    assert env["corrected"] == [(old, expected.rstrip(), False)]
+    assert ctrl.stats["corrections"] == 1
+
+
+def test_trigger_release_timeout_fails_closed_before_write(env, monkeypatch):
+    monkeypatch.setattr(controller_mod, "RELEASE_WAIT", 0.02)
+    ctrl, typist, queue, _trigger = start_held_trigger_fix(env, "ПРивет", RU)
+    ctrl.pump = lambda: None  # key-up never delivered
+    drain(queue)
+    assert typist.events == [] and typist.suppressed == []
+    assert env["corrected"] == []
+    assert ctrl.stats == {"corrections": 0, "manual": 0, "undo": 0}
+    assert not ctrl.busy
+
+
+def test_other_device_key_held_still_cancels_triggered_fix(env, monkeypatch):
+    monkeypatch.setattr(controller_mod, "RELEASE_WAIT", 0.02)
+    ctrl, typist, queue, trigger = start_held_trigger_fix(env, "ПРивет", RU)
+    fired = []
+
+    def pump():
+        if not fired:
+            fired.append(1)
+            ctrl.on_key(kc.KEY_Q, 1, 2)  # другая клавиатура держит клавишу
+            release_key(ctrl, trigger)
+
+    ctrl.pump = pump
+    drain(queue)
+    assert fired  # даже отпущенный триггер не отменяет чужую зажатую клавишу
+    assert (2, kc.KEY_Q) in ctrl.buffer.held_physical()
+    assert typist.events == [] and typist.suppressed == []
+    assert env["corrected"] == [] and ctrl.stats["corrections"] == 0
+
+
+def test_physical_input_during_trigger_wait_aborts(env, monkeypatch):
+    monkeypatch.setattr(controller_mod, "RELEASE_WAIT", 0.02)
+    ctrl, typist, queue, trigger = start_held_trigger_fix(env, "ПРивет", RU)
+    fired = []
+
+    def pump():
+        if not fired:
+            fired.append(1)
+            ctrl.on_key(kc.KEY_X, 1, 1)
+            ctrl.on_key(kc.KEY_X, 0, 1)
+            release_key(ctrl, trigger)
+
+    ctrl.pump = pump
+    drain(queue)
+    assert fired
+    assert typist.events == [] and typist.suppressed == []
+    assert env["corrected"] == [] and ctrl.stats["corrections"] == 0
+
+
+def test_focus_change_during_trigger_wait_aborts(env, monkeypatch):
+    monkeypatch.setattr(controller_mod, "RELEASE_WAIT", 0.02)
+    ctrl, typist, queue, trigger = start_held_trigger_fix(env, "ПРивет", RU)
+    original = ctrl.probe.snapshot()
+    changed = []
+
+    def pump():
+        if not changed:
+            changed.append(1)
+            ctrl.probe.snapshot = lambda: original._replace(
+                field=(":test", "/another"), generation=original.generation + 1)
+            release_key(ctrl, trigger)
+
+    ctrl.pump = pump
+    drain(queue)
+    assert changed
+    assert typist.events == [] and typist.suppressed == []
+    assert env["corrected"] == [] and ctrl.stats["corrections"] == 0
+
+
+@pytest.mark.parametrize("how", ["pause", "lock", "click"])
+def test_invalidated_input_during_trigger_wait_aborts(env, monkeypatch, how):
+    monkeypatch.setattr(controller_mod, "RELEASE_WAIT", 0.02)
+    ctrl, typist, queue, trigger = start_held_trigger_fix(env, "ПРивет", RU)
+    fired = []
+
+    def pump():
+        if not fired:
+            fired.append(1)
+            if how == "pause":
+                ctrl.pause()
+            elif how == "lock":
+                ctrl.set_locked(True)
+            else:
+                ctrl.on_click()
+            release_key(ctrl, trigger)
+
+    ctrl.pump = pump
+    drain(queue)
+    assert fired
+    assert typist.events == [] and typist.suppressed == []
+    assert env["corrected"] == [] and ctrl.stats["corrections"] == 0
+
+
+def start_held_early_url_fix(env):
+    """Дойти до раннего URL-триггера и оставить клавишу-триггер зажатой."""
+    ctrl = env["ctrl"]
+    probe = LateFieldProbe(env["clock"])
+    probe.confirmed = True
+    native = NativeTypist()
+    ctrl.set_probe(probe)
+    ctrl.typist = env["typist"] = native
+    env["backend"].current_index = RU
+    queue = deferred(env)
+    for ch in "реезыЖ..":
+        code, shift = env["km"].key_for(ch, RU)
+        if shift:
+            ctrl.on_key(kc.KEY_LEFTSHIFT, 1, 1)
+        ctrl.on_key(code, 1, 1)
+        if queue:
+            held = [(1, code)]
+            if shift:
+                held.append((1, kc.KEY_LEFTSHIFT))
+            return ctrl, native, queue, held
+        ctrl.on_key(code, 0, 1)
+        if shift:
+            ctrl.on_key(kc.KEY_LEFTSHIFT, 0, 1)
+        env["clock"].now += 0.05
+    raise AssertionError("ранний триггер не сработал")
+
+
+def test_native_early_trigger_release_ordering(env):
+    ctrl, native, queue, held = start_held_early_url_fix(env)
+    order = []
+    released = []
+
+    def pump():
+        if not released:
+            released.append(True)
+            order.append(("release",))
+            release_all(ctrl, held)
+
+    ctrl.pump = pump
+    drain(queue)
+    assert order == [("release",)]
+    assert native.native == [("реезыЖ..", "https://")]
+    assert ctrl.stats["corrections"] == 1
+
+
+def test_native_early_trigger_timeout_fails_closed(env, monkeypatch):
+    monkeypatch.setattr(controller_mod, "RELEASE_WAIT", 0.02)
+    ctrl, native, queue, _held = start_held_early_url_fix(env)
+    ctrl.pump = lambda: None
+    drain(queue)
+    assert native.native == []
+    assert env["corrected"] == []
+    assert ctrl.stats == {"corrections": 0, "manual": 0, "undo": 0}
 
 
 def test_fix_is_scheduled_not_executed_in_dispatch(env):
@@ -491,6 +901,38 @@ def test_scheduled_fix_skipped_when_buffer_changed(env):
     assert list(env["ctrl"].context) == []
 
 
+def test_rejected_rule_fix_does_not_repopulate_context(env):
+    type_text(env, "hello world ")
+    ctrl = env["ctrl"]
+    queue = deferred(env)
+    env["backend"].current_index = RU
+    type_text(env, "чтото ", group=RU)  # частицы: «что-то» в RU
+    assert len(queue) == 1
+    type_text(env, "ч", group=RU)  # буфер изменился до idle — фикс отклонён
+    drain(queue)
+    assert list(ctrl.context) == ["en", "en"]
+    assert env["corrected"] == []
+
+    ctrl.schedule = lambda fn: fn()
+    env["backend"].current_index = US
+    type_text(env, "z ", group=US)  # короткое «я» требует контекста RU
+    assert env["corrected"] == []
+    assert env["backend"].current() == US
+
+
+def test_successful_rule_context_drives_later_short_word(env):
+    type_text(env, "hello world ")
+    ctrl = env["ctrl"]
+    env["backend"].current_index = RU
+    type_text(env, "чтото ", group=RU)
+    assert list(ctrl.context) == ["en", "ru"]
+
+    env["backend"].current_index = US
+    type_text(env, "z ", group=US)
+    assert env["corrected"][-1] == ("z", "я", False)
+    assert env["backend"].current() == RU
+
+
 def test_scheduled_early_url_and_manual_fixes_are_deferred_too(env):
     probe = LateFieldProbe(env["clock"])
     probe.confirmed = True
@@ -510,6 +952,23 @@ def test_scheduled_early_url_and_manual_fixes_are_deferred_too(env):
     assert env["typist"].events == []
     drain(queue)
     assert typed_text(env) == "\b" * 6 + "привет"
+
+
+def test_third_shift_queued_behind_pending_word_gesture_runs_after_it(env):
+    """Второй тап ждал в очереди за автофиксом, третий пришёл следом.
+    Фраза не должна потерять слово: оно выбирает группу, затем идёт фраза."""
+    ctrl = env["ctrl"]
+    queue = deferred(env)
+    type_text(env, "ghbdtn ")
+    assert ctrl._pending == 1
+    type_text(env, "vbh", group=US)
+    double_shift(env, times=3)
+    assert ctrl._pending_gesture == "word" and ctrl._pending_after == "phrase"
+    drain(queue)
+    assert ctrl._pending_gesture is None and ctrl._pending_after is None
+    assert env["backend"].current() == RU
+    assert env["km"].decode(ctrl.buffer.phrase(), RU) == "привет мир"
+    assert typed_text(env).endswith("привет мир")
 
 
 def test_third_shift_tap_before_scheduled_word_fix_runs_becomes_phrase(env):
@@ -810,6 +1269,22 @@ def test_tap_key_custom_key_works(env):
     assert typed_text(env) == "\b" * 6 + "привет"
 
 
+def test_tap_key_printscreen_is_bound_to_sysrq_and_discards_unsafe_buffer(env):
+    """PrintScreen привязывается к KEY_SYSRQ, а не к запасному левому Ctrl."""
+    cfg = Config()
+    cfg.gesture.manual = "tap_key"
+    cfg.gesture.tap_key = "printscreen"
+    env["ctrl"].reload_config(cfg)
+    assert env["ctrl"].gesture.keys == frozenset({kc.KEY_SYSRQ})
+    type_text(env, "ghbdtn")
+    env["ctrl"].on_key(kc.KEY_SYSRQ, 1, 1)
+    env["ctrl"].on_key(kc.KEY_SYSRQ, 0, 1)
+    assert env["typist"].taps() == []
+    assert env["backend"].set_calls == [RU]
+    assert env["corrected"] == []
+    assert env["ctrl"].buffer.is_empty()
+
+
 def test_left_ctrl_is_not_gesture_when_another_key_mapped(env):
     cfg = Config()
     cfg.gesture.manual = "tap_key"
@@ -888,8 +1363,7 @@ def test_device_gone_during_fix_does_not_resurrect_held_shift(env, monkeypatch):
             ctrl.on_key(kc.KEY_G, 0, 1)
 
     ctrl.pump = pump
-    ctrl.on_key(kc.KEY_SPACE, 1, 1)
-    ctrl.on_key(kc.KEY_SPACE, 0, 1)
+    tap(env, kc.KEY_SPACE)
     assert fired
     assert (2, kc.KEY_LEFTSHIFT) not in ctrl.buffer.held_physical()
 
@@ -1114,6 +1588,24 @@ class NativeTypist(RecordingTypist):
 
         self.native.append((source, target))
         return SpanResult("done", True)
+
+
+def test_third_shift_after_second_tap_uses_screen_source_for_native_span(env):
+    """После второго тапа экран — смесь: первое слово осталось в US («ghbdtn»),
+    последнее уже в RU («мир»). Native-замена обязана получить именно этот
+    источник, а не декодирование всей фразы в одной группе."""
+    probe = LateFieldProbe(env["clock"])
+    probe.confirmed = True
+    native = NativeTypist()
+    ctrl = env["ctrl"]
+    ctrl.set_probe(probe)
+    ctrl.typist = env["typist"] = native
+    ctrl.config.general.auto_correct = False
+    type_text(env, "ghbdtn vbh")
+    double_shift(env, times=3)
+    assert native.native[-1] == ("ghbdtn мир", "привет мир")
+    assert env["backend"].current() == RU
+    assert env["km"].decode(ctrl.buffer.phrase(), RU) == "привет мир"
 
 
 def test_direct_typing_keeps_buffer_and_uses_verified_span(env):
@@ -1344,3 +1836,43 @@ def test_partial_word_never_crosses_writer_windows(env):
     type_text(env, "hbdtn ")
     assert not native.native
     assert not env["corrected"]
+
+
+def test_new_failed_shift_series_cannot_reuse_previous_word_result(env):
+    ctrl = env["ctrl"]
+    ctrl.config.general.auto_correct = False
+    type_text(env, "ghbdtn vbh")
+    double_shift(env, times=2)
+    env["clock"].now += 1
+    ready = ctrl._ready_for_manual_focus
+    ctrl._ready_for_manual_focus = lambda: False
+    double_shift(env, times=2)
+    ctrl._ready_for_manual_focus = ready
+    events = list(env["typist"].events)
+    corrected = list(env["corrected"])
+    double_shift(env, times=1)
+    assert env["typist"].events == events
+    assert env["corrected"] == corrected
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_phrase_expiring_during_layout_ack_never_writes_text(env, native):
+    ctrl = env["ctrl"]
+    ctrl.config.general.auto_correct = False
+    if native:
+        probe = LateFieldProbe(env["clock"])
+        probe.confirmed = True
+        ctrl.set_probe(probe)
+        ctrl.typist = env["typist"] = NativeTypist()
+    type_text(env, "ghbdtn vbh")
+    applied = env["backend"].wait_applied
+
+    def wait(group, timeout):
+        env["clock"].now += 9
+        return applied(group, timeout)
+
+    env["backend"].wait_applied = wait
+    assert ctrl.manual_phrase()
+    assert not env["typist"].taps()
+    assert not env["corrected"]
+    assert ctrl.stats["manual"] == 0

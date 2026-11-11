@@ -115,6 +115,11 @@ def test_sway_reads_layouts_and_switches():
     assert backend.wait_applied(0, 0.5)
 
 
+def test_sway_xkb_options_are_unknown_without_ipc_field():
+    backend, _ = make_sway(FakeSway())
+    assert backend.xkb_options() is None
+
+
 def test_sway_external_change_event():
     fake = FakeSway(index=0)
     backend, events = make_sway(fake)

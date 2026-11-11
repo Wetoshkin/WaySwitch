@@ -162,14 +162,57 @@ need_sudo() {
   sudo -v || die "sudo не сработал: ваша учётная запись не может выполнять команды администратора. Добавьте её в группу sudo (или wheel) от имени root и войдите снова." \
                  "sudo failed: your account cannot run admin commands. Add it to the sudo (or wheel) group as root and log in again."
 }
+valid_release_tag() { # тег идёт в URL и в аргумент git: только безопасный набор
+  value=${1:-}
+  case "$value" in
+    ''|-*|.*|*[!A-Za-z0-9._+-]*|*..*|*.lock|*.) return 1 ;;
+  esac
+  [ "${#value}" -le 128 ]
+}
+valid_commit() { # 40 — SHA-1, 64 — SHA-256; другой вывод git не принимаем
+  value=${1:-}
+  case "$value" in
+    ''|*[!0-9a-f]*) return 1 ;;
+  esac
+  [ "${#value}" -eq 40 ] || [ "${#value}" -eq 64 ]
+}
+select_release() { # тег выбранного релиза уже сохранён fetch в TMP/release.tag
+  if [ ! -s "$TMP/release.tag" ]; then
+    fetch "" >/dev/null || return 1
+  fi
+  [ -s "$TMP/release.tag" ] || return 1
+  tag=$(cat "$TMP/release.tag") || return 1
+  valid_release_tag "$tag"
+}
+resolve_source_commit() { # $1 = тег; печатает неизменяемый коммит
+  tag=${1:-}
+  valid_release_tag "$tag" || return 1
+  refs=$(git ls-remote "https://github.com/$REPO.git" \
+    "refs/tags/$tag" "refs/tags/$tag^{}") || return 1
+  direct=""; peeled=""
+  while read -r sha ref || [ -n "${sha:-}${ref:-}" ]; do
+    case "$ref" in
+      "refs/tags/$tag") direct=$sha ;;
+      "refs/tags/$tag^{}") peeled=$sha ;;
+    esac
+  done <<EOF
+$refs
+EOF
+  # У аннотированного тега ls-remote отдаёт и сам объект тега, и его коммит.
+  commit=${peeled:-$direct}
+  valid_commit "$commit" || return 1
+  printf '%s' "$commit"
+}
 fetch() { # 0 — проверенный пакет, 2 — нет формата, 1 — ошибка; fallback запрещён
+  # Без аргумента только выбирает и сохраняет тег релиза для установки из
+  # исходников: пакет в этом режиме не скачивается.
   have python3 || {
     say "Нужен Python 3: установите python3 менеджером пакетов и запустите снова." \
         "Python 3 is required: install python3 with your package manager and run again." >&2
     return 1
   }
   curl -fsSL -o "$TMP/release.json" "$API" || return 1
-  python3 -I - "$TMP" "$1" "$REPO" <<'PYMETA'
+  python3 -I - "$TMP" "${1:-}" "$REPO" <<'PYMETA'
 import json
 import re
 import sys
@@ -186,18 +229,28 @@ def unique_object(pairs):
 
 try:
     folder, extension, repo = sys.argv[1:]
+    if extension and not re.fullmatch(r"[a-z0-9]+", extension):
+        raise ValueError("invalid extension")
     releases = json.loads((Path(folder) / "release.json").read_text(), object_pairs_hook=unique_object)
     if not isinstance(releases, list) or not releases:
         raise ValueError("missing release")
     release = releases[0]
     tag = release["tag_name"]
     assets = release["assets"]
-    if not isinstance(tag, str) or not tag or not isinstance(assets, list):
+    if (not isinstance(tag, str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,127}", tag)
+            or ".." in tag or tag.endswith(".") or tag.endswith(".lock")
+            or not isinstance(assets, list)):
         raise ValueError("invalid release")
     if any(not isinstance(a, dict) or not isinstance(a.get("name"), str) for a in assets):
         raise ValueError("invalid assets")
+    tag_path = Path(folder) / "release.tag"
+    if not extension:  # только выбрать релиз: пакет не нужен, тег сохраняем
+        tag_path.write_text(f"{tag}\n", newline="\n")
+        sys.exit(0)
     matches = [a for a in assets if a["name"].endswith("." + extension)]
     if not matches:
+        tag_path.write_text(f"{tag}\n", newline="\n")
         sys.exit(2)
     if len(matches) != 1:
         raise ValueError("ambiguous package")
@@ -213,12 +266,14 @@ try:
         raise ValueError("invalid URL or digest")
     if type(size) is not int or size <= 0:
         raise ValueError("invalid size")
+    tag_path.write_text(f"{tag}\n", newline="\n")
     (Path(folder) / "package.meta").write_text(f"{url}\n{digest[7:]}\n{size}\n", newline="\n")
 except (ValueError, KeyError, TypeError, OSError):
     sys.exit(1)
 PYMETA
   rc=$?
   [ "$rc" = 0 ] || return "$rc"
+  [ -n "${1:-}" ] || return 0
   { read -r url; read -r digest; read -r size; } < "$TMP/package.meta"
   package="$TMP/package.$1"
   curl -fL --progress-bar -o "$package" "$url" || return 1
@@ -258,6 +313,14 @@ from_source() { # $1 = install.sh | uninstall.sh
     sudo bash "$WAYSWITCH_SRC/packaging/$1"
     return
   fi
+  # Тег выбран один раз: fetch уже сохранил его для пакета или для source;
+  # иначе выбираем его здесь. main в установке из сети больше не участвует.
+  select_release || die "Не удалось выбрать и проверить тег опубликованного релиза GitHub. Установка остановлена; проверьте сеть и метаданные релиза." \
+                         "Could not select and validate the published GitHub release tag. Installation stopped; check the network and release metadata."
+  tag=$(cat "$TMP/release.tag") || die "Не удалось прочитать выбранный тег релиза." \
+                                          "Could not read the selected release tag."
+  valid_release_tag "$tag" || die "Недопустимый тег выбранного релиза. Установка остановлена." \
+                                  "The selected release tag is invalid. Installation stopped."
   have git || {
     case "$FAMILY" in
       arch) sudo pacman -S --needed --noconfirm git ;;
@@ -265,9 +328,20 @@ from_source() { # $1 = install.sh | uninstall.sh
                 "git is required. Install it with your package manager and run again." ;;
     esac
   }
-  git clone -q --depth 1 "https://github.com/$REPO.git" "$TMP/src" \
-    || die "Не удалось скачать исходники с GitHub (нет сети?)." \
-           "Could not download the source from GitHub (no network?)."
+  commit=$(resolve_source_commit "$tag") \
+    || die "Не удалось разрешить тег $tag в неизменяемый коммит GitHub. Установка остановлена; тег мог быть удалён или изменён." \
+           "Could not resolve tag $tag to an immutable GitHub commit. Installation stopped; the tag may be missing or changed."
+  valid_commit "$commit" || die "Git вернул недопустимый идентификатор коммита. Установка остановлена." \
+                                "Git returned an invalid commit identifier. Installation stopped."
+  git clone -q --depth 1 --branch "$tag" "https://github.com/$REPO.git" "$TMP/src" \
+    || die "Не удалось скачать исходники выбранного релиза $tag с GitHub (нет сети?)." \
+           "Could not download the source for selected release $tag from GitHub (no network?)."
+  head=$(git -C "$TMP/src" rev-parse --verify HEAD 2>/dev/null) \
+    || die "Не удалось проверить коммит скачанных исходников. Установка остановлена." \
+           "Could not verify the downloaded source commit. Installation stopped."
+  [ "$head" = "$commit" ] \
+    || die "Тег $tag изменился после выбора релиза: скачанные исходники не совпадают с проверенным коммитом. Установка остановлена." \
+           "Tag $tag changed after the release was selected: the downloaded source does not match the verified commit. Installation stopped."
   sudo bash "$TMP/src/packaging/$1"
 }
 TRAY_AUTOSTART="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/io.github.Wetoshkin.WaySwitch.Settings.desktop"
@@ -467,10 +541,11 @@ if [ "${XDG_SESSION_TYPE:-}" != wayland ]; then
   warn "Сейчас включён старый режим графики (${XDG_SESSION_TYPE:-неизвестно}) — в нём WaySwitch работать НЕ будет. Как переключить: выйдите из системы, на экране входа нажмите на своё имя, затем на значок шестерёнки в правом нижнем углу и выберите «Ubuntu» или «GNOME» (не «on Xorg»); в KDE — «Plasma (Wayland)». Потом запустите эту команду снова." \
        "The old graphics mode (${XDG_SESSION_TYPE:-unknown}) is on — WaySwitch will NOT work in it. Log out, click your name on the login screen, then the gear icon at the bottom right, and pick a session without «Xorg»; in KDE — «Plasma (Wayland)». Then run this command again."
 fi
-case "$FAMILY" in deb|fedora|suse)
+if [ -z "${WAYSWITCH_SRC:-}" ]; then
+  # Метаданные релиза и выбранный тег читаются через GitHub API и curl.
   have curl || die "Нужен curl: установите его менеджером пакетов и запустите снова." \
-                   "curl is required: install it with your package manager and run again." ;;
-esac
+                   "curl is required: install it with your package manager and run again."
+fi
 [ "$FAMILY" = deb ] && check_adwaita_deb
 
 h=""

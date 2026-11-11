@@ -14,7 +14,7 @@ import sys
 from wayswitch import __version__, i18n, updates
 from wayswitch import config as cfgmod
 from wayswitch.gui import autostart, portable, texts
-from wayswitch.gui.daemon_proxy import DaemonProxy
+from wayswitch.gui.daemon_proxy import CALL_TIMEOUT_MS, DaemonProxy
 from wayswitch.gui.dialogs import REPO_URL  # noqa: F401 — реэкспорт для тестов
 from wayswitch.gui.tray import StatusNotifier
 from wayswitch.i18n import gettext as _
@@ -154,6 +154,11 @@ def main(argv: list[str] | None = None) -> int:
                 return
             self.show_window()
 
+        def do_shutdown(self):
+            # Скрытие окна в трей сюда не попадает: связь и история остаются.
+            self.proxy.close()
+            Adw.Application.do_shutdown(self)
+
         # --- окна ----------------------------------------------------------------
 
         def show_window(self):
@@ -227,12 +232,31 @@ def main(argv: list[str] | None = None) -> int:
                 self._main.window.close()
 
         def _quit_stop(self):
+            if self._stopping:
+                return
             self._stopping = True
-            if portable.package_kind():
-                self.proxy.call("Pause")
-            else:
+            if not portable.package_kind():
                 autostart.stop_service()
-            self.quit()
+                self.quit()
+                return
+
+            # Не выходим раньше ответа: иначе Pause может не успеть уйти
+            # в службу при закрытии окна. Таймаут остаётся у DaemonProxy.
+            self.hold()
+            finished = False
+
+            def quit_once(_result=None):
+                nonlocal finished
+                if finished:
+                    return
+                finished = True
+                self.release()
+                self.quit()
+
+            GLib.timeout_add(CALL_TIMEOUT_MS + 500, lambda: (
+                quit_once(), GLib.SOURCE_REMOVE)[1])
+            if not self.proxy.call("Pause", quit_once):
+                quit_once()
 
         # --- демон ---------------------------------------------------------------
 
@@ -261,8 +285,11 @@ def main(argv: list[str] | None = None) -> int:
                 self._main.on_corrected(original, fixed, manual)
 
         def _fix_selection(self):
-            notify_selection_result(self.send_notification,
-                                    self.proxy.call("FixSelection"))
+            # Уведомление — только по завершении реального вызова: немедленный
+            # None означает, что запрос не отправлен, а не что исправление не удалось.
+            self.proxy.call(
+                "FixSelection",
+                lambda result: notify_selection_result(self.send_notification, result))
 
         def _toggle_pause(self):
             st = self.proxy.status or {}

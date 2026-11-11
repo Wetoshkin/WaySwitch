@@ -21,6 +21,20 @@ from wayswitch.keymap import CYRILLIC, LATIN, Keymap
 LANG_OF_ALPHABET = {"ru": "ru", "latin": "en"}
 LETTERS = {"ru": CYRILLIC, "en": LATIN}
 INNER_MARKS = {"-", "'"}
+# Поиск по русскому словарю не различает «е» и «ё»: человек может набрать
+# «небоскреб» вместо «небоскрёб». Это только ключ поиска — напечатанный текст
+# и результат замены сохраняют ровно ту букву, которую ввели.
+# Апострофы не входят в en.words.gz, но формы без них там есть. Набор
+# намеренно закрытый: только частые сокращения, проверенные по словарю при
+# загрузке. Общей продуктивной формулы («убрать любой апостроф») нет.
+EN_CONTRACTIONS = {
+    "i'm": "im", "i'd": "id", "i've": "ive", "i'll": "ill",
+    "won't": "wont", "don't": "dont", "can't": "cant",
+    "isn't": "isnt", "aren't": "arent", "didn't": "didnt", "doesn't": "doesnt",
+    "couldn't": "couldnt", "wouldn't": "wouldnt", "shouldn't": "shouldnt",
+    "it's": "its", "that's": "thats", "let's": "lets",
+    "you're": "youre", "we're": "were", "they're": "theyre",
+}
 URL_SCHEMES = ("http://", "https://", "ftp://")
 TECH_PREFIXES = URL_SCHEMES + ("ssh://", "www.", "git@")
 TECH_MARKERS = ("://", "@", "--", ".com", ".ru", ".org", ".net", ".io", ".dev")
@@ -50,7 +64,7 @@ ABBREVIATIONS = frozenset({"руб", "коп", "ул", "г", "гг", "др", "с
 # словаре нет многих словоформ. Поэтому у каждой частицы — свой закрытый
 # список основ, после которых она точно частица.
 _PRONOUNS = ("что", "кто", "где", "куда", "откуда", "как", "когда", "какой", "какая",
-             "какое", "какие", "каких", "каким", "какую", "чей", "чья", "чьё", "чьи",
+             "какое", "какие", "каких", "каким", "какую", "чей", "чья", "чье", "чьё", "чьи",
              "почему", "зачем", "отчего", "сколько", "чего", "чему", "чем", "кого", "кому",
              "кем", "ком", "чём")
 _PERSONAL = ("я", "ты", "он", "она", "оно", "мы", "вы", "они")
@@ -113,6 +127,14 @@ class LanguageModel:
         self.words = frozenset(words)
         self.top = frozenset(top)
         self.model = model
+        # Для ru — отдельный индекс поиска с «ё» → «е»; сам words остаётся
+        # исходным, поэтому top, окончания и вывод не меняются.
+        self._folded_words = (frozenset(w.replace("ё", "е") for w in self.words)
+                              if lang == "ru" else self.words)
+        # Сокращение считается известным, только если его форма без апострофа
+        # действительно есть в загруженном словаре.
+        self._contractions = frozenset(form for form, key in EN_CONTRACTIONS.items()
+                                       if lang == "en" and key in self.words)
 
     @classmethod
     def from_words(cls, lang: str, rows: list[tuple[str, float]], alphabet: str,
@@ -132,8 +154,19 @@ class LanguageModel:
                 words.append(line.split("\t", 1)[0])
         return cls(lang, words, words[:top_n], ngram.load(base / f"{lang}.ngrams.json.gz"))
 
+    def _lookup_key(self, text: str) -> str:
+        """Ключ поиска: в ru «ё» и «е» равнозначны, в en — только регистр."""
+        low = text.lower()
+        return low.replace("ё", "е") if self.lang == "ru" else low
+
     def is_word(self, word: str) -> bool:
-        return word.lower() in self.words
+        """Есть ли слово в словаре (с учётом ru ё/е и закрытых en-сокращений)."""
+        low = word.lower()
+        if low in self.words:
+            return True
+        if self.lang == "ru":
+            return self._lookup_key(low) in self._folded_words
+        return low in self._contractions
 
     @cached_property
     def endings(self) -> frozenset[str]:
@@ -149,15 +182,19 @@ class LanguageModel:
 
     @cached_property
     def _sorted_words(self) -> list[str]:
-        """Слова в алфавитном порядке — для поиска по префиксу (bisect)."""
-        return sorted(self.words)
+        """Ключи в алфавитном порядке — для поиска по префиксу (bisect).
+
+        В ru это свёрнутый по ё/е индекс, поэтому префикс «небоскреб» находит
+        «небоскрёб» так же, как точное слово.
+        """
+        return sorted(self._folded_words)
 
     def has_prefix(self, prefix: str) -> bool:
         """Есть ли в словаре слово, начинающееся с prefix.
 
         Нужно для падежных форм: «сонату» в словаре нет, а «соната» есть.
         """
-        prefix = prefix.lower()
+        prefix = self._lookup_key(prefix)
         if not prefix:
             return False
         i = bisect_left(self._sorted_words, prefix)
@@ -165,7 +202,7 @@ class LanguageModel:
 
     def prefix_count(self, prefix: str, limit: int = 100) -> int:
         """Сколько слов словаря начинаются с prefix (считаем не дальше limit)."""
-        prefix = prefix.lower()
+        prefix = self._lookup_key(prefix)
         if not prefix:
             return 0
         words = self._sorted_words
@@ -504,12 +541,11 @@ class Detector:
             return keep("digits")
         if _mixed_alphabets(a.core):
             return keep("mixed")
-        if _is_camel(a.core):
-            if (two_capitals and a.valid and not a.in_dict and a.text.isalpha()
-                    and a.text[:2].isupper() and a.text[2:].islower()):
-                capitals = self.two_capitals_fix(keys, other_group)
-            if capitals is None:
-                return keep("camel")
+        if two_capitals and not a.in_dict:
+            # «ХЛеб» в US выглядит как «{Kt,»: регистр проверяем в целевой группе.
+            capitals = self.two_capitals_fix(keys, other_group)
+        if _is_camel(a.core) and capitals is None:
+            return keep("camel")
         al = a.text.lower()
         inner = _inner(a.core, LETTERS[a.lang])
         if any(m in al for m in TECH_MARKERS) or any(m in inner for m in PATH_MARKERS) \

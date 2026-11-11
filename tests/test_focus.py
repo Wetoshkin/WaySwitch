@@ -13,7 +13,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.fakes import RU, US, FakeBackend, RecordingTypist, keys_for_text, make_keymap
+from tests.fakes import (
+    RU,
+    US,
+    FakeBackend,
+    RecordingTypist,
+    keys_for_text,
+    make_keymap,
+    run_after_key,
+)
 from wayswitch import a11y
 from wayswitch import config as cfgmod
 from wayswitch import keycodes as kc
@@ -62,10 +70,24 @@ def make_env(probe=None, apps=("telegram",), config=None):
     return dict(km=km, det=det, ctrl=ctrl, backend=backend, typist=typist, clock=clock)
 
 
+def press(env, code, shift=False):
+    """Нажать клавишу; фиксы из её колбэков исполнятся после отпускания."""
+    ctrl = env["ctrl"]
+
+    def send():
+        if shift:
+            ctrl.on_key(kc.KEY_LEFTSHIFT, 1, 1)
+        ctrl.on_key(code, 1, 1)
+        ctrl.on_key(code, 0, 1)
+        if shift:
+            ctrl.on_key(kc.KEY_LEFTSHIFT, 0, 1)
+
+    run_after_key(ctrl, send)
+
+
 def type_keys(env, keys):
     for key in keys:
-        env["ctrl"].on_key(key.code, 1, 1)
-        env["ctrl"].on_key(key.code, 0, 1)
+        press(env, key.code, key.shift)
 
 
 def typed_chars(env) -> str:
@@ -181,6 +203,14 @@ def test_old_shell_extension_preserves_atspi_focus(monkeypatch, role, password, 
     assert a11y.skip_reason(probe, ["editor"], False, 100.0) == "приложение Editor"
 
 
+class RemoteDBusError(RuntimeError):
+    """Ошибка D-Bus с именем, как его вернул бы Gio.DBusError.get_remote_error."""
+
+    def __init__(self, name):
+        super().__init__(f"GDBus.Error:{name}: simulated")
+        self.remote_error = name
+
+
 def shell_bus(monkeypatch, results):
     calls = []
 
@@ -195,7 +225,8 @@ def shell_bus(monkeypatch, results):
         Gio=SimpleNamespace(BusType=SimpleNamespace(SESSION=0),
                             DBusCallFlags=SimpleNamespace(NONE=0),
                             DBusError=SimpleNamespace(
-                                get_remote_error=lambda e: str(e).split(":")[0]),
+                                get_remote_error=lambda e: getattr(e, "remote_error", None)
+                                or str(e).split(":")[0]),
                             bus_get_sync=lambda *_: SimpleNamespace(call_sync=call_sync)),
         GLib=SimpleNamespace(Variant=lambda signature, values: (signature, values),
                              VariantType=lambda signature: signature))
@@ -264,6 +295,65 @@ def test_transient_shell_context_error_never_downgrades_to_legacy_safe_focus(
     monkeypatch.setattr(a11y, "_DbusTree", lambda _: tree)
     assert a11y.query_focus().app is None
     assert "GetFocusedApp" not in calls
+
+
+@pytest.mark.parametrize("error", ["org.freedesktop.DBus.Error.ServiceUnknown",
+                                  "org.freedesktop.DBus.Error.NameHasNoOwner"])
+def test_absent_shell_service_returns_empty_context_without_legacy_call(monkeypatch, error):
+    calls = shell_bus(monkeypatch, [RemoteDBusError(error)])
+    assert a11y.query_shell_context() == a11y.ShellContext()
+    assert calls == ["GetFocusedContext"]
+
+
+@pytest.mark.parametrize("error", ["org.freedesktop.DBus.Error.UnknownMethod",
+                                  "org.freedesktop.DBus.Error.UnknownInterface"])
+def test_old_shell_extension_falls_back_to_focused_app(monkeypatch, error):
+    calls = shell_bus(monkeypatch, [RemoteDBusError(error), (["editor.desktop"],)])
+    assert a11y.query_shell_context() == a11y.ShellContext(("editor.desktop",))
+    assert calls == ["GetFocusedContext", "GetFocusedApp"]
+
+
+@pytest.mark.parametrize("error", ["org.freedesktop.DBus.Error.NoReply",
+                                  "org.freedesktop.DBus.Error.Timeout",
+                                  "org.freedesktop.DBus.Error.Failed"])
+def test_unexpected_shell_error_keeps_context_unknown(monkeypatch, error):
+    calls = shell_bus(monkeypatch, [RemoteDBusError(error)])
+    assert a11y.query_shell_context() is None
+    assert calls == ["GetFocusedContext"]
+
+
+def test_shell_absence_is_not_cached_across_discovery(monkeypatch):
+    calls = shell_bus(monkeypatch, [
+        RemoteDBusError("org.freedesktop.DBus.Error.ServiceUnknown"),
+        (["editor.desktop"], False, False, 0, 0, 0),
+        RemoteDBusError("org.freedesktop.DBus.Error.NameHasNoOwner"),
+    ])
+    assert a11y.query_shell_context() == a11y.ShellContext()
+    assert a11y.query_shell_context() == a11y.ShellContext(("editor.desktop",))
+    assert a11y.query_shell_context() == a11y.ShellContext()
+    assert calls == ["GetFocusedContext"] * 3
+
+
+def test_query_focus_keeps_native_atspi_when_shell_service_is_absent(monkeypatch):
+    calls = shell_bus(monkeypatch,
+                      [RemoteDBusError("org.freedesktop.DBus.Error.ServiceUnknown")])
+    tree = editable_tree()
+    tree.nodes[a11y.ROOT] = tree.nodes.pop("root")
+    monkeypatch.setattr(a11y, "_a11y_connection", lambda: object())
+    monkeypatch.setattr(a11y, "_DbusTree", lambda _: tree)
+    assert a11y.query_focus() == FocusSnapshot("Editor", app_ids=(), field="field")
+    assert calls == ["GetFocusedContext", "GetFocusedContext"]
+
+
+def test_read_selection_does_not_probe_absent_shell_service_twice(monkeypatch):
+    calls = shell_bus(monkeypatch,
+                      [RemoteDBusError("org.freedesktop.DBus.Error.ServiceUnknown")])
+    connection = SimpleNamespace(close_sync=lambda _cancellable: None)
+    monkeypatch.setattr(a11y, "_new_a11y_connection", lambda: connection)
+    expected = FocusSnapshot("Editor", False, time.monotonic(), ("editor.desktop",),
+                             ("path",))
+    assert a11y.read_selection(expected, lambda: True, 16) is None
+    assert calls == ["GetFocusedContext"]
 
 
 def test_trusted_shell_pid_scopes_frameless_application(monkeypatch):
@@ -860,6 +950,22 @@ def test_shared_session_watch_cleanup_preserves_other_probe_and_bus(event_connec
     assert not connections.session.closed
 
 
+def test_owned_watch_close_failure_is_quiet_and_keeps_shared_session(
+        event_connections, caplog):
+    connections, _registered = event_connections
+    watch = a11y._watch_focus_events(object(), lambda: None)
+
+    def failed_close(_cancellable):
+        connections[0].closed = True
+        raise RuntimeError("private provider payload")
+
+    connections[0].close_sync = failed_close
+    watch.close()
+    assert connections[0].closed
+    assert not connections.session.closed
+    assert "private provider payload" not in caplog.text
+
+
 def test_session_bus_loss_invalidates_snapshot_and_registration(event_connections):
     connections, _registered = event_connections
     invalidations = []
@@ -1014,8 +1120,7 @@ def test_controller_skips_excluded_app():
     clock = Clock()
     env = make_env(probe=FakeProbe(clock, app="TelegramDesktop"), apps=["telegram"])
     type_keys(env, keys_for_text(env["km"], "ghbdtn", US))
-    env["ctrl"].on_key(kc.KEY_SPACE, 1, 1)
-    env["ctrl"].on_key(kc.KEY_SPACE, 0, 1)
+    press(env, kc.KEY_SPACE)
     assert env["typist"].taps() == []
     assert env["backend"].set_calls == []
     assert env["ctrl"].context[-1] is None
@@ -1025,8 +1130,7 @@ def test_controller_skips_password_field():
     clock = Clock()
     env = make_env(probe=FakeProbe(clock, app="firefox", password=True), apps=[])
     type_keys(env, keys_for_text(env["km"], "ghbdtn", US))
-    env["ctrl"].on_key(kc.KEY_SPACE, 1, 1)
-    env["ctrl"].on_key(kc.KEY_SPACE, 0, 1)
+    press(env, kc.KEY_SPACE)
     assert env["typist"].taps() == []
 
 
@@ -1035,8 +1139,7 @@ def test_controller_fixes_in_other_app():
     clock = Clock()
     env = make_env(probe=FakeProbe(clock, app="gedit"), apps=["telegram"])
     type_keys(env, keys_for_text(env["km"], "руддщ", RU))
-    env["ctrl"].on_key(kc.KEY_SPACE, 1, 1)
-    env["ctrl"].on_key(kc.KEY_SPACE, 0, 1)
+    press(env, kc.KEY_SPACE)
     assert env["backend"].set_calls == [US]
 
 
@@ -1045,8 +1148,7 @@ def test_controller_pokes_probe_on_word():
     probe = FakeProbe(clock, app="gedit")
     env = make_env(probe=probe)
     type_keys(env, keys_for_text(env["km"], "ghbdtn", US))
-    env["ctrl"].on_key(kc.KEY_SPACE, 1, 1)
-    env["ctrl"].on_key(kc.KEY_SPACE, 0, 1)
+    press(env, kc.KEY_SPACE)
     assert probe.pokes >= 1
 
 

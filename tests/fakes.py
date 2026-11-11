@@ -10,6 +10,27 @@ from wayswitch.keymap import LayoutSpec, TableKeymap
 US, RU = 0, 1
 
 
+def run_after_key(controller, action):
+    """Выполнить физическое нажатие, отложив фиксы до его отпускания.
+
+    В демоне фикс исполняется в GLib idle уже после колбэка evdev, поэтому
+    тестовый помощник ставит schedule в очередь, отправляет key-down/up и
+    только затем исполняет отложенное. Так ожидание отпускания триггера видит
+    настоящий key-up, а не синтетически подставленный. Исходный schedule
+    восстанавливается до запуска очереди: реентрантные вызовы сохраняют своё
+    прежнее поведение.
+    """
+    previous = controller.schedule
+    pending = []
+    controller.schedule = pending.append
+    try:
+        action()
+    finally:
+        controller.schedule = previous
+    while pending:
+        pending.pop(0)()
+
+
 class SafeProbe:
     def __init__(self, clock=monotonic):
         self.clock = clock

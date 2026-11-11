@@ -165,8 +165,9 @@ class SwayBackend(LayoutBackend):
     def layouts(self) -> list[LayoutSpec]:
         return list(self._specs)
 
-    def xkb_options(self) -> list[str]:
-        return []
+    def xkb_options(self) -> list[str] | None:
+        """Sway IPC не сообщает XKB-опции, поэтому назначение Caps Lock неизвестно."""
+        return None
 
     def current(self) -> int | None:
         return self._current
