@@ -1542,6 +1542,7 @@ def test_pause_or_lock_cancels_manual_wake(env, how):
 
 
 def test_password_field_after_idle_is_still_protected(env):
+    env["ctrl"].config.general.skip_password_fields = True
     class PasswordIdleProbe(IdleProbe):
         def snapshot(self):
             snap = super().snapshot()

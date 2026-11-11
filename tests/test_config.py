@@ -14,6 +14,40 @@ def test_defaults_when_file_missing(tmp_path: Path):
     assert cfg.backend.shell_typing == "extension"
 
 
+def test_new_install_has_password_protection_off(tmp_path: Path):
+    # Новая установка и файл без ключа не получают защиту паролей по умолчанию:
+    # иначе MAX и приложения без распознаваемого поля не исправляются вообще.
+    assert cfgmod.Config().general.skip_password_fields is False
+    assert cfgmod.load(tmp_path / "missing.toml").general.skip_password_fields is False
+    assert cfgmod.from_dict({}).general.skip_password_fields is False
+    assert cfgmod.from_dict({"general": {}}).general.skip_password_fields is False
+
+
+@pytest.mark.parametrize("marked", [False, True])
+def test_missing_password_key_defaults_off_with_and_without_marker(tmp_path: Path, marked):
+    path = tmp_path / "c.toml"
+    path.write_text(("[meta]\nschema = 1\n\n" if marked else "")
+                    + "[general]\nauto_correct = true\n", encoding="utf-8")
+    assert cfgmod.load(path).general.skip_password_fields is False
+    cfgmod.save(cfgmod.load(path), path)
+    assert cfgmod.load(path).general.skip_password_fields is False
+
+
+@pytest.mark.parametrize("value", [True, False])
+@pytest.mark.parametrize("marked", [False, True])
+def test_explicit_password_protection_survives_load_save_reload(
+        tmp_path: Path, value: bool, marked: bool):
+    # Явный выбор существующего конфига не переписывается ни старым файлом без
+    # маркера схемы, ни новым с ним.
+    path = tmp_path / "c.toml"
+    path.write_text(("[meta]\nschema = 1\n\n" if marked else "")
+                    + f"[general]\nskip_password_fields = {'true' if value else 'false'}\n",
+                    encoding="utf-8")
+    assert cfgmod.load(path).general.skip_password_fields is value
+    cfgmod.save(cfgmod.load(path), path)
+    assert cfgmod.load(path).general.skip_password_fields is value
+
+
 def test_round_trip(tmp_path: Path):
     cfg = cfgmod.load(None if False else tmp_path / "c.toml")
     cfg.general.sensitivity = "aggressive"

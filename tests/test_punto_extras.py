@@ -208,7 +208,9 @@ def test_joint_two_capitals_does_not_normalize_with_caps_lock(real):
 def test_joint_two_capitals_keeps_unknown_or_protected_focus(real, protected):
     from wayswitch.a11y import FocusSnapshot
 
-    ctrl, backend, typist, corrected = make(real, US)
+    config = Config()
+    config.general.skip_password_fields = True
+    ctrl, backend, typist, corrected = make(real, US, config=config)
     ctrl.probe.snapshot = lambda: (
         FocusSnapshot("kate", True, ctrl.clock()) if protected else FocusSnapshot())
     for key in keys_for_text(real[0], "GHbdtn ", US):

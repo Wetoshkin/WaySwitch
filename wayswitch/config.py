@@ -43,8 +43,8 @@ class General:
     punct_fix: bool = True
     # «чтото» → «что-то», «кембы» → «кем бы».
     particles_fix: bool = True
-    # Не исправлять автоматически парольные поля и ввод в терминалах.
-    skip_password_fields: bool = True
+    # Защита требует распознаваемого поля, поэтому включается по желанию.
+    skip_password_fields: bool = False
     # Короткий сигнал после автоисправления (как в Punto Switcher).
     sound_on_fix: bool = False
     # «сонатуБаха» → «сонату Баха»: потерянный пробел виден по регистру.
