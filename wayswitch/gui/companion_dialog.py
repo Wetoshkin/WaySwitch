@@ -22,7 +22,7 @@ def show(parent):
     details = Gtk.Label(xalign=0, wrap=True, selectable=True)
     command = Gtk.Label(xalign=0, wrap=True, selectable=True)
     command.add_css_class("monospace")
-    buttons = Gtk.Box(spacing=12)
+    buttons = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
     refresh = Gtk.Button(label=_("Check again"))
     install = Gtk.Button(label=_("Install in terminal"), sensitive=False)
     install.add_css_class("suggested-action")
