@@ -643,11 +643,12 @@ def run_checks() -> list[Check]:
                 key="layouts",
             )
         )
-    from wayswitch.keymap import LAYOUT_SCOPE
+    from wayswitch.gui.texts import LAYOUT_SCOPE_TEXT
 
     checks.append(
         Check(
-            _("WaySwitch working languages"), True, LAYOUT_SCOPE, required=False, key="layout_scope"
+            _("WaySwitch working languages"), True, _(LAYOUT_SCOPE_TEXT),
+            required=False, key="layout_scope"
         )
     )
 

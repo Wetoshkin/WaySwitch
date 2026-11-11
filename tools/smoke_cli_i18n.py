@@ -26,6 +26,8 @@ def main() -> None:
         report = run("doctor", codes=(0, 1)).stdout
         assert ("Распознавание программ и полей пароля" if russian else
                 "Application and password field recognition") in report
+        assert ("WaySwitch исправляет ввод только" if russian else
+                "WaySwitch corrects typing only") in report
         explanation = run("explain", "ghbdtn").stdout
         assert ("Слово: ghbdtn" if russian else "Word: ghbdtn") in explanation
         assert "reason=dict-b" in explanation

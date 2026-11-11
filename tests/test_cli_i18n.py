@@ -79,3 +79,16 @@ def test_missing_catalog_falls_back_to_english(tmp_path, locale_env, monkeypatch
         assert "Keyboard layout correction" in cli.build_parser().format_help()
     finally:
         i18n._load.cache_clear()
+
+
+@pytest.mark.parametrize("locale,expected", [
+    ("en_US.UTF-8", "WaySwitch corrects typing only between Russian and English layouts."),
+    ("ru_RU.UTF-8", "WaySwitch исправляет ввод только между русской и английской раскладками."),
+])
+def test_doctor_working_languages_detail_is_localized(locale, expected, locale_env, monkeypatch):
+    locale_env(LANG=locale)
+    monkeypatch.setattr(doctor, "detect_desktop", lambda: "kde")
+    monkeypatch.setattr(doctor, "_check", lambda name, fn, hint, required=True, key="":
+                        doctor.Check(name, True, required=required, key=key))
+    scope = next(check for check in doctor.run_checks() if check.key == "layout_scope")
+    assert scope.hint.startswith(expected)
