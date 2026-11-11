@@ -435,14 +435,22 @@ When retyping uses virtual key presses, observed physical input stops further
 changes and can leave a partial correction. A physical key can still arrive
 between a check and the next virtual key.
 
+Password protection is off by default for new installations. Enabling it
+may block auto-correction in MAX and other apps whose input fields cannot
+be verified, and disables auto-correction in all terminals. The manual
+gesture remains available. Explicitly saved `skip_password_fields` values
+are preserved on update. With protection off and no application exclusions,
+ordinary correction after Space does not wait for AT-SPI; input with unknown or protected focus is
+still excluded from correction history and learning.
+
 With password-field protection enabled, automatic correction waits for
 verified AT-SPI focus. Use a manual gesture if the application's accessibility
 bridge is unavailable. `wayswitch doctor` shows application identifiers for
 exclusions. In GNOME, update the extension too and sign in again.
 Buffered text, context and undo belong to the field where input was captured.
-A programmatic field change discards the old span. If focus becomes verified
-partway through a word, correction waits for a boundary rather than replaying
-an unverified prefix.
+A confirmed field change discards the old span. With protection enabled,
+a field that becomes verified partway through a word still requires a verified
+native replacement before the prefix can be corrected.
 COSMIC correction and lock-screen handling have been tested live. Explicit
 confirmation is required after service startup and unlocking, as described above.
 

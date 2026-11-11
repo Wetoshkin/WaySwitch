@@ -154,6 +154,10 @@ class Controller:
         # к тому же объекту probe (ABA): номер меняется на каждом set_probe.
         self._probe_epoch = 0
         self._buffer_focus = None
+        # Последний известный владелец переживает временный провал метаданных.
+        self._buffer_owner = None
+        self._focus_boundary_at = 0.0
+        self._buffer_private = False
         # Поле появилось уже после первых букв (вход в редактирование ячейки
         # Calc): буфер сохраняем, но исправление разрешаем только проверяемой
         # заменой диапазона, а не клавишами.
@@ -219,6 +223,7 @@ class Controller:
         # раскладки: в это окно автоисправление не вмешивается.
         self._last_edit_at: float | None = None
         self._last_external_layout_at: float | None = None
+        self._layout_shortcut_partial_at: float | None = None
         self.stats = {"corrections": 0, "manual": 0, "undo": 0}
         self._pause_key = kc.KEY_NAMES.get(config.gesture.pause_hotkey.lower()) \
             if config.gesture.pause_hotkey else None
@@ -309,12 +314,14 @@ class Controller:
 
     def pause(self) -> None:
         self.paused = True
+        self._layout_shortcut_partial_at = None
         if self.busy:
             self._abort_requested = True  # пауза посреди фикса — не дописывать слово
             self._busy_reset = True
         self._skip_word = False
         self.buffer.reset()
         self._clear_context()
+        self._buffer_owner = None
         self._last_fix = None
         self._hold_keys = None
         self._word_gesture = None
@@ -335,6 +342,7 @@ class Controller:
     def set_locked(self, on: bool) -> None:
         self.locked = on
         if on:
+            self._layout_shortcut_partial_at = None
             if self._require_lock_confirmation:
                 self.lock_confirmation_required = self.paused = True
             self._busy_keys.clear()
@@ -352,6 +360,7 @@ class Controller:
         self._skip_word = False
         self.buffer.reset()
         self._clear_context()
+        self._buffer_owner = None
         self._last_fix = None
         self._hold_keys = None
         self._word_gesture = None
@@ -407,6 +416,10 @@ class Controller:
         """
         if self.probe is None or isinstance(self.probe, focus.NullProbe):
             return "skip", None
+        if not self._focus_guard_active():
+            # Защиты и исключений нет: ждать AT-SPI только ради проверки
+            # пароля не нужно. Снимок для истории/native проверяется отдельно.
+            return "skip", None
         try:
             snap = self.probe.snapshot()
         except Exception as exc:  # noqa: BLE001 — не показывать payload провайдера
@@ -453,15 +466,19 @@ class Controller:
         приложение) то же — буфер последнего слова ещё действителен. Если же
         подтверждено другое поле, идём обычной проверкой: она сбросит буфер.
         """
+        owner = self._focus_owner(snap)
+        app = self._scope_app(snap, owner)
         old = self._buffer_focus
         if old is not None:
             old_probe, _, old_field, old_app, old_protection = old
             if (old_protection is not None
                     and (old_probe is not self.probe
-                         or (old_field, old_app) != (snap.field, snap.app))):
+                         or (old_field, old_app) != (snap.field, app))):
                 return self._sync_focus()
-        self._buffer_focus = (self.probe, snap.generation, snap.field, snap.app,
+        self._buffer_focus = (self.probe, snap.generation, snap.field, app,
                               snap.protection(self.clock()))
+        self._buffer_owner = (owner
+                              if snap.protection(self.clock()) is False else None)
         self._buffer_window = snap.window
         return True
 
@@ -473,6 +490,9 @@ class Controller:
                 self.buffer.note_press(code, device_id)
             return
         now = self.clock()
+        if (value == 1 and code in kc.COMMAND_MODIFIERS and self.buffer.current_word()
+                and not (self.busy or self.paused or self.locked)):
+            self._layout_shortcut_partial_at = now
         if value == 1 and code not in self._gesture_keys:
             # Любая другая клавиша рвёт серию Shift: результат второго тапа
             # больше не может управлять будущей фразой.
@@ -483,10 +503,7 @@ class Controller:
                 and not (self.busy or self.paused or self.locked):
             # Будим опрос фокуса с первой буквы: после простоя поток спит, и
             # к пробелу снимок поля пароля должен быть уже свежим.
-            try:
-                self.probe.poke()
-            except Exception as exc:  # noqa: BLE001 — провайдер не должен ронять ввод
-                log.warning("опрос фокуса не разбужен (%s)", type(exc).__name__)
+            self._poke_probe()
         if value == 1 and not (self.busy or self.paused or self.locked):
             # Первая клавиша после простоя: без ожидания снимок пуст, и слово
             # начнётся по неизвестному фокусу. Ждём ограниченно; при неудаче
@@ -572,7 +589,15 @@ class Controller:
             # Новое слово начинается с пустого буфера — прежний сомнительный
             # контекст больше не действует.
             self._provisional_binding = False
+            self._buffer_private = False
+        if value == 1 and code not in kc.MODIFIER_KEYS and not self.buffer.command_held():
+            self._layout_shortcut_partial_at = None
         event = self.buffer.feed(code, value, device_id, now)
+        if event is not None and event.reset_before:
+            self._buffer_private = False
+        if (event is not None and event.kind in ("letter", "word")
+                and not self._focus_guard_active()):
+            self._buffer_private |= self._secret_focus()
         if value == 1 and self._pause_key is not None and code == self._pause_key:
             (self.resume if self.paused else self.pause)()
             return
@@ -653,6 +678,10 @@ class Controller:
             self.manual_phrase(from_gesture=True)
 
     def on_click(self) -> None:
+        self._focus_boundary_at = self.clock()
+        self._layout_shortcut_partial_at = None
+        self._buffer_focus = self._buffer_owner = None
+        self._buffer_window = None
         self._word_gesture = None
         self._pending_after = None
         if self._focus_waiting:
@@ -664,6 +693,7 @@ class Controller:
         self.buffer.click()
         self._clear_context()
         self._skip_word = False
+        self._buffer_owner = None
         self._hold_keys = None
         # Клик посреди тапа жеста — не жест: иначе Ctrl+клик переворачивал бы слово.
         self._word_gesture = None
@@ -688,10 +718,18 @@ class Controller:
                 self._operation_invalidated = True
                 self._abort_requested = True
                 self._busy_reset = True
+            # Пауза нужна только если смена раскладки прервала уже набранное
+            # слово. Целиком новое слово из пустого буфера начинается после
+            # смены и не может быть суффиксом прежнего.
+            shortcut = self._layout_shortcut_partial_at
+            had_partial_word = bool(self.buffer.current_word()) or (
+                shortcut is not None
+                and 0 <= self.clock() - shortcut < self.config.general.edit_guard_sec)
+            self._layout_shortcut_partial_at = None
             self.buffer.reset()
             self._clear_context()
             self._skip_word = False
-            self._last_external_layout_at = self.clock()
+            self._last_external_layout_at = self.clock() if had_partial_word else None
         self._emit_status()
 
     def on_resync(self, device_id: int, held) -> None:
@@ -748,6 +786,8 @@ class Controller:
     def _clear_context(self) -> None:
         """Сбросить контекст и обесценить все ожидающие колбэки done."""
         self.context.clear()
+        if self.buffer.is_empty():
+            self._buffer_private = False
         self._context_epoch += 1
 
     def _context_done(self, target_group: int) -> Callable[[bool, bool], None]:
@@ -769,57 +809,81 @@ class Controller:
         """
         old, self.probe = self.probe, probe
         self._probe_epoch += 1
+        self._layout_shortcut_partial_at = None
+        self._buffer_owner = None
         close = getattr(old, "close", None)
         if close is not None:
             close()
 
     def _sync_focus(self, *, initial_binding: bool = False, typing_key: bool = False) -> bool:
-        """Один буфер принадлежит одному полю, включая ожидание и исполнение фикса.
-
-        initial_binding — только для первой привязки явной selection-команды:
-        busy там уже зарезервирован до poke/pump, и переход unknown→fresh не
-        должен считаться прерыванием. Остальные вызовы сохраняют инвалидацию.
-        """
-        snap = self.probe.snapshot() if self.probe is not None else focus.FocusSnapshot()
+        """Сохранять владение буфером, не принимая провал метаданных за смену поля."""
+        snap = self._live_snapshot()
         protection = snap.protection(self.clock())
-        scope = (self.probe, snap.generation, snap.field, snap.app, protection)
-        old, self._buffer_focus = self._buffer_focus, scope
+        guarded = self._focus_guard_active()
+        old = self._buffer_focus
+        old_owner = self._buffer_owner
+        owner = self._focus_owner(snap if snap.age(self.clock()) <= focus.MAX_AGE_SEC
+                                  else focus.FocusSnapshot())
+        owner_changed = not self._same_focus_owner(old_owner, owner)
+        if not guarded and old is not None and old_owner is not None:
+            if (old_owner[2] is None and snap.field is None
+                    and old[-1] is not None and protection is not None
+                    and old[-1] != protection):
+                owner_changed = True
+        if not guarded and not owner_changed:
+            if old_owner is not None:
+                owner = (self.probe, *(new or previous for previous, new in
+                                      zip(old_owner[1:], owner[1:], strict=True)))
+            self._buffer_owner = owner if any(owner[1:]) else None
+            # Не подменять последнего владельца пустым снимком или состоянием меню.
+            if protection is None or (snap.password and snap.field is None
+                                      and old_owner is not None and old_owner[2] is not None):
+                if old is None:
+                    self._buffer_focus = (self.probe, snap.generation, snap.field,
+                                          self._scope_app(snap, owner), protection)
+                return True
+        app = self._scope_app(snap, owner)
+        scope = (self.probe, snap.generation, snap.field, app, protection)
+        self._buffer_focus = scope
         old_window, self._buffer_window = self._buffer_window, snap.window
         same_window = old_window == snap.window
-        if old is None or old == scope and same_window:
+        if (not guarded and old is not None and old[2] is not None
+                and old[2] == snap.field and not owner_changed):
+            same_window = True  # заголовок документа меняется при наборе
+        if old is None or old == scope and same_window and not owner_changed:
+            if protection is False:
+                self._buffer_owner = owner
             return True
         old_probe, _, old_field, old_app, old_protection = old
-        # Редактор ячейки Calc создаётся заново на каждый вход, поэтому во
-        # время набора поле успевает побывать None и смениться (grid → новый
-        # редактор). Префикс остаётся набранным в этом же приложении: буфер не
-        # стираем, но разрешаем только проверяемую native-замену. Клик/жест
-        # сюда не попадают (typing_key=False) и по-прежнему сбрасывают буфер.
-        partial_word = (typing_key and bool(self.buffer.current_word())
-                        and not self._lost_input)
-        # Поколение опроса может вырасти само по себе (событие окна/поллинга),
-        # не меняя поле и приложение: это не смена контекста, буфер сохраняем.
-        generation_only = (old_probe is self.probe and partial_word
-                           and old_field == snap.field and old_app == snap.app
-                           and old_protection == protection and same_window)
-        carry = (old_probe is self.probe and partial_word and snap.app is not None
+        partial_word = typing_key and bool(self.buffer.current_word()) and not self._lost_input
+        generation_only = (not owner_changed and old_probe is self.probe and partial_word
+                           and old_field == snap.field and old_app == app
+                           and (old_protection == protection
+                                or not guarded and old_field is not None) and same_window)
+        same_app = old_app in (None, app) or not guarded and not owner_changed
+        calc_rebind = (old_probe is self.probe and old_app == app and same_window
+                       and _libreoffice_component(snap) == "calc")
+        carry = (old_probe is self.probe and partial_word and app is not None
                  and protection is False and old_protection is not True
-                 and old_app in (None, snap.app)
+                 and same_app and (not owner_changed or calc_rebind)
                  and (same_window or old_window is None)
-                 and (old_field is None or old_app is None
-                      or same_window and _libreoffice_component(snap) == "calc"))
+                 and (old_field is None or old_app is None or calc_rebind))
         if generation_only or carry:
-            self._provisional_binding = True
+            self._provisional_binding |= guarded or (old_field is not None
+                                                     and old_field != snap.field)
+            self._buffer_owner = owner
             return True
         changed_field = (old_probe is self.probe and old_protection is not None
                          and protection is not None and old_field is not None
                          and snap.field is not None and old_field != snap.field)
-        # В другом подтверждённом поле старого префикса нет. При сомнении ждём границу.
         if changed_field:
             self._skip_word = self._lost_input
         else:
             self._skip_word |= bool(self.buffer.current_word()) or self._lost_input
         self._provisional_binding = False
-        self.buffer.reset()  # физически зажатые клавиши остаются учтены
+        self._layout_shortcut_partial_at = None
+        self._buffer_owner = None
+        self.buffer.reset()
         self._clear_context()
         self._hold_keys = None
         self._last_fix = None
@@ -834,18 +898,84 @@ class Controller:
         """Свежий снимок говорит: курсор в поле пароля."""
         if self.probe is None:
             return False
-        snap = self.probe.snapshot()
+        snap = self._live_snapshot()
         return snap.password and snap.age(self.clock()) <= focus.MAX_AGE_SEC
 
     def _secret_focus(self) -> bool:
         """Текст исправления нельзя отдавать наружу (D-Bus, окно, журнал).
 
         Отдаём текст только при свежем подтверждённом фокусе вне поля пароля.
+        Ошибка провайдера — неизвестность, а не разрешение.
         """
         if self.probe is None or isinstance(self.probe, focus.NullProbe):
             return True
-        snap = self.probe.snapshot()
-        return snap.protection(self.clock()) is not False
+        snap = self._live_snapshot()
+        return self._buffer_private or snap.protection(self.clock()) is not False
+
+    def _live_snapshot(self) -> focus.FocusSnapshot:
+        """Ошибочный снимок и кэш до клика не подтверждают текущее поле."""
+        if self.probe is None:
+            return focus.FocusSnapshot()
+        try:
+            snap = self.probe.snapshot()
+        except Exception as exc:  # noqa: BLE001 — не показывать payload провайдера
+            log.warning("снимок фокуса недоступен (%s)", type(exc).__name__)
+            return focus.FocusSnapshot()
+        if (not isinstance(snap, focus.FocusSnapshot)
+                or snap.taken_at < self._focus_boundary_at):
+            return focus.FocusSnapshot()
+        return snap
+
+    def _poke_probe(self) -> None:
+        if self.probe is None:
+            return
+        try:
+            self.probe.poke()
+        except Exception as exc:  # noqa: BLE001 — провайдер не должен ронять ввод
+            log.warning("опрос фокуса не разбужен (%s)", type(exc).__name__)
+
+    def _focus_guard_active(self) -> bool:
+        """Парольная защита и исключения требуют подтверждения фокуса."""
+        return self.config.general.skip_password_fields or bool(self._apps())
+
+    def _focus_owner(self, snap) -> tuple:
+        return (self.probe, snap.app, snap.field, snap.app_ids, snap.window)
+
+    def _scope_app(self, snap, owner):
+        return (owner[3][0] if not self._focus_guard_active() and owner[3]
+                else snap.app)
+
+    @staticmethod
+    def _same_focus_owner(old, new) -> bool:
+        """Смену подтверждают разные известные значения, а не отсутствие данных."""
+        if old is None or new is None:
+            return True
+        if old[0] is not new[0]:
+            return False
+        if old[3] and new[3] and not (set(old[3]) & set(new[3])):
+            return False
+        if not (old[3] and new[3]) and old[1] and new[1] and old[1] != new[1]:
+            return False
+        if old[2] is not None and new[2] is not None and old[2] != new[2]:
+            return False
+        same_field = old[2] is not None and old[2] == new[2]
+        if not same_field and old[4] and new[4] and old[4] != new[4]:
+            return False
+        return True
+
+    def _same_buffer_scope(self, captured, captured_owner) -> bool:
+        """Тот же буфер: поколение может вырасти, владелец — только тот же."""
+        if self._focus_guard_active():
+            return self._buffer_focus == captured
+        if captured is None:
+            return True
+        if self._buffer_focus is None:
+            return False
+        if self._buffer_focus[0] is not captured[0]:
+            return False
+        if captured_owner is not None and self._buffer_owner is None:
+            return False  # подтверждённая смена уже сбросила буфер
+        return self._same_focus_owner(captured_owner, self._buffer_owner)
 
     def _apps(self) -> list[str]:
         """Исключённые приложения с кэшем по времени изменения файла."""
@@ -863,10 +993,14 @@ class Controller:
 
     def _focus_blocks(self) -> str | None:
         """Почему сейчас нельзя трогать текст: поле пароля или исключённая программа."""
-        if self.probe is None:
+        if self.probe is None or not self._focus_guard_active():
             return None
-        return focus.skip_reason(self.probe, self._apps(),
-                                 self.config.general.skip_password_fields, self.clock())
+        try:
+            return focus.skip_reason(self.probe, self._apps(),
+                                     self.config.general.skip_password_fields, self.clock())
+        except Exception as exc:  # noqa: BLE001 — неизвестность при защите запрещает
+            log.warning("снимок фокуса недоступен (%s)", type(exc).__name__)
+            return "фокус недоступен"
 
     def _edit_guard_active(self) -> bool:
         """Только что правили текст руками — не лезем с автозаменой."""
@@ -906,8 +1040,7 @@ class Controller:
         if groups is None:
             return
         current, other = groups
-        if self.probe is not None:
-            self.probe.poke()  # пусть свежий снимок фокуса будет уже к делу
+        self._poke_probe()  # пусть свежий снимок фокуса будет уже к делу
         if self._edit_guard_active():
             log.debug("слово пропущено: только что была правка текста")
             self.context.append(None)
@@ -984,8 +1117,7 @@ class Controller:
         if groups is None:
             return
         current, other = groups
-        if self.probe is not None:
-            self.probe.poke()
+        self._poke_probe()
         if self._edit_guard_active():
             return
         if self._focus_blocks():
@@ -1423,7 +1555,9 @@ class Controller:
             result = execute(Plan(steps), self.typist, self.backend, abort=self._abort,
                              key_delay=self.config.typing.key_delay_ms / 1000.0,
                              sleep=self.sleep, restore_group=groups[0],
-                             hold=self._wait_shift_released, stop=self._stop,
+                             hold=self._wait_shift_released,
+                             stop=lambda: self._stop() or not self._selection_valid(
+                                 expected, probe, epoch)(),
                              before_write=before_write)
         except Exception as exc:  # noqa: BLE001 — не выпускать payload провайдера
             result = FAILED
@@ -1574,7 +1708,9 @@ class Controller:
         """
         snapshot = list(keys)
         capture_focus = self._buffer_focus
-        secret = secret or capture_focus[-1] is not False or self._secret_focus()
+        capture_owner = self._buffer_owner
+        secret = secret or capture_focus is None or capture_focus[-1] is not False \
+            or self._secret_focus()
         self._pending += 1
 
         def run() -> None:
@@ -1590,7 +1726,8 @@ class Controller:
                 if whole_phrase and self.buffer.expire(self.clock()):
                     log.info("исправление %s отменено: фраза устарела", reason)
                     return
-                if not self._sync_focus() or self._buffer_focus != capture_focus:
+                if not self._sync_focus() or not self._same_buffer_scope(
+                        capture_focus, capture_owner):
                     return
                 if whole_phrase:
                     unchanged = self.buffer.phrase() == snapshot
@@ -1798,7 +1935,7 @@ class Controller:
             log.info("[dry-run] %s: исправление текста", reason)
             return False
         plan.source_text = original + " " * tail
-        plan.focus = self.probe.snapshot() if self.probe is not None else None
+        plan.focus = self._live_snapshot() if self.probe is not None else None
         secret = secret or self._secret_focus()
         outcome = {} if outcome is None else outcome
         outcome["secret"] = secret
@@ -1830,10 +1967,15 @@ class Controller:
                 fresh = self._refresh_focus_for_verified(plan.focus)
                 if fresh is not None:
                     plan.focus = fresh
+                    owner = self._focus_owner(fresh)
                     # Связка буфера должна указывать на то же поле, иначе _stop()
                     # в native-протоколе увидит «смену поля» и отменит исправление.
                     self._buffer_focus = (self.probe, fresh.generation, fresh.field,
-                                          fresh.app, fresh.protection(self.clock()))
+                                          self._scope_app(fresh, owner),
+                                          fresh.protection(self.clock()))
+                    self._buffer_owner = (owner
+                                          if fresh.protection(self.clock()) is False
+                                          else None)
                     self._buffer_window = fresh.window
             if (self._abort_requested or self._busy_reset or self._operation_invalidated
                     or self.paused or self.locked or self.screen_locked()

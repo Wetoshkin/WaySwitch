@@ -295,9 +295,10 @@ def test_guard_can_be_disabled():
 
 
 def test_guard_after_manual_layout_switch():
-    """Сменил раскладку руками — секунду не лезем с автозаменой."""
+    """После переключения посреди слова его суффикс не исправляется."""
     env = make_env()
     env["backend"].current_index = US
+    type_keys(env, keys_for_text(env["km"], "prefix", US))
     env["ctrl"].on_layout_changed(US, external=True)
     type_keys(env, keys_for_text(env["km"], "ghbdtn", US))
     press_space(env)

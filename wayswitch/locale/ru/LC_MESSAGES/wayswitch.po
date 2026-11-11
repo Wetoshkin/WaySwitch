@@ -136,10 +136,6 @@ msgstr "Раз в сутки спрашивать GitHub, вышла ли нов
 msgid "Auto-correction"
 msgstr "Автоисправление"
 
-# 29
-msgid "Auto-correction is off. The manual gesture is available, history is hidden"
-msgstr "Автозамена отключена. Ручной жест доступен, история скрыта"
-
 # 30
 msgid "Automatic"
 msgstr "Автоматически"
@@ -1473,3 +1469,6 @@ msgstr "Правый Super"
 #, python-brace-format
 msgid "Manual only · {count} {words} this session"
 msgstr "Только вручную · {count} {words} за сеанс"
+
+msgid "When enabled, blocks auto-correction in all terminals and may block it in MAX and other apps whose input fields cannot be verified. The manual gesture remains available. Off by default for new installations."
+msgstr "При включении полностью отключает автозамену в терминалах и может блокировать её в MAX и других приложениях, чьи поля ввода не удаётся проверить. Ручной жест остаётся доступен. По умолчанию выключена для новых установок."
