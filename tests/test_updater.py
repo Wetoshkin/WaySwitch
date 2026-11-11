@@ -1,6 +1,7 @@
 """Update sources and package-manager boundaries, without a live Linux host."""
 
 import hashlib
+import re
 import shutil
 import subprocess
 import sys
@@ -263,6 +264,26 @@ def test_staging_records_declared_source(shell, tmp_path, marker):
     assert result.returncode == 0, result.stderr
     recorded = destination / "usr/lib/wayswitch/wayswitch/.update-source"
     assert recorded.read_text().strip() == marker
+
+
+def test_arch_recipe_passes_aur_source_to_staging(shell, tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    recipe = (root / "packaging/arch/PKGBUILD").read_text(encoding="utf-8")
+    commit = re.search(r"^_commit=(\w+)$", recipe, re.M)[1]
+    sources = tmp_path / f"WaySwitch-{commit}" / "tools"
+    sources.mkdir(parents=True)
+    (sources / "stage.sh").write_text(
+        '#!/bin/bash\nprintf "%s" "${3:-system}" > "$1/source-marker"\n',
+        encoding="utf-8", newline="\n")
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    local_recipe = tmp_path / "PKGBUILD"
+    local_recipe.write_text(recipe, encoding="utf-8", newline="\n")
+    bash = shell if sys.platform == "win32" else shutil.which("bash")
+    result = subprocess.run([bash, "-c", 'pkgdir="$PWD/stage"; source ./PKGBUILD; package'],
+                            cwd=tmp_path, capture_output=True, text=True, encoding="utf-8")
+    assert result.returncode == 0, result.stderr
+    assert (stage / "source-marker").read_text() == "aur"
 
 
 def test_aur_manual_build_requires_review_confirmation(shell, tmp_path):
