@@ -96,6 +96,11 @@ def double_shift(env, times=2):
         env["clock"].now += 0.1
 
 
+def require_focus_guard(env):
+    """Проверяемая предпосылка тестов ожидания фокуса: защита включена."""
+    env["ctrl"].config.general.skip_password_fields = True
+
+
 def typed_text(env):
     """Что реально напечатал виртуальный демон (после Backspace-ов), в целевой раскладке.
 
@@ -1408,6 +1413,7 @@ def idle_env(env):
 
 
 def test_first_auto_fix_after_idle_waits_for_fresh_focus(env):
+    require_focus_guard(env)
     probe = idle_env(env)
     type_text(env, "ghbdtn ")
     assert probe.pokes >= 1
@@ -1416,6 +1422,8 @@ def test_first_auto_fix_after_idle_waits_for_fresh_focus(env):
 
 
 def test_first_word_waits_for_focus_after_young_empty_editor_snapshot(env):
+    require_focus_guard(env)
+
     class EmptyEditorProbe(IdleProbe):
         def snapshot(self):
             snap = super().snapshot()
@@ -1433,6 +1441,7 @@ def test_first_word_waits_for_focus_after_young_empty_editor_snapshot(env):
 
 
 def test_click_during_idle_wake_drops_trigger_key_instead_of_misplacing_it(env):
+    require_focus_guard(env)
     probe = idle_env(env)
     clicks = []
 
@@ -1451,6 +1460,7 @@ def test_click_during_idle_wake_drops_trigger_key_instead_of_misplacing_it(env):
 
 
 def test_manual_gesture_after_idle_waits_for_fresh_focus(env):
+    require_focus_guard(env)
     probe = idle_env(env)
     type_text(env, "ghbdtn")
     probe.go_idle()
@@ -1460,6 +1470,7 @@ def test_manual_gesture_after_idle_waits_for_fresh_focus(env):
     assert env["corrected"][-1][2] is True
 
 def test_manual_word_call_after_idle_waits_for_fresh_focus(env):
+    require_focus_guard(env)
     probe = idle_env(env)
     type_text(env, "ghbdtn")
     probe.go_idle()
@@ -1470,6 +1481,7 @@ def test_manual_word_call_after_idle_waits_for_fresh_focus(env):
 
 
 def test_auto_fix_after_idle_unresponsive_probe_is_skipped(env, monkeypatch):
+    require_focus_guard(env)
     monkeypatch.setattr(controller_mod, "SELECTION_FOCUS_WAIT", 0.05)
     probe = IdleProbe(env["clock"])
     env["ctrl"].set_probe(probe)
@@ -1483,6 +1495,7 @@ def test_auto_fix_after_idle_unresponsive_probe_is_skipped(env, monkeypatch):
 
 @pytest.mark.parametrize("broken", ["poke", "snapshot"])
 def test_auto_fix_after_idle_probe_error_is_contained(env, monkeypatch, broken):
+    require_focus_guard(env)
     monkeypatch.setattr(controller_mod, "SELECTION_FOCUS_WAIT", 0.05)
     probe = IdleProbe(env["clock"])
     original = probe.snapshot
@@ -1509,6 +1522,7 @@ def test_auto_fix_after_idle_probe_error_is_contained(env, monkeypatch, broken):
 
 @pytest.mark.parametrize("how", ["pause", "lock"])
 def test_pause_or_lock_cancels_idle_wake(env, how):
+    require_focus_guard(env)
     probe = IdleProbe(env["clock"])
     probe.go_idle()
     env["ctrl"].set_probe(probe)
@@ -1526,6 +1540,7 @@ def test_pause_or_lock_cancels_idle_wake(env, how):
 
 @pytest.mark.parametrize("how", ["pause", "lock"])
 def test_pause_or_lock_cancels_manual_wake(env, how):
+    require_focus_guard(env)
     probe = idle_env(env)
     type_text(env, "ghbdtn")
     probe.go_idle()
@@ -1542,7 +1557,8 @@ def test_pause_or_lock_cancels_manual_wake(env, how):
 
 
 def test_password_field_after_idle_is_still_protected(env):
-    env["ctrl"].config.general.skip_password_fields = True
+    env["ctrl"].config.general.skip_password_fields = True  # проверяемая предпосылка
+
     class PasswordIdleProbe(IdleProbe):
         def snapshot(self):
             snap = super().snapshot()
@@ -1610,6 +1626,7 @@ def test_third_shift_after_second_tap_uses_screen_source_for_native_span(env):
 
 
 def test_direct_typing_keeps_buffer_and_uses_verified_span(env):
+    require_focus_guard(env)
     probe = AppearingProbe(env["clock"])
     native = NativeTypist()
     ctrl = env["ctrl"]
@@ -1624,6 +1641,7 @@ def test_direct_typing_keeps_buffer_and_uses_verified_span(env):
 
 
 def test_direct_typing_without_native_never_writes_keys(env):
+    require_focus_guard(env)
     probe = AppearingProbe(env["clock"])
     env["ctrl"].set_probe(probe)
     type_text(env, "g")
@@ -1700,6 +1718,7 @@ class GenerationProbe(SafeProbe):
 
 
 def test_generation_bump_during_typing_keeps_buffer_and_uses_verified_span(env):
+    require_focus_guard(env)
     probe = GenerationProbe(env["clock"])
     native = NativeTypist()
     ctrl = env["ctrl"]
@@ -1717,6 +1736,7 @@ def test_generation_bump_during_typing_keeps_buffer_and_uses_verified_span(env):
 
 
 def test_generation_bump_without_native_never_writes_keys(env):
+    require_focus_guard(env)
     probe = GenerationProbe(env["clock"])
     env["ctrl"].set_probe(probe)
     type_text(env, "g")
@@ -1756,6 +1776,7 @@ class LateFieldProbe(SafeProbe):
 
 
 def test_late_field_is_bound_before_verified_span(env):
+    require_focus_guard(env)
     probe = LateFieldProbe(env["clock"])
     native = NativeTypist()
     ctrl = env["ctrl"]
@@ -1771,6 +1792,7 @@ def test_late_field_is_bound_before_verified_span(env):
 
 
 def test_boundary_triggered_abort_does_not_skip_next_confirmed_word(env):
+    require_focus_guard(env)
     probe = AppearingProbe(env["clock"])
     env["ctrl"].set_probe(probe)
     type_text(env, "g")
@@ -1783,6 +1805,7 @@ def test_boundary_triggered_abort_does_not_skip_next_confirmed_word(env):
 
 @pytest.mark.parametrize("action", ["word", "phrase"])
 def test_aborted_provisional_buffer_cannot_be_retyped(env, action):
+    require_focus_guard(env)
     probe = AppearingProbe(env["clock"])
     env["ctrl"].set_probe(probe)
     type_text(env, "g")
@@ -1795,6 +1818,7 @@ def test_aborted_provisional_buffer_cannot_be_retyped(env, action):
 
 @pytest.mark.parametrize("event", ["pause", "click", "layout"])
 def test_verified_focus_wait_honors_cancellation(env, event):
+    require_focus_guard(env)
     probe = LateFieldProbe(env["clock"])
     native = NativeTypist()
     ctrl = env["ctrl"]
@@ -1877,3 +1901,176 @@ def test_phrase_expiring_during_layout_ack_never_writes_text(env, native):
     assert not env["typist"].taps()
     assert not env["corrected"]
     assert ctrl.stats["manual"] == 0
+
+
+# --- обычная автозамена без защиты паролей и исключений -----------------------
+
+
+def test_unprotected_auto_fix_does_not_wait_for_stale_focus(env):
+    probe = IdleProbe(env["clock"])
+    probe.go_idle()
+    ctrl = env["ctrl"]
+    ctrl.set_probe(probe)
+    ctrl.pump = lambda: None
+    delays = []
+    ctrl.sleep = delays.append
+    type_text(env, "ghbdtn ")
+    assert ctrl.stats["corrections"] == 1
+    assert typed_text(env).endswith("привет ")
+    assert env["corrected"] == []  # неизвестный фокус по-прежнему скрывает историю
+    assert delays == []
+
+
+def test_unprotected_auto_fix_survives_unresponsive_probe(env):
+    class BrokenProbe:
+        def snapshot(self):
+            raise RuntimeError("private payload")
+
+        def poke(self):
+            raise RuntimeError("private payload")
+
+    ctrl = env["ctrl"]
+    ctrl.set_probe(BrokenProbe())
+    type_text(env, "ghbdtn ")
+    assert ctrl.stats["corrections"] == 1
+    assert typed_text(env).endswith("привет ")
+    assert env["corrected"] == []  # снимка нет — текст наружу не отдаём
+
+
+def test_unprotected_manual_gesture_does_not_wait_for_stale_focus(env):
+    probe = IdleProbe(env["clock"])
+    probe.go_idle()
+    ctrl = env["ctrl"]
+    ctrl.set_probe(probe)
+    ctrl.pump = lambda: None
+    delays = []
+    ctrl.sleep = delays.append
+    type_text(env, "ghbdtn")
+    double_shift(env)
+    assert ctrl.stats["manual"] == 1
+    assert typed_text(env).endswith("привет")
+    assert env["corrected"] == []
+    assert delays == []
+
+
+class FieldProbe(SafeProbe):
+    """Подтверждённое поле, которое может временно пропасть из метаданных."""
+
+    def __init__(self, clock, app="editor", field=(":1.1", "/field"),
+                 app_ids=("editor",), window="Editor"):
+        super().__init__(clock)
+        self.app = app
+        self.field = field
+        self.app_ids = app_ids
+        self.window = window
+        self.visible = True
+        self.generation = 1
+
+    def snapshot(self):
+        if not self.visible:
+            return FocusSnapshot(generation=self.generation)
+        return FocusSnapshot(self.app, False, self.clock(), self.app_ids,
+                             self.field, self.generation, self.window)
+
+    def bump(self):
+        self.generation += 1
+
+
+def test_unprotected_generation_only_same_field_uses_keyboard(env):
+    probe = FieldProbe(env["clock"])
+    ctrl = env["ctrl"]
+    ctrl.set_probe(probe)
+    type_text(env, "g")
+    probe.bump()
+    type_text(env, "hbdtn ")
+    assert ctrl.stats["corrections"] == 1
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+    assert env["typist"].taps()
+
+
+def test_unprotected_temporary_focus_gap_keeps_buffer(env):
+    probe = FieldProbe(env["clock"])
+    ctrl = env["ctrl"]
+    ctrl.set_probe(probe)
+    type_text(env, "g")
+    probe.visible = False
+    type_text(env, "hbdtn")
+    assert len(ctrl.buffer.current_word()) == 6  # префикс g не потерян
+    probe.visible = True
+    probe.bump()
+    tap(env, kc.KEY_SPACE)
+    assert ctrl.stats["corrections"] == 1
+    assert typed_text(env).endswith("привет ")
+
+
+def test_unprotected_late_field_uses_keyboard_span(env):
+    probe = AppearingProbe(env["clock"])
+    ctrl = env["ctrl"]
+    ctrl.set_probe(probe)
+    type_text(env, "g")
+    probe.visible = True
+    type_text(env, "hbdtn ")
+    assert ctrl.stats["corrections"] == 1
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+    assert env["typist"].taps()
+
+
+def test_confirmed_app_ids_change_without_field_does_not_write(env):
+    probe = FieldProbe(env["clock"], field=None, app_ids=("editor",))
+    native = NativeTypist()
+    ctrl = env["ctrl"]
+    ctrl.set_probe(probe)
+    ctrl.typist = env["typist"] = native
+    type_text(env, "ghbdtn")
+    # Поле появилось одновременно со сменой приложения: старый префикс нельзя
+    # перепечатывать в новом владельце.
+    probe.field = (":1.1", "/other")
+    probe.app_ids = ("other",)
+    probe.bump()
+    tap(env, kc.KEY_SPACE)
+    assert native.native == []
+    assert env["corrected"] == []
+
+
+def test_confirmed_other_field_does_not_write_old_word(env):
+    probe = FieldProbe(env["clock"])
+    native = NativeTypist()
+    ctrl = env["ctrl"]
+    ctrl.set_probe(probe)
+    ctrl.typist = env["typist"] = native
+    type_text(env, "ghbdtn")
+    probe.field = (":1.1", "/other")
+    probe.bump()
+    tap(env, kc.KEY_SPACE)
+    assert native.native == []
+    assert env["corrected"] == []
+
+
+# --- пауза после ручной смены раскладки --------------------------------------
+
+
+def test_layout_switch_with_empty_buffer_does_not_delay_new_word(env):
+    ctrl = env["ctrl"]
+    ctrl.on_layout_changed(None, True)
+    type_text(env, "ghbdtn ")
+    assert ctrl.stats["corrections"] == 1
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
+
+
+def test_layout_switch_with_partial_word_still_blocks_suffix(env):
+    ctrl = env["ctrl"]
+    type_text(env, "prefix")
+    ctrl.on_layout_changed(None, True)
+    type_text(env, "ghbdtn ")
+    assert ctrl.stats["corrections"] == 0
+    assert env["typist"].events == []
+
+
+def test_layout_switch_with_held_modifier_allows_fresh_word(env):
+    ctrl = env["ctrl"]
+    ctrl.on_key(kc.KEY_LEFTCTRL, 1, 1)
+    ctrl.on_layout_changed(None, True)
+    ctrl.on_key(kc.KEY_LEFTCTRL, 0, 1)
+    type_text(env, "ghbdtn ")
+    assert ctrl.stats["corrections"] == 1
+    assert env["corrected"] == [("ghbdtn", "привет", False)]
