@@ -23,7 +23,7 @@ def run_command(argv: list[str]) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(argv, capture_output=True, text=True, timeout=20,
                               encoding="utf-8", errors="replace",
-                              env={**os.environ, "LC_ALL": "C"})
+                              env={**host_environment(), "LC_ALL": "C"})
     except (OSError, subprocess.TimeoutExpired) as exc:
         return subprocess.CompletedProcess(argv, 127, "", str(exc))
 

@@ -2111,3 +2111,66 @@ msgstr "расширение включено, но GNOME загрузит ег�
 
 msgid "an older extension is running: sign out and back in so GNOME loads the new version"
 msgstr "работает старая версия расширения: выйдите из сеанса и войдите снова — тогда GNOME загрузит новую версию"
+
+msgid "The upstream versions match. The native package supplies the service, systemd unit, keyboard permissions and desktop integration. Review the package manager's transaction and authentication prompt. After installation, sign out and back in for udev and GNOME extension changes, then run wayswitch doctor. Service activation remains a separate action."
+msgstr "Версии исходного приложения совпадают. Нативный пакет устанавливает службу, юнит systemd, права доступа к клавиатуре и интеграцию с рабочим столом. Проверьте список изменений и запрос авторизации пакетного менеджера. После установки выйдите из сеанса и войдите снова, чтобы применились udev и расширение GNOME, затем выполните wayswitch doctor. Включение службы — отдельное действие."
+
+msgid "The package manager reported success. This does not confirm an active service. Sign out and back in, then run wayswitch doctor and check systemctl --user status wayswitch."
+msgstr "Пакетный менеджер сообщил об успехе. Работа службы ещё не подтверждена. Выйдите из сеанса и войдите снова, затем выполните wayswitch doctor и проверьте systemctl --user status wayswitch."
+
+msgid "The package manager failed or was cancelled. It may have made changes. Read its error and use its recovery instructions; no rollback is promised."
+msgstr "Пакетный менеджер завершился с ошибкой или был отменён. Он мог внести изменения. Прочитайте ошибку и воспользуйтесь его инструкцией восстановления; откат не обещается."
+
+msgid "Arch installation includes a full system upgrade. Review and run the command yourself. For AUR, review the maintainer's PKGBUILD and use your existing helper."
+msgstr "Установка в Arch включает полное обновление системы. Проверьте и выполните команду самостоятельно. Для AUR изучите PKGBUILD мейнтейнера и используйте прежний помощник."
+
+msgid "Install the native service in a host terminal. Flatpak remains isolated; do not grant it keyboard device access."
+msgstr "Установите нативную службу в терминале основной системы. Flatpak остаётся изолированным; не предоставляйте ему доступ к устройствам клавиатуры."
+
+msgid "Enable the WaySwitch NixOS module from docs/nixos.md and rebuild the system. The module configures the native service and device permissions."
+msgstr "Подключите модуль WaySwitch для NixOS из docs/nixos.md и пересоберите систему. Модуль настраивает нативную службу и права доступа к устройствам."
+
+msgid "Use the distribution's rpm-ostree layering instructions for the native WaySwitch package, then reboot. Check the configured repository and package version first; this window does not install into /usr."
+msgstr "Для нативного пакета WaySwitch следуйте инструкции дистрибутива по добавлению слоёв rpm-ostree, затем перезагрузитесь. Сначала проверьте подключённый репозиторий и версию пакета; это окно не устанавливает файлы в /usr."
+
+msgid "A native installation already exists. Keep its original source: update it with its package manager or wayswitch update --install. Older services may not support that command. GUI and native versions must match before using this installation assistant."
+msgstr "Нативная установка уже существует. Сохраните её источник: обновляйте через её пакетный менеджер или wayswitch update --install. Старые службы могут не поддерживать эту команду. Для этого помощника версии GUI и нативной службы должны совпадать."
+
+msgid "No supported native package manager was found. Follow your distribution's WaySwitch packaging instructions; no installation was started."
+msgstr "Поддерживаемый нативный пакетный менеджер не найден. Следуйте инструкции вашего дистрибутива по установке WaySwitch; установка не запускалась."
+
+msgid "The native candidate and GUI versions do not match. Obtain matching versions through their respective sources; installation is disabled."
+msgstr "Версии нативного пакета и GUI не совпадают. Получите совпадающие версии через их собственные источники; установка отключена."
+
+msgid "The AUR candidate has the same upstream version as the GUI. Review PKGBUILD and all build files before installing with your helper. Run the displayed command yourself; no source is changed."
+msgstr "Версия исходного приложения в AUR совпадает с GUI. Перед установкой через помощник проверьте PKGBUILD и все файлы сборки. Выполните показанную команду самостоятельно; источник не меняется."
+
+msgid "No native package version was confirmed in the configured repositories. Check the repository or AUR maintainer's instructions, refresh metadata in your terminal and check again:\n\n{command}"
+msgstr "Версия нативного пакета в подключённых репозиториях не подтверждена. Проверьте инструкцию репозитория или мейнтейнера AUR, обновите метаданные в терминале и повторите проверку:\n\n{command}"
+
+msgid "Native service installation"
+msgstr "Установка нативной службы"
+
+msgid "After the package transaction, check again here and run wayswitch doctor. To activate the service when ready: systemctl --user enable --now wayswitch. Installing a package does not confirm a running, correctly configured service."
+msgstr "После транзакции пакетов повторите проверку здесь и выполните wayswitch doctor. Когда будете готовы включить службу: systemctl --user enable --now wayswitch. Установка пакета ещё не подтверждает работу и правильную настройку службы."
+
+msgid "Could not check native packages; no installation was started."
+msgstr "Не удалось проверить нативные пакеты; установка не запускалась."
+
+msgid "Open the native package manager?"
+msgstr "Открыть нативный пакетный менеджер?"
+
+msgid "{distro}\nPackage manager: {manager}\nGUI: {gui}\nNative installed: {installed}\nRepository candidate: {candidate}"
+msgstr "{distro}\nПакетный менеджер: {manager}\nGUI: {gui}\nНативная установка: {installed}\nКандидат из репозитория: {candidate}"
+
+msgid "Review the transaction in the terminal and approve authentication there. Cancellation or failure may leave package-manager changes; use its recovery instructions if needed."
+msgstr "Проверьте список изменений в терминале и подтвердите авторизацию там. После отмены или ошибки могут остаться изменения пакетного менеджера; при необходимости следуйте его инструкции восстановления."
+
+msgid "not found"
+msgstr "не найдена"
+
+msgid "Package information changed. Review it and confirm again."
+msgstr "Данные пакета изменились. Проверьте их и подтвердите снова."
+
+msgid "The package manager was opened in a terminal. Read its result there, then check again; installation and service activation have not been confirmed by this window."
+msgstr "Пакетный менеджер открыт в терминале. Прочитайте его результат там, затем повторите проверку; установка и включение службы этим окном ещё не подтверждены."
