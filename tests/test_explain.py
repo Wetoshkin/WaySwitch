@@ -14,6 +14,8 @@ from wayswitch import cli, explain
 from wayswitch import config as cfgmod
 from wayswitch.keymap import XkbKeymap
 
+pytestmark = pytest.mark.usefixtures("ru_locale")
+
 ROOT = Path(__file__).resolve().parents[1]
 
 

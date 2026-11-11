@@ -66,10 +66,11 @@ jobs:
           python3 -c "import wayswitch, wayswitch.cli"
           test -f /usr/lib/systemd/user/wayswitch.service
           result=0
-          dbus-run-session -- wayswitch doctor --delay 1 > report.txt || result=$?
+          LC_ALL=ru_RU.UTF-8 LANGUAGE=ru dbus-run-session -- wayswitch doctor --delay 1 > report.txt || result=$?
           test "$result" -le 1
           grep -Fx "WaySwitch $(wayswitch version | cut -d' ' -f2)" report.txt
           grep -F 'Демон недоступен по D-Bus' report.txt
+          dbus-run-session -- python3 tools/smoke_cli_i18n.py
       - uses: actions/upload-artifact@v4
         with:
           name: wayswitch-deb

@@ -3,6 +3,8 @@ import pytest
 from wayswitch import doctor
 from wayswitch.doctor import Check, exit_code, format_report
 
+pytestmark = pytest.mark.usefixtures("ru_locale")
+
 
 def test_cosmic_backend_selected(monkeypatch):
     from wayswitch.backends import cosmic
@@ -285,4 +287,4 @@ def test_old_extension_does_not_block_onboarding(ru_locale):
     rows = texts.onboarding_rows([Check("Расширение GNOME Shell", ok, text, required, key)])
     assert rows[0].action == "extension" and texts.onboarding_blocking(rows)
     # Совет в doctor и на экране — про новый вход, а не про «включить».
-    assert "войдите снова" in doctor.EXTENSION_STATES["outdated"][3]
+    assert "войдите снова" in doctor._(doctor.EXTENSION_STATES["outdated"][3])

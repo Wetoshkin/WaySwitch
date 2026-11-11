@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from wayswitch import i18n
+from wayswitch import cli, doctor, explain, i18n
 from wayswitch.gui import gesture_keys, onboarding, portable, terminal, texts
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,6 +40,11 @@ def _has(catalog, message: str) -> bool:
 
 def _literal_msgids() -> set[str]:
     messages: set[str] = set()
+    messages.add(cli._SELECTION_UNAVAILABLE)
+    for _method, done, unconfirmed in cli._SELECTION_COMMANDS.values():
+        messages.update((done, unconfirmed))
+    messages.update(row[3] for row in doctor.EXTENSION_STATES.values() if row[3])
+    messages.update(explain.LIMITATION_LABELS)
     for path in (ROOT / "wayswitch").rglob("*.py"):
         if path.name == "i18n.py":
             continue

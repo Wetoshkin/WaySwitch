@@ -915,3 +915,5 @@ evdev на уровне модуля и тестируется где угодн
 (`wayswitch/data/*.gz`) собраны из проекта
 [FrequencyWords](https://github.com/hermitdave/FrequencyWords) и
 распространяются по CC-BY-SA 4.0 — см. `wayswitch/data/LICENSE`.
+
+CLI (`--help`, `doctor`, `explain` и сообщения команд) использует ту же локаль, что GUI. Английский — fallback для C/POSIX, отсутствующей или неизвестной локали. JSON, названия команд, причины решений и `wayswitch version` от языка не зависят.
