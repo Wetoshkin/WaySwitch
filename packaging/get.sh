@@ -342,7 +342,7 @@ from_source() { # $1 = install.sh | uninstall.sh
   [ "$head" = "$commit" ] \
     || die "Тег $tag изменился после выбора релиза: скачанные исходники не совпадают с проверенным коммитом. Установка остановлена." \
            "Tag $tag changed after the release was selected: the downloaded source does not match the verified commit. Installation stopped."
-  sudo bash "$TMP/src/packaging/$1"
+  sudo env WAYSWITCH_UPDATE_SOURCE=github bash "$TMP/src/packaging/$1"
 }
 TRAY_AUTOSTART="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/io.github.Wetoshkin.WaySwitch.Settings.desktop"
 migrate_user_identifiers() {

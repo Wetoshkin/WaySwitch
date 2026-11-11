@@ -111,7 +111,8 @@ jobs:
           su b -c "cd /pkg && makepkg --nodeps"
           pacman -U --noconfirm /pkg/wayswitch-*.pkg.tar.zst
           wayswitch version
-          diff -r --exclude=__pycache__ wayswitch /usr/lib/wayswitch/wayswitch
+          test "$(cat /usr/lib/wayswitch/wayswitch/.update-source)" = aur
+          diff -r --exclude=__pycache__ --exclude=.update-source wayswitch /usr/lib/wayswitch/wayswitch
 
   flatpak:
     needs: test

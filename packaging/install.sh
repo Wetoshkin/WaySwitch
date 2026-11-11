@@ -12,6 +12,10 @@
 # (wayswitch_<версия>_all.deb со страницы релизов, `sudo apt install ./...`):
 # он ставит зависимости через apt и чище удаляется.
 set -euo pipefail
+case "${WAYSWITCH_UPDATE_SOURCE:-unknown}" in
+    github|system|unknown) ;;
+    *) echo "Invalid update source" >&2; exit 1 ;;
+esac
 
 WITH_A11Y=1
 for arg in "$@"; do
@@ -86,6 +90,7 @@ echo "== Код → $LIB"
 rm -rf "$LIB"
 mkdir -p "$LIB"
 cp -r "$SRC/wayswitch" "$LIB/"
+printf '%s\n' "${WAYSWITCH_UPDATE_SOURCE:-unknown}" > "$LIB/wayswitch/.update-source"
 find "$LIB" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
 cat > "$BIN/wayswitch" <<EOF
 #!/bin/sh

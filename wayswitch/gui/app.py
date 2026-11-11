@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import sys
 
-from wayswitch import __version__, i18n, updates
+from wayswitch import __version__, i18n, updater, updates
 from wayswitch import config as cfgmod
 from wayswitch.gui import autostart, portable, texts
 from wayswitch.gui.daemon_proxy import CALL_TIMEOUT_MS, DaemonProxy
@@ -29,7 +29,7 @@ log = logging.getLogger("wayswitch")
 
 # Первая проверка обновлений — не сразу после входа: сеть ещё поднимается.
 UPDATE_FIRST_DELAY_SEC = 20
-UPDATE_PERIOD_SEC = 6 * 3600
+UPDATE_PERIOD_SEC = 24 * 3600
 
 ACCELS = {
     "app.preferences": ["<Control>comma"],
@@ -84,6 +84,12 @@ def notify_selection_result(send_notification, result) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv == ["--version"]:
+        print(__version__)
+        return 0
+    if argv == ["--update"]:
+        return updater.cli_update(install=True)
     # Язык фиксируется до создания окон и переведённых подписей. Каталог
     # читается один раз; сам язык по-прежнему вычисляется из окружения.
     i18n.init()
@@ -93,7 +99,6 @@ def main(argv: list[str] | None = None) -> int:
     gi.require_version("Adw", "1")
     from gi.repository import Adw, Gio, GLib
 
-    argv = sys.argv[1:] if argv is None else argv
     tray_only = parse_gui_args(argv)
     package_kind = portable.package_kind()
     # Нативный запуск и любой --tray живут после закрытия окна: значок
@@ -108,6 +113,10 @@ def main(argv: list[str] | None = None) -> int:
             super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.FLAGS_NONE)
             self.history = texts.History()
             self.update: updates.Release | None = None
+            self.update_info: updater.UpdateInfo | None = None
+            self._checking_updates = False
+            self._update_callbacks = []
+            self._update_closed = False
             self._update_checked = False
             self._main = None
             self._onboarding = None
@@ -136,6 +145,7 @@ def main(argv: list[str] | None = None) -> int:
                                   ("about", self.show_about),
                                   ("pause", self._toggle_pause),
                                   ("run-update", self.run_update),
+                                  ("quit-for-update", self.quit),
                                   ("uninstall", self.ask_uninstall),
                                   ("quit", self._ask_quit),
                                   ("show-window", self.show_window)):
@@ -160,6 +170,7 @@ def main(argv: list[str] | None = None) -> int:
             self.show_window()
 
         def do_shutdown(self):
+            self._update_closed = True
             # Скрытие окна в трей сюда не попадает: связь и история остаются.
             self.proxy.close()
             Adw.Application.do_shutdown(self)
@@ -317,8 +328,7 @@ def main(argv: list[str] | None = None) -> int:
 
         def _periodic_update(self):
             self.check_updates(force=False)
-            if portable.can_self_update():
-                GLib.timeout_add_seconds(UPDATE_PERIOD_SEC, self._periodic_update)
+            GLib.timeout_add_seconds(UPDATE_PERIOD_SEC, self._periodic_update)
             return GLib.SOURCE_REMOVE
 
         def check_updates(self, force: bool, done=None):
@@ -328,50 +338,77 @@ def main(argv: list[str] | None = None) -> int:
                 enabled = cfgmod.load().general.check_updates
             except cfgmod.ConfigError:
                 enabled = True
-            if not portable.can_self_update() or not (enabled or force):
+            if not (enabled or force):
                 if done:
                     done(None)
                 return
+            if not hasattr(self, "_update_callbacks"):
+                self._update_callbacks = []
+            if done:
+                self._update_callbacks.append(done)
+            if getattr(self, "_checking_updates", False):
+                return
+            self._checking_updates = True
 
             def finished(result):
-                self.update_error = isinstance(result, Exception)
-                if not isinstance(result, Exception):
-                    self.update = result
-                    self._update_checked = True
-                    if result is not None and updates.should_notify(result.version):
-                        self._notify_update(result)
+                self._checking_updates = False
+                if getattr(self, "_update_closed", False):
+                    self._update_callbacks.clear()
+                    return
+                override = getattr(self, "_update_source_override", None)
+                if (isinstance(result, updater.UpdateInfo) and override
+                        and result.source != override):
+                    self.check_updates(force=True)
+                    return
+                callbacks, self._update_callbacks = self._update_callbacks, []
+                if isinstance(result, Exception):
+                    previous = getattr(self, "update_info", None)
+                    result = updater.UpdateInfo(
+                        previous.source if previous else updater.Source("unknown"),
+                        state="error", message=str(result))
+                self.update_error = isinstance(result, Exception) or (
+                    isinstance(result, updater.UpdateInfo) and result.state == "error")
+                if isinstance(result, updater.UpdateInfo):
+                    self.update_info = result
+                    self.update = result.available
+                    self._update_checked = result.state in {"available", "current"}
+                    if self.update and updates.should_notify(
+                            f"{result.source.kind}:{result.source.package}:{self.update.version}"):
+                        self._notify_update(self.update)
                 self.tray.update(self.proxy.status,
                                  self.update.version if self.update else None)
                 if self._main is not None:
                     self._main.render_update(self.update)
-                if done:
-                    done(result)
+                for callback in callbacks:
+                    callback(result)
 
-            run_in_thread(lambda: updates.check(__version__, force=force), finished)
+            source = getattr(self, "_update_source_override", None)
+            run_in_thread(lambda: updater.check(__version__, force=force, source=source), finished)
 
         def _notify_update(self, release):
             note = Gio.Notification.new(_("WaySwitch {version} is available").format(
                 version=release.version))
-            note.set_body(_("Press “Update” to open the instructions for the window and "
-                            "the service.") if portable.package_kind() else
-                          _("Press “Update” to open a terminal and enter your password."))
+            note.set_body(_("Open Updates to review the changes and install through your "
+                            "existing installation source."))
             note.set_default_action("app.show-window")
             note.add_button(_("Update"), "app.run-update")
             self.send_notification("update", note)
 
         def update_text(self, checked: bool = False) -> str:
+            if getattr(self, "update_info", None) is not None:
+                return updater.status_text(self.update_info)
             if getattr(self, "update_error", False):
-                return _("Could not check: no connection to GitHub")
+                return _("Could not check the installation source")
             return update_text(self.update, checked or self._update_checked)
 
         def open_release(self):
-            _open_uri(self.update.url if self.update else updates.RELEASES_URL)
+            _open_uri(self.update.url if self.update and self.update.url else updates.RELEASES_URL)
 
         def run_update(self):
-            if portable.package_kind():
-                portable.show_instructions(self._parent(), "update")
-                return
-            self._run_in_terminal(uninstall=False)
+            from wayswitch.gui import update_dialog
+
+            self._ensure_main().present()
+            update_dialog.show(self)
 
         def ask_uninstall(self):
             from wayswitch.gui import dialogs

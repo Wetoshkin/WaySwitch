@@ -46,6 +46,9 @@ def build_parser() -> argparse.ArgumentParser:
     explain.add_argument("--json", action="store_true", help="машиночитаемый вывод")
     sub.add_parser("gui", help="открыть настройки")
     sub.add_parser("version")
+    update = sub.add_parser("update", help="проверить обновление в источнике установки")
+    update.add_argument("--install", action="store_true",
+                        help="установить доступное обновление через прежний источник")
     return p
 
 
@@ -212,6 +215,10 @@ def main(argv: list[str] | None = None) -> int:
     if ns.command == "version":
         print(f"wayswitch {__version__}")
         return 0
+    if ns.command == "update":
+        from wayswitch import updater
+
+        return updater.cli_update(install=ns.install)
     if ns.command in ("run", "dry-run"):
         from wayswitch.daemon import run
 

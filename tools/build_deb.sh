@@ -25,7 +25,7 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE"
 
 # --- файлы пакета (общие с .rpm и AUR) -----------------------------------
-bash "$ROOT/tools/stage.sh" "$STAGE" /usr/lib/python3/dist-packages
+bash "$ROOT/tools/stage.sh" "$STAGE" /usr/lib/python3/dist-packages "${WAYSWITCH_UPDATE_SOURCE:-github}"
 BIN="$STAGE/usr/bin"
 # В Debian лицензия — в doc/<пакет>/copyright, а не в /usr/share/licenses.
 rm -rf "$STAGE/usr/share/licenses"

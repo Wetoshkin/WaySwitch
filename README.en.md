@@ -280,12 +280,25 @@ The GitHub namespace changes the extension, application and portable package IDs
 See the [migration guide](docs/identifiers.md) for Flatpak, GNOME and the KDE widget.
 WaySwitch settings are preserved.
 
-Once a day WaySwitch asks GitHub whether a new version is out; if so, the
-window shows a bar with an **Update** button (also in the notification, the
-panel menu and Preferences → System). It opens a terminal with the install
-command — confirm and enter your password. Settings are kept, no restart
-needed (on GNOME the new extension version takes effect at the next login;
-on Silverblue and Kinoite — after a reboot). Preferences → System → **Remove WaySwitch** works the same way.
+Sources after 1.1.4 include **Preferences → System → Updates…**: installation
+source, available version, release notes, installation in a terminal and a
+copyable command. AUR and third-party repositories keep using their package
+manager. Unknown sources are never silently replaced by GitHub. When automatic
+installation is unavailable, the window provides manual steps. This interface
+is not included in the published 1.1.4 release yet.
+
+`wayswitch update` checks the original source; `wayswitch update --install`
+also installs an available update. Confirmation and administrator authentication
+stay with the package manager. After verification the previously active service
+is restarted; the GUI's installation button also reopens the window. Flatpak and
+AppImage update their window separately from the native host service. The Flatpak
+sandbox receives no host-execution permissions. Nix and atomic systems retain an
+explicit manual path. See the [update guide](docs/updates.md).
+
+In published 1.1.4, GitHub checks and the update button depend on the packager's
+marker; externally managed packages marked `.packaged` use their package manager.
+GNOME extension updates may require signing out and back in; pending atomic
+deployments require a reboot. Settings are preserved.
 
 ## Troubleshooting
 
@@ -350,9 +363,10 @@ including those learned from undoing corrections, are saved to
 When focus is unknown or stale, correction text is withheld from the
 window history over D-Bus and from learning after undo.
 
-Update checks contact the GitHub API. GitHub receives your IP address and
-the WaySwitch version in the `User-Agent`, but no typed text. You can turn
-update checks off in Preferences.
+GitHub update checks send the IP address and WaySwitch version in the
+`User-Agent`, but no typed text. In sources after 1.1.4, AUR installations
+check AUR RPC with the package name; distribution packages use their own
+package manager without contacting GitHub. Checks can be disabled in Preferences.
 
 Password-field detection depends on the application exposing that information.
 Pause WaySwitch before entering sensitive text in a field whose protection

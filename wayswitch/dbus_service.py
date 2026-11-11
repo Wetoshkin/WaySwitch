@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
+from wayswitch import __version__
+
 BUS_NAME = "io.github.Wetoshkin.WaySwitch"
 OBJECT_PATH = "/io/github/Wetoshkin/WaySwitch"
 INTERFACE = "io.github.Wetoshkin.WaySwitch.Daemon"
@@ -34,7 +36,7 @@ def _to_variant_dict(status: dict):
     from gi.repository import GLib
 
     out = {}
-    for k, v in status.items():
+    for k, v in {**status, "version": __version__}.items():
         if isinstance(v, bool):
             out[k] = GLib.Variant("b", v)
         elif isinstance(v, int):

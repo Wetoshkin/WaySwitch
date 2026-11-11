@@ -24,7 +24,7 @@ wayswitch-gui = "wayswitch.gui.app:main"
 include = ["wayswitch*"]
 
 [tool.setuptools.package-data]
-wayswitch = ["data/*.gz", "data/LICENSE", "locale/*/LC_MESSAGES/*.po",
+wayswitch = ["data/*.gz", "data/LICENSE", ".update-source", "locale/*/LC_MESSAGES/*.po",
              "locale/*/LC_MESSAGES/*.mo"]
 
 [tool.pytest.ini_options]

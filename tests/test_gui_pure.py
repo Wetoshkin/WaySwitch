@@ -310,8 +310,7 @@ def test_packaged_update_status_never_claims_latest(monkeypatch, tmp_path, check
     assert update_text(latest, checked) == "Обновления через пакетный менеджер"
 
 
-@pytest.mark.parametrize("force", [False, True])
-def test_packaged_gui_skips_check_without_recording_success(monkeypatch, force):
+def test_disabled_automatic_checks_do_not_start_worker(monkeypatch):
     import sys
     import types
 
@@ -334,27 +333,29 @@ def test_packaged_gui_skips_check_without_recording_success(monkeypatch, force):
     repository.Gio = types.SimpleNamespace()
     repository.GLib = types.SimpleNamespace(
         SOURCE_REMOVE=False,
-        timeout_add_seconds=lambda *args: pytest.fail("packaged update timer scheduled"))
+        timeout_add_seconds=lambda *args: 1)
     monkeypatch.setitem(sys.modules, "gi", gi)
     monkeypatch.setitem(sys.modules, "gi.repository", repository)
     monkeypatch.setattr(portable, "is_system_packaged", lambda: True)
     monkeypatch.setattr(app.autostart, "migrate_tray", lambda: None)
-    monkeypatch.setattr(app.cfgmod, "load", app.cfgmod.Config)
+    cfg = app.cfgmod.Config()
+    cfg.general.check_updates = False
+    monkeypatch.setattr(app.cfgmod, "load", lambda: cfg)
     monkeypatch.setattr(widgets, "run_in_thread",
-                        lambda *args: pytest.fail("packaged update worker started"))
+                        lambda *args: pytest.fail("disabled update worker started"))
     with pytest.raises(ApplicationDefined):
         app.main([])
     instance = object.__new__(classes[0])
     instance._update_checked = False
     completed = []
-    instance.check_updates(force=force, done=completed.append)
+    instance.check_updates(force=False, done=completed.append)
     assert completed == [None]
     assert instance._update_checked is False
     assert instance._periodic_update() is False
 
 
 @pytest.mark.parametrize("packaged", [False, True])
-def test_onboarding_preserves_update_preference_when_packaged(monkeypatch, tmp_path, packaged):
+def test_onboarding_saves_update_preference_for_each_source(monkeypatch, tmp_path, packaged):
     from types import SimpleNamespace
 
     from wayswitch import config as cfgmod
@@ -369,7 +370,7 @@ def test_onboarding_preserves_update_preference_when_packaged(monkeypatch, tmp_p
     instance.sw_updates = SimpleNamespace(get_active=lambda: False)
     instance.on_finish = lambda: None
     instance._finish()
-    assert cfgmod.load().general.check_updates is packaged
+    assert cfgmod.load().general.check_updates is False
     assert not onboarding.needed()
 
 

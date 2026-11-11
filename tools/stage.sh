@@ -11,9 +11,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST="${1:?укажите DESTDIR}"
 SITELIB="${2:?укажите каталог модулей Python}"
+UPDATE_SOURCE="${3:-system}"
+case "$UPDATE_SOURCE" in github|aur|system) ;; *) exit 1 ;; esac
 
 install -d "$DEST$SITELIB"
 cp -r "$ROOT/wayswitch" "$DEST$SITELIB/wayswitch"
+printf '%s\n' "$UPDATE_SOURCE" > "$DEST$SITELIB/wayswitch/.update-source"
 find "$DEST$SITELIB/wayswitch" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
 
 install -d "$DEST/usr/bin"
