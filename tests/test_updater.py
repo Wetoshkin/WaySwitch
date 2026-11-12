@@ -1,10 +1,12 @@
 """Update sources and package-manager boundaries, without a live Linux host."""
 
 import hashlib
+import os
 import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -377,3 +379,39 @@ gapplication() {{ touch gui-closed; }}
     assert result.returncode == 0, result.stderr
     assert ("try-restart" in (tmp_path / "service-calls").read_text()) is (service == "active")
     assert not (tmp_path / "gui-closed").exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("flock") is None,
+                    reason="requires POSIX file descriptors and flock")
+def test_reopened_gui_does_not_keep_update_lock(shell, tmp_path):
+    info = updater.UpdateInfo(updater.Source("system", "apt", "wayswitch", "1.2.0-1"),
+                               updates.Release("1.2.0-2", ""), "available", "true", True)
+    script = updater.install_script(info, app_id="test.app", pid=123)
+    gui = tmp_path / "wayswitch-gui"
+    gui.write_text("#!/bin/sh\necho $$ > gui.pid\n"
+                   "while [ ! -e stop ]; do sleep 0.05; done\n", encoding="utf-8")
+    gui.chmod(0o755)
+    query = tmp_path / "dpkg-query"
+    query.write_text("#!/bin/sh\nprintf 1.2.0-2\n", encoding="utf-8")
+    query.chmod(0o755)
+    prefix = '''
+PATH="$PWD:$PATH"
+systemctl() { echo inactive; }
+dpkg() { :; }
+gapplication() { :; }
+kill() { return 1; }
+'''
+    try:
+        result = subprocess.run([shell, "-c", prefix + script], cwd=tmp_path,
+                                env={**os.environ, "XDG_RUNTIME_DIR": str(tmp_path)},
+                                input="\n", capture_output=True, text=True, timeout=10)
+        assert result.returncode == 0, result.stderr
+        deadline = time.monotonic() + 5
+        while not (tmp_path / "gui.pid").exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        os.kill(int((tmp_path / "gui.pid").read_text()), 0)
+        lock = tmp_path / f"wayswitch-update-{os.getuid()}.lock"
+        probe = subprocess.run(["flock", "-n", str(lock), "true"], capture_output=True)
+        assert probe.returncode == 0, "reopened GUI inherited the update lock"
+    finally:
+        (tmp_path / "stop").touch()

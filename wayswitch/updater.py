@@ -457,7 +457,7 @@ def install_script(info: UpdateInfo, *, app_id: str, pid: int) -> str:
         "attempt=0\n"
         f"while kill -0 {pid} 2>/dev/null; do\n"
         'attempt=$((attempt + 1))\n[ "$attempt" -lt 20 ] || return 1\nsleep 0.25\ndone\n'
-        f"nohup {launch} >/dev/null 2>&1 </dev/null &\n"
+        f"nohup {launch} 9>&- >/dev/null 2>&1 </dev/null &\n"
         f"printf '%s\\n' {shlex.quote(success)}\n"
         f"else printf '%s\\n' {shlex.quote(manual)}\nfi\n}}\n"
         'lock_dir=${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}\n'
