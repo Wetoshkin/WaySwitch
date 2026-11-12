@@ -49,6 +49,8 @@ def show(parent):
         copy.set_sensitive(False)
         state["info"] = None
         if isinstance(result, Exception):
+            details.set_label("")
+            command.set_label("")
             status.set_label(_("Could not check native packages; no installation was started."))
             return
         state["info"] = result
@@ -103,6 +105,8 @@ def show(parent):
                 if state["closed"] or generation != state["generation"]:
                     return
                 render(result, generation)
+                if state["info"] is None:
+                    return
                 if result != info:
                     details.set_label(_("Package information changed. "
                                         "Review it and confirm again."))
