@@ -444,7 +444,10 @@ F2 and direct input, slow and fast typing. See the project status.
   scenarios reached real evdev, the daemon, extension and GTK4; accidental
   Caps Lock deactivation and Tab between fields were checked separately.
   Physical USB keyboards and live AUR/third-party RPM transactions were not
-  tested. This does not confirm an upgrade from an installed 1.1.4.
+  tested. A separate APT upgrade from the published 1.1.4 deb to the 1.2.0
+  candidate preserved settings and exceptions; the old window needs manual
+  reopening. A separate test APT repository confirmed source preservation and
+  service/window restarts when upgrading a 1.2.0 package revision.
 - For 1.1.4, a live CachyOS GNOME 51.1 Wayland session on an isolated GTK4
   TextView passed 8 of 8 scenarios, including direct FixPhrase in both
   directions, fresh and expired phrases with a prefix, an empty phrase, triple
