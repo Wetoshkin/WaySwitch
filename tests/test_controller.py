@@ -2012,6 +2012,70 @@ def test_unprotected_generation_only_same_field_uses_keyboard(env):
     assert env["typist"].taps()
 
 
+@pytest.mark.parametrize("guarded", [False, True])
+@pytest.mark.parametrize("stage", ["queued", "backspace", "word", "phrase", "undo"])
+def test_confirmed_field_generation_preserves_correction(env, guarded, stage):
+    ctrl = env["ctrl"]
+    ctrl.config.general.skip_password_fields = guarded
+    probe = FieldProbe(env["clock"])
+    ctrl.set_probe(probe)
+    if stage == "backspace":
+        class PollingTypist(RecordingTypist):
+            def key(self, code, value):
+                super().key(code, value)
+                if value == 0 and len(self.taps()) == 2:
+                    probe.bump()
+
+        ctrl.typist = env["typist"] = PollingTypist()
+    type_text(env, "ghbdtn")
+    if stage == "queued":
+        queued = []
+        ctrl.schedule = queued.append
+        tap(env, kc.KEY_SPACE)
+        probe.bump()
+        queued.pop(0)()
+    elif stage in {"word", "phrase"}:
+        probe.bump()
+        assert (ctrl.manual_word() if stage == "word" else ctrl.manual_phrase())
+    else:
+        tap(env, kc.KEY_SPACE)
+        if stage == "undo":
+            probe.bump()
+            double_shift(env)
+            assert ctrl.stats["undo"] == 1
+            assert typed_text(env).endswith("ghbdtn ")
+            return
+    assert ctrl.stats["manual" if stage in {"word", "phrase"} else "corrections"] == 1
+    assert typed_text(env).endswith("привет" + (" " if stage in {"queued", "backspace"} else ""))
+
+
+@pytest.mark.parametrize("change", ["field", "app", "unknown", "password"])
+def test_queued_generation_change_does_not_retype_in_untrusted_scope(env, change):
+    require_focus_guard(env)
+    ctrl = env["ctrl"]
+    probe = FieldProbe(env["clock"])
+    ctrl.set_probe(probe)
+    type_text(env, "ghbdtn")
+    queued = []
+    ctrl.schedule = queued.append
+    tap(env, kc.KEY_SPACE)
+    probe.bump()
+    if change == "field":
+        probe.field = (":1.1", "/other")
+    elif change == "app":
+        probe.app, probe.app_ids = "other", ("other",)
+    elif change == "unknown":
+        probe.visible = False
+    else:
+        previous = probe.snapshot
+        probe.snapshot = lambda: FocusSnapshot(
+            "editor", True, env["clock"](), field=previous().field,
+            generation=probe.generation)
+    queued.pop(0)()
+    assert env["typist"].events == []
+    assert ctrl.stats["corrections"] == 0
+
+
 def test_unprotected_temporary_focus_gap_keeps_buffer(env):
     probe = FieldProbe(env["clock"])
     ctrl = env["ctrl"]

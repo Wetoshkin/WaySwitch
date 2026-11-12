@@ -855,6 +855,12 @@ class Controller:
                 self._buffer_owner = owner
             return True
         old_probe, _, old_field, old_app, old_protection = old
+        if (not self._lost_input and not owner_changed and old_probe is self.probe
+                and old_field is not None and old_field == snap.field and old_app == app
+                and old_protection is False and protection is False and same_window):
+            # Обновление того же поля допустимо и между Backspace и перепечаткой.
+            self._buffer_owner = owner
+            return True
         partial_word = typing_key and bool(self.buffer.current_word()) and not self._lost_input
         generation_only = (not owner_changed and old_probe is self.probe and partial_word
                            and old_field == snap.field and old_app == app
@@ -966,7 +972,13 @@ class Controller:
     def _same_buffer_scope(self, captured, captured_owner) -> bool:
         """Тот же буфер: поколение может вырасти, владелец — только тот же."""
         if self._focus_guard_active():
-            return self._buffer_focus == captured
+            if self._buffer_focus == captured:
+                return True
+            return (captured is not None and captured[2] is not None
+                    and captured[-1] is False and self._buffer_focus is not None
+                    and self._buffer_focus[0] is captured[0]
+                    and self._buffer_focus[2:] == captured[2:]
+                    and self._same_focus_owner(captured_owner, self._buffer_owner))
         if captured is None:
             return True
         if self._buffer_focus is None:
