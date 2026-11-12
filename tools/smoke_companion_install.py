@@ -18,6 +18,8 @@ def main() -> None:
     original_terminal = companion.terminal.terminal_argv
 
     def start(*args, **kwargs):
+        if not args or args[0][:2] != ["sh", "-c"]:
+            return original_popen(*args, **kwargs)
         kwargs.update(stdin=subprocess.PIPE, stdout=None, stderr=None)
         process = original_popen(*args, **kwargs)
         processes.append(process)

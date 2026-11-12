@@ -124,6 +124,38 @@ def test_handoff_uses_desktop_preferred_host_terminal(monkeypatch):
     assert launched[0][0] == "konsole"
 
 
+def test_ci_transport_preserves_desktop_probe_subprocess(monkeypatch):
+    from types import SimpleNamespace
+
+    from tools import smoke_companion_install
+    from wayswitch.backends import desktop
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    info = companion.Package("Debian", "apt", candidate="1.1.4-1",
+                             command="true", automatic=True)
+    monkeypatch.setattr(companion, "check", lambda *a, **kw: info)
+    launched = []
+
+    def popen(argv, **kwargs):
+        launched.append(argv)
+        if argv == ["desktop-probe"]:
+            assert kwargs["stdout"] == subprocess.PIPE
+        return SimpleNamespace(communicate=lambda **kw: None)
+
+    def detect():
+        subprocess.Popen(["desktop-probe"], stdout=subprocess.PIPE)
+        return "gnome"
+
+    monkeypatch.setattr(companion.subprocess, "Popen", popen)
+    monkeypatch.setattr(desktop, "detect_desktop", detect)
+    monkeypatch.setattr(subprocess, "check_output", lambda *a, **kw: info.candidate)
+    monkeypatch.setattr(smoke_companion_install, "Path",
+                        lambda path: SimpleNamespace(is_file=lambda: True))
+    smoke_companion_install.main()
+    assert len(launched) == 2
+    assert launched[1][:2] == ["sh", "-c"]
+
+
 def test_terminal_failure_is_reported_without_installation_claim(monkeypatch):
     info, _ = probe({("apt-cache", "policy", "wayswitch"): (0, "Candidate: 1.1.4-1\n")})
     monkeypatch.setattr(companion.terminal, "terminal_argv", lambda *a, **k: None)
