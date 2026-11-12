@@ -27,7 +27,8 @@
 
 **Automatic Russian–English keyboard layout correction for Linux on Wayland.**
 
-**1.1.4 — explain diagnostics, Russian/English interface localization and text-replacement stabilization.**
+**Source version 1.2.0 — updates that preserve the installation source, an AppImage
+service assistant, ru/en CLI output, and focus, Caps Lock and tray fixes.**
 
 Packages and checksums: [latest published release](https://github.com/Wetoshkin/WaySwitch/releases/latest).
 See [project status](docs/PROGRESS.md) for completed changes, verification and remaining work.
@@ -74,7 +75,8 @@ locale; correction supports the Russian ↔ English pair.
   comma or period typed as the last Russian letter on the same key
   (`пирогб` → «пирог,»); particles typed together (`чтото` → «что-то», `кембы` → «кем бы»);
   a missing space before a capitalised word (`сонатуБаха` → «сонату Баха»).
-- **Exceptions.** Words and programs to leave alone. Password fields are skipped.
+- **Exceptions.** Words and programs to leave alone. Recognised password fields
+  are skipped when password protection is enabled; it is off for new installations.
 
 The following desktop integrations are illustrated with mockups. Full testing
 with a physical keyboard is still needed; see [Status](#status).
@@ -147,10 +149,15 @@ a release.
 
 ### Flatpak and AppImage
 
-The pending AppImage setup assistant shows the distribution, native package manager and version compatibility. After confirmation it hands installation to the system package manager in a terminal; mismatched versions receive instructions. Arch and AUR require manual review. See [native-service handoff](docs/appimage-companion.md).
+In 1.2.0 the AppImage setup assistant shows the distribution, native package
+manager and version compatibility. After confirmation it hands first installation
+to the system package manager in a terminal; mismatched versions receive
+instructions. Arch and AUR require manual review. Starting a terminal does not
+confirm installation or service activation. See [native-service handoff](docs/appimage-companion.md).
 
-Portable settings clients are available. Install and update the
-native WaySwitch service on the host using the command above. Use the service
+Portable settings clients are available; correction requires a separate native
+WaySwitch service on the host. Update an existing service through its original
+source: a new AppImage or Flatpak does not update it. Use the service
 and GUI from the same [release](https://github.com/Wetoshkin/WaySwitch/releases).
 The first-run window explains companion
 installation, startup and diagnostics. Settings and pause state are shared.
@@ -250,23 +257,22 @@ start systemd user services: without uwsm, add `exec wayswitch run` (Sway) or
 (labwc / Wayfire) WaySwitch reads the layouts from the compositor's XKB
 settings — see the Russian README for snippets.
 
-**Closing the window.** This native fix is a source change after 1.1.4 and is
-not released yet: in 1.1.4 a normal native launch ended both the window and
-its icon. With the fix, a native launch stays in the icon like `--tray`: the
-service keeps correcting, and launching WaySwitch again from the app menu
+**Closing the window.** In 1.2.0 a native launch stays in the icon like `--tray`:
+the service keeps correcting, and launching WaySwitch again from the app menu
 reopens the same window with its history. In GNOME the icon requires the
 AppIndicator extension to be enabled (it is usually already enabled on
 Ubuntu). The portable Flatpak and AppImage GUIs keep an independent window
 lifecycle: an ordinary close ends the GUI together with its icon while the
 native service keeps running; `--tray` keeps the icon.
 
-**Interface language.** The window, notifications, panel icon and Waybar module
+**Interface language.** The window, notifications, panel icon, Waybar module
+and human-readable CLI, doctor and explain output
 choose the language at startup from `LANGUAGE`, `LC_ALL`, `LC_MESSAGES` and
 `LANG`. A Russian locale gives the Russian interface; English, `C`, `C.UTF-8`,
 `POSIX`, an unknown or an unset locale give English (the source language).
 For `C`/`POSIX`, `LANGUAGE` does not enable the Russian catalog. The Plasma
-widget uses KDE's system language. Localization is part of 1.1.4; the published
-1.1.3 did not include it.
+widget uses KDE's system language. In 1.2.0 commands are localized too; JSON,
+reason values, the version line and exit codes retain their previous contract.
 
 The `[meta]` section with `schema = 1` identifies the `config.toml` format. Files without the marker are treated as legacy: their
 `settle_ms = 30` is migrated to 120. An explicit 30 saved by this version stays
@@ -282,23 +288,30 @@ The GitHub namespace changes the extension, application and portable package IDs
 See the [migration guide](docs/identifiers.md) for Flatpak, GNOME and the KDE widget.
 WaySwitch settings are preserved.
 
-Sources after 1.1.4 include **Preferences → System → Updates…**: installation
+**First upgrade from 1.1.4.** That version has no `wayswitch update` command.
+Update the native service using its existing manager or installer: AUR and
+distribution packages through their own manager, GitHub installations through
+the previous GitHub installer or release package. Do not replace an AUR or
+distribution package with the GitHub installer. Updating the portable GUI alone
+to 1.2.0 does not update a 1.1.4 service. An old installation without a source
+marker may need one update using its original method.
+
+In 1.2.0 **Preferences → System → Updates…** shows the installation
 source, available version, release notes, installation in a terminal and a
 copyable command. AUR and third-party repositories keep using their package
 manager. Unknown sources are never silently replaced by GitHub. When automatic
-installation is unavailable, the window provides manual steps. This interface
-is not included in the published 1.1.4 release yet.
+installation is unavailable, the window provides manual steps.
 
-`wayswitch update` checks the original source; `wayswitch update --install`
-also installs an available update. Confirmation and administrator authentication
+Once native 1.2.0 is installed, `wayswitch update` checks the original source;
+`wayswitch update --install` also installs an available update. Confirmation
+and administrator authentication
 stay with the package manager. After verification the previously active service
-is restarted; the GUI's installation button also reopens the window. Flatpak and
-AppImage update their window separately from the native host service. The Flatpak
+is restarted; an inactive service stays inactive. The GUI's installation button
+also reopens the window; after a manual installation, close and reopen it. Flatpak
+and AppImage update their window separately from the native host service. The Flatpak
 sandbox receives no host-execution permissions. Nix and atomic systems retain an
 explicit manual path. See the [update guide](docs/updates.md).
 
-In published 1.1.4, GitHub checks and the update button depend on the packager's
-marker; externally managed packages marked `.packaged` use their package manager.
 GNOME extension updates may require signing out and back in; pending atomic
 deployments require a reboot. Settings are preserved.
 
@@ -366,11 +379,12 @@ When focus is unknown or stale, correction text is withheld from the
 window history over D-Bus and from learning after undo.
 
 GitHub update checks send the IP address and WaySwitch version in the
-`User-Agent`, but no typed text. In sources after 1.1.4, AUR installations
+`User-Agent`, but no typed text. In 1.2.0, AUR installations
 check AUR RPC with the package name; distribution packages use their own
 package manager without contacting GitHub. Checks can be disabled in Preferences.
 
-Password-field detection depends on the application exposing that information.
+Password protection is off by default for new installations; saved preferences
+are preserved on update. Detection depends on the application exposing that information.
 Pause WaySwitch before entering sensitive text in a field whose protection
 you have not verified. The udev rule grants keyboard access to other processes
 running as the active user as well.
@@ -393,7 +407,9 @@ a udev rule and desktop integration. A Snap package is not available.
 ## Status
 
 Desktop support does not guarantee compatibility with every application:
-automatic correction requires accessible input fields with verified AT-SPI focus.
+with password protection enabled, automatic correction requires verified AT-SPI
+focus. With protection off and no exclusions, ordinary keyboard replacement does
+not require it. Selection and native range replacement still depend on AT-SPI.
 
 | Environment | Integration and conditions | Validation |
 |---|---|---|
@@ -422,6 +438,13 @@ automatic capitalization and two consecutive words. In 1.1.3, Calc on GNOME 51.1
 passed eight automatic and eight manual corrections:
 F2 and direct input, slow and fast typing. See the project status.
 
+- For the 1.2.0 candidate, Ubuntu 26.04.1 / GNOME 50.1 / Wayland passed a
+  first AppImage installation through Ptyxis/apt, separate service activation
+  and sign-in, and uninstall with settings preserved. Twenty QEMU keyboard
+  scenarios reached real evdev, the daemon, extension and GTK4; accidental
+  Caps Lock deactivation and Tab between fields were checked separately.
+  Physical USB keyboards and live AUR/third-party RPM transactions were not
+  tested. This does not confirm an upgrade from an installed 1.1.4.
 - For 1.1.4, a live CachyOS GNOME 51.1 Wayland session on an isolated GTK4
   TextView passed 8 of 8 scenarios, including direct FixPhrase in both
   directions, fresh and expired phrases with a prefix, an empty phrase, triple
@@ -434,9 +457,9 @@ F2 and direct input, slow and fast typing. See the project status.
   synthesized Space; the fix is included in 1.1.4 and passed a repeated live run. Native Writer replacement
   for 1.1.4 was not verified: the private Flatpak Writer never mapped a fresh
   window. Writer/Calc 1.1.3 results remain historical and do not confirm 1.1.4.
-  Sway, PrintScreen, async GUI, tray, sound and language-edge checks are still
-  pending. This does not confirm every desktop, app or native Writer
-  replacement.
+  Sway, PrintScreen, async GUI, tray, sound and language-edge checks were not
+  part of that run. The 1.2.0 checks are listed separately and do not confirm
+  every desktop, app or native Writer replacement.
 
 Chrome checks cover ordinary fields, editable page elements, passwords and readonly fields.
 The original eXpress message editor was tested in an isolated environment
