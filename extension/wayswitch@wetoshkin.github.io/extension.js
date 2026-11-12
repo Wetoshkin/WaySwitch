@@ -212,9 +212,13 @@ export default class WaySwitchExtension extends Extension {
                 `не больше ${MAX_TEXT} символов за раз`);
             return;
         }
+        const caps = defaultBackend().get_default_seat().get_keymap().get_caps_lock_state();
         // IME commit может обогнать Backspace в очереди приложения (в том числе Qt).
         for (const ch of text) {
-            const keyval = Clutter.unicode_to_keysym(ch.codePointAt(0));
+            // Mutter подбирает Shift по keysym без учёта активного Caps Lock.
+            const lower = GLib.unichar_tolower(ch);
+            const key = caps ? (ch === lower ? GLib.unichar_toupper(ch) : lower) : ch;
+            const keyval = Clutter.unicode_to_keysym(key.codePointAt(0));
             this._tap(keyval);
         }
         invocation.return_value(null);

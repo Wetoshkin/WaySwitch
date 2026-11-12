@@ -3,6 +3,8 @@ import pytest
 from wayswitch import doctor
 from wayswitch.doctor import Check, exit_code, format_report
 
+pytestmark = pytest.mark.usefixtures("ru_locale")
+
 
 def test_cosmic_backend_selected(monkeypatch):
     from wayswitch.backends import cosmic
@@ -127,7 +129,7 @@ def test_kde_focus_diagnostics_do_not_recommend_gnome_extension(monkeypatch):
     checks = doctor.run_checks()
     focus = next(c for c in checks if c.key == "focus")
     assert not focus.ok and not focus.required
-    assert "sleep 5; wayswitch doctor" in focus.hint
+    assert "wayswitch doctor --delay 5" in focus.hint
     assert "GNOME" not in focus.hint and "расширения" not in focus.hint
     setting = next(c for c in checks if "настройка" in c.name)
     assert "GTK" in setting.name and "GNOME" in setting.name
@@ -168,6 +170,69 @@ def test_focus_status_explains_missing_atspi_application(monkeypatch):
         None, False, 100.0, ("jetbrains-idea",)))
     ok, detail = doctor.focus_status()
     assert not ok and "jetbrains-idea" in detail and "парол" in detail
+
+
+def test_focus_report_identifies_protected_input_without_window_title(monkeypatch):
+    from wayswitch import a11y
+
+    monkeypatch.setattr(doctor, "detect_desktop", lambda: "gnome")
+    monkeypatch.setattr(a11y, "query_focus", lambda: a11y.FocusSnapshot(
+        "Terminal", True, window="PRIVATE TITLE"))
+    ok, detail = doctor.focus_status()
+    assert not ok and "защищённый ввод" in detail and "PRIVATE TITLE" not in detail
+
+
+@pytest.mark.parametrize("flags, expected", [
+    ({}, "Автоисправление включено"),
+    ({"auto_correct": False, "active": False}, "Автоисправление выключено в настройках"),
+    ({"paused": True, "active": False}, "на паузе"),
+    ({"locked": True, "active": False}, "сеанс заблокирован"),
+    ({"lock_confirmation_required": True}, "возобновление"),
+    ({"dry_run": True}, "режим наблюдения"),
+    ({"layout_supported": False, "active": False}, "раскладка не поддерживается"),
+    ({"active": False}, "бэкенд не поддерживает"),
+])
+def test_report_uses_running_daemon_settings(monkeypatch, flags, expected):
+    from wayswitch import cli
+
+    status = dict(backend="umbriel", layout="latin", layout_supported=True, active=True,
+                  auto_correct=True, paused=False, locked=False, dry_run=False,
+                  lock_confirmation_required=False, private="PRIVATE")
+
+    def call(method):
+        assert method == "GetStatus"
+        return (status | flags,)
+
+    monkeypatch.setattr(cli, "call_daemon", call)
+    ok, report = doctor.daemon_status()
+    assert ok is (not flags)
+    assert expected in report and "umbriel" in report and "латинская" in report
+    assert "PRIVATE" not in report
+
+
+@pytest.mark.parametrize("reply", [None, ({},), ({"paused": False},)])
+def test_unavailable_or_old_daemon_does_not_assume_defaults(monkeypatch, reply):
+    from wayswitch import cli
+
+    monkeypatch.setattr(cli, "call_daemon", lambda method: reply)
+    ok, report = doctor.daemon_status()
+    assert not ok
+    assert "Автоисправление включено" not in report
+    assert "состояние автоисправления неизвестно" in report
+
+
+def test_report_when_session_bus_is_unavailable(monkeypatch):
+    from wayswitch import cli
+
+    def unavailable(method):
+        raise OSError("PRIVATE")
+
+    monkeypatch.setattr(cli, "call_daemon", unavailable)
+    checks = doctor.run_checks()
+    daemon = next(c for c in checks if c.key == "daemon")
+    assert not daemon.ok and exit_code([daemon]) == 0
+    report = format_report(checks)
+    assert "Демон недоступен по D-Bus" in report and "PRIVATE" not in report
 
 
 def test_uinput_status_ok(monkeypatch):
@@ -222,4 +287,4 @@ def test_old_extension_does_not_block_onboarding(ru_locale):
     rows = texts.onboarding_rows([Check("Расширение GNOME Shell", ok, text, required, key)])
     assert rows[0].action == "extension" and texts.onboarding_blocking(rows)
     # Совет в doctor и на экране — про новый вход, а не про «включить».
-    assert "войдите снова" in doctor.EXTENSION_STATES["outdated"][3]
+    assert "войдите снова" in doctor._(doctor.EXTENSION_STATES["outdated"][3])

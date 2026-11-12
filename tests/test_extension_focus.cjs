@@ -95,7 +95,11 @@ assert.match(vm.runInContext('IFACE_XML', context), /<signal name="FocusedContex
 
 const keyEvents = [];
 const inputEvents = [];
-context.Clutter = {KEY_BackSpace: 65288, unicode_to_keysym: value => value};
+context.Clutter = {KEY_BackSpace: 65288, unicode_to_keysym: value => value,
+    get_default_backend: () => ({get_default_seat: () => ({
+        get_keymap: () => ({get_caps_lock_state: () => false}),
+    })})};
+context.GLib.unichar_tolower = ch => ch.toLowerCase();
 context.extension._tap = keyval => keyEvents.push(keyval);
 context.extension._daemon = ':test-daemon';
 context.Main.inputMethod = {

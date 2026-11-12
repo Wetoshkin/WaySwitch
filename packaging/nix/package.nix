@@ -122,7 +122,7 @@ python3Packages.buildPythonApplication {
     </schemalist>
     XML
     ${glib.dev}/bin/glib-compile-schemas "$TMPDIR/wayswitch-check-schemas"
-    env PATH=/nonexistent GSETTINGS_BACKEND=memory \
+    env LC_ALL=ru_RU.UTF-8 LANGUAGE=ru PATH=/nonexistent GSETTINGS_BACKEND=memory \
       GSETTINGS_SCHEMA_DIR="$TMPDIR/wayswitch-check-schemas" \
       "$out/bin/wayswitch" doctor > "$TMPDIR/wayswitch-doctor-check" || true
     grep -Fx '✓ Распознавание программ и полей пароля (настройка GTK / GNOME)' \

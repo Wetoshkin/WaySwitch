@@ -86,7 +86,7 @@ def pick_release(releases: list[dict], current: str) -> Release | None:
         url = str(item.get("html_url") or "")
         if not url.startswith(f"https://github.com/{REPO}/"):
             url = RELEASES_URL  # ссылку открываем в браузере — только свою
-        release = Release(tag.lstrip("vV"), url, str(item.get("body") or "")[:2000])
+        release = Release(tag.lstrip("vV"), url, str(item.get("body") or "")[:20000])
         if best is None or is_newer(release.version, best.version):
             best = release
     return best
@@ -149,7 +149,7 @@ def fetch_latest(current: str, timeout: float = 5.0) -> Release | None:
 
 
 def check(current: str, *, force: bool = False, now: float | None = None,
-          fetch=fetch_latest, path: Path | None = None) -> Release | None:
+          fetch=fetch_latest, path: Path | None = None, strict: bool = False) -> Release | None:
     """Новая версия с учётом суточного кэша. Блокирует — звать из потока."""
     if portable.is_system_packaged():
         return None
@@ -166,7 +166,7 @@ def check(current: str, *, force: bool = False, now: float | None = None,
     except UpdateError:
         # Сети нет — не запоминаем «проверено»: спросим при следующем запуске.
         # Явную проверку (кнопка «Проверить») об ошибке надо известить.
-        if force:
+        if force or strict:
             raise
         # Уже известную новую версию не забываем из-за пропавшей сети.
         cached = cache.get("latest")

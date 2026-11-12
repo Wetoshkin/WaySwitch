@@ -215,8 +215,10 @@ class Preferences:
                 ("early_switch", _("Switch at the start of a word"),
                  _("ghbd → прив in Writer/Calc; when retyping with keys — after Space")),
                 ("skip_password_fields", _("Password and terminal protection"),
-                 _("Auto-correction is off. The manual gesture is available, "
-                   "history is hidden"))):
+                 _("When enabled, blocks auto-correction in all terminals and may block "
+                   "it in MAX and other apps whose input fields cannot be verified. "
+                   "The manual gesture remains available. Off by default for new "
+                   "installations."))):
             row = Adw.SwitchRow(title=title, subtitle=subtitle)
             row.connect("notify::active", lambda r, _p, k=key: self._set(
                 "general", k, r.get_active()))
@@ -520,23 +522,17 @@ class Preferences:
         updates = Adw.PreferencesGroup(title=_("Updates"))
         self.sw_updates = Adw.SwitchRow(
             title=_("Notify about new versions"),
-            subtitle=_("Ask GitHub once a day whether a new version exists. Nothing else "
-                       "is sent"))
-        if not portable.can_self_update():
-            self.sw_updates.set_sensitive(False)
-            self.sw_updates.set_subtitle(_(portable.PACKAGED_UPDATE_TEXT))
+            subtitle=_("Check the existing installation source periodically. Repository "
+                       "packages keep using their package manager"))
         self.sw_updates.connect("notify::active", lambda r, _p: self._set(
             "general", "check_updates", r.get_active()))
         updates.add(self.sw_updates)
         self.row_check = Adw.ActionRow(title=_("Check now"),
                                        subtitle=self.app.update_text())
-        check = Gtk.Button(label=_("Check"), valign=Gtk.Align.CENTER,
-                           sensitive=portable.can_self_update())
+        check = Gtk.Button(label=_("Check"), valign=Gtk.Align.CENTER)
         check.connect("clicked", lambda b: self._check_updates(b))
         self.row_check.add_suffix(check)
-        # «Обновить» — пока есть новая версия; запускает команду в терминале.
-        self.btn_update = Gtk.Button(label=_("Update"), valign=Gtk.Align.CENTER,
-                                     visible=self.app.update is not None)
+        self.btn_update = Gtk.Button(label=_("Updates…"), valign=Gtk.Align.CENTER)
         self.btn_update.add_css_class("suggested-action")
         self.btn_update.connect("clicked", lambda *_: self.app.run_update())
         self.row_check.add_suffix(self.btn_update)
@@ -606,7 +602,7 @@ class Preferences:
         c = self.cfg
         self._loading = True
         try:
-            self.sw_updates.set_active(c.general.check_updates and portable.can_self_update())
+            self.sw_updates.set_active(c.general.check_updates)
             self.cb_backend.set_selected(cfgmod.BACKEND_PREFS.index(c.backend.prefer))
             self.step_settle.set_value(c.typing.settle_ms)
             self.step_delay.set_value(c.typing.key_delay_ms)
@@ -638,7 +634,6 @@ class Preferences:
         def done(_result):
             button.set_sensitive(True)
             self.row_check.set_subtitle(self.app.update_text(checked=True))
-            self.btn_update.set_visible(self.app.update is not None)
 
         self.app.check_updates(force=True, done=done)
 

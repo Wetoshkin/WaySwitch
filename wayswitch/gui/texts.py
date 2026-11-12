@@ -48,8 +48,7 @@ LAYOUT_HUMAN = {"ru": "Russian", "latin": "English", "other": "other (not suppor
 XKB_HUMAN = {"us": "English (US)", "gb": "English (UK)", "ru": "Russian",
              "ru+phonetic": "Russian (phonetic)", "ru+typewriter": "Russian (typewriter)"}
 
-# Описание области работы для GUI. В CLI/doctor остаётся keymap.LAYOUT_SCOPE:
-# это собственный текст окна, а не переписанная диагностика.
+# Общее описание области работы для GUI и doctor; перевод берётся при показе.
 LAYOUT_SCOPE_TEXT = (
     "WaySwitch corrects typing only between Russian and English layouts. "
     "Other sources can stay in the system: when one is selected, WaySwitch "

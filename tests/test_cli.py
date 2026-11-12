@@ -3,6 +3,8 @@ import pytest
 from wayswitch import __version__
 from wayswitch.cli import build_parser
 
+pytestmark = pytest.mark.usefixtures("ru_locale")
+
 SELECTION_COMMANDS = [
     ("fix-selection", "FixSelection", "исправлено"),
     ("translit", "TranslitSelection", "готово"),
@@ -24,6 +26,33 @@ def test_version(capsys):
 
     assert main(["version"]) == 0
     assert __version__ in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("args,seconds", [([], 0), (["--delay", "0"], 0), (["--delay", "5"], 5)])
+def test_doctor_waits_before_sampling_and_prints_version(args, seconds, monkeypatch, capsys):
+    import time
+
+    from wayswitch import cli, doctor
+
+    events = []
+
+    def wait(delay):
+        assert "курсор" in capsys.readouterr().err
+        events.append(delay)
+
+    monkeypatch.setattr(time, "sleep", wait)
+    monkeypatch.setattr(doctor, "run_checks", lambda: events.append("checks") or [])
+    assert cli.main(["doctor", *args]) == 0
+    assert events == ([seconds, "checks"] if seconds else ["checks"])
+    assert f"WaySwitch {__version__}" in capsys.readouterr().out
+
+
+def test_doctor_rejects_negative_delay():
+    from wayswitch import cli
+
+    with pytest.raises(SystemExit) as error:
+        cli.main(["doctor", "--delay", "-1"])
+    assert error.value.code == 2
 
 
 @pytest.mark.parametrize("command", ["fix-selection", "translit", "number-words"])

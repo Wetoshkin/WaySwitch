@@ -19,6 +19,7 @@ rpmbuild -bb "$ROOT/packaging/rpm/wayswitch.spec" \
     --define "_topdir $TOP" \
     --define "ws_version $RPM_VERSION" \
     --define "ws_src $ROOT" \
+    --define "ws_update_source ${WAYSWITCH_UPDATE_SOURCE:-github}" \
     --define "dist %{nil}"
 find "$TOP/RPMS" -name '*.rpm' -print0 | while IFS= read -r -d '' pkg; do
     rpm --checksig --nosignature "$pkg"

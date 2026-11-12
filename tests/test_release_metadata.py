@@ -104,3 +104,12 @@ def test_license_metadata_covers_code_and_packaged_dictionaries():
     flatpak = (ROOT / "packaging" / "flatpak" /
                "io.github.Wetoshkin.WaySwitch.Gui.metainfo.xml").read_text(encoding="utf-8")
     assert "<project_license>MIT AND CC-BY-SA-4.0</project_license>" in flatpak
+
+
+def test_1_2_0_migration_is_not_advertised_in_older_release_notes():
+    text = (ROOT / 'CHANGELOG.md').read_text(encoding='utf-8')
+    new = release_notes.notes_for(text, 'v1.2.0')
+    old = release_notes.notes_for(text, 'v1.1.4')
+    assert 'wayswitch update --install' in new
+    assert 'В 1.2.0 откройте' not in old
+    assert 'В 1.1.4 этой новой команды ещё нет' not in old

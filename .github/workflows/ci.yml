@@ -27,7 +27,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - name: Системные библиотеки
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon0 libwayland-client0 xkb-data gettext
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon0 libwayland-client0 xkb-data gettext rpm
       - run: pip install pytest ruff evdev
       - run: python -m ruff check .
       - run: python -m pytest -q
@@ -58,14 +58,27 @@ jobs:
         run: sudo apt-get update
       - name: Сборка .deb
         run: bash tools/build_deb.sh
-      - name: Установка собранного пакета
-        run: sudo apt-get install -y ./dist/*.deb
+      - name: Первая установка через передачу пакетному менеджеру
+        run: |
+          sudo apt-get install -y dpkg-dev
+          mkdir /tmp/wayswitch-ci-repository
+          cp dist/*.deb /tmp/wayswitch-ci-repository/
+          (cd /tmp/wayswitch-ci-repository && dpkg-scanpackages . /dev/null > Packages)
+          # Only the artifact just built in this disposable job is trusted locally.
+          echo 'deb [trusted=yes] file:/tmp/wayswitch-ci-repository ./' | sudo tee /etc/apt/sources.list.d/wayswitch-ci.list
+          sudo apt-get update
+          PYTHONPATH=. python3 tools/smoke_companion_install.py
       - name: Смок-проверка
         run: |
           wayswitch version
           python3 -c "import wayswitch, wayswitch.cli"
           test -f /usr/lib/systemd/user/wayswitch.service
-          wayswitch doctor || true
+          result=0
+          LC_ALL=ru_RU.UTF-8 LANGUAGE=ru dbus-run-session -- wayswitch doctor --delay 1 > report.txt || result=$?
+          test "$result" -le 1
+          grep -Fx "WaySwitch $(wayswitch version | cut -d' ' -f2)" report.txt
+          grep -F 'Демон недоступен по D-Bus' report.txt
+          dbus-run-session -- python3 tools/smoke_cli_i18n.py
       - uses: actions/upload-artifact@v4
         with:
           name: wayswitch-deb
@@ -107,7 +120,8 @@ jobs:
           su b -c "cd /pkg && makepkg --nodeps"
           pacman -U --noconfirm /pkg/wayswitch-*.pkg.tar.zst
           wayswitch version
-          diff -r --exclude=__pycache__ wayswitch /usr/lib/wayswitch/wayswitch
+          test "$(cat /usr/lib/wayswitch/wayswitch/.update-source)" = aur
+          diff -r --exclude=__pycache__ --exclude=.update-source wayswitch /usr/lib/wayswitch/wayswitch
 
   flatpak:
     needs: test

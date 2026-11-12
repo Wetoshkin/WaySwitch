@@ -226,6 +226,7 @@ def test_buffered_private_word_never_moves_to_new_field(real, initial, action):
     probe = FakeProbe(lambda: 100.0, app=None if initial == "unknown" else "editor",
                       password=initial == "protected", age=10 if initial == "stale" else 0)
     ctrl, backend, typist, corrected = make_ctrl(real, group=US, probe=probe, clock=lambda: 100.0)
+    ctrl.config.general.skip_password_fields = True
     type_word(ctrl, real[0], "ghbdtn", US)
     if action == "queued-word":
         queue = []
@@ -252,6 +253,7 @@ def test_buffered_private_word_never_moves_to_new_field(real, initial, action):
 def test_unknown_prefix_does_not_turn_into_a_correctable_suffix(real):
     probe = FakeProbe(lambda: 100.0)
     ctrl, _, typist, corrected = make_ctrl(real, group=US, probe=probe, clock=lambda: 100.0)
+    ctrl.config.general.skip_password_fields = True
     type_word(ctrl, real[0], "xx", US)
     probe.app = "editor"
     type_word(ctrl, real[0], "ghbdtn", US)

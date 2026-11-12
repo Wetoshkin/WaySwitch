@@ -4,13 +4,15 @@
 [GitHub Issues](https://github.com/Wetoshkin/WaySwitch/issues).
 Можно писать по-русски или по-английски.
 
-В отчёте укажите версию WaySwitch, дистрибутив, рабочий стол, раскладки,
-шаги воспроизведения и ожидаемый результат. Приложите вывод
-`wayswitch doctor`, предварительно удалив личные сведения. Для ошибок
-исправления используйте вымышленные слова и предложения.
+Укажите дистрибутив, программу, шаги воспроизведения и ожидаемый результат.
+Если пропускается исправление, запустите в терминале графического сеанса
+`wayswitch doctor --delay 5`, за пять секунд вернитесь в обычное текстовое поле
+проблемной программы и оставьте его в фокусе до конца проверки. Приложите весь
+отчёт, предварительно удалив личные сведения. Для других проблем достаточно
+`wayswitch doctor`. Для примеров используйте вымышленные слова.
 
-Не публикуйте пароли, токены, приватные пути и необработанные журналы:
-`--verbose` и `dry-run` могут содержать введённый текст.
+Для первого отчёта достаточно диагностики. Перед публикацией удалите пароли,
+токены и приватные пути, если они есть в данных, которые вы прикладываете.
 
 ## Проверки перед pull request
 
@@ -22,8 +24,10 @@ python -m pytest -q
 python -m ruff check .
 ```
 
-На Linux для тестов XKB нужна `libxkbcommon.so.0`. На Windows эти тесты
-пропускаются. Проверка реального ввода проводится отдельно по
+На Linux для тестов XKB нужна `libxkbcommon.so.0`, а для проверки порядка
+версий RPM — команда `rpm` со встроенным сравнением версий. В CI обе зависимости
+устанавливаются; при их отсутствии соответствующие тесты пропускаются.
+Проверка реального ввода проводится отдельно по
 [чек-листу](docs/testing-vm.md); юнит-тесты её не заменяют.
 
 Исправляйте причину проблемы и добавляйте небольшой тест для изменения
@@ -128,10 +132,12 @@ Ubuntu-зависимости закреплены по версиям и SHA256
 
 ## English
 
-Issues and pull requests in English are welcome. Include your WaySwitch
-version, distribution, desktop, keyboard layouts, reproduction steps and
-expected behaviour. Remove private information from diagnostic output;
-verbose and dry-run logs can contain typed text. Use sample text to
+Issues and pull requests in English are welcome. Include your distribution,
+application, reproduction steps and expected behaviour. For a missed correction,
+run `wayswitch doctor --delay 5` in a terminal in the graphical session. Within
+five seconds, focus the affected text field and keep it focused until the check
+finishes. Attach the whole report. For other problems, use `wayswitch doctor`.
+Review the report for private information before posting. Use sample text to
 demonstrate a correction problem.
 
 Run the commands above before submitting a change. Keep platform imports

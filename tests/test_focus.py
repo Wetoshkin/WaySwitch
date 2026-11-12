@@ -1128,7 +1128,10 @@ def test_controller_skips_excluded_app():
 
 def test_controller_skips_password_field():
     clock = Clock()
-    env = make_env(probe=FakeProbe(clock, app="firefox", password=True), apps=[])
+    config = Config()
+    config.general.skip_password_fields = True  # проверяемая предпосылка
+    env = make_env(probe=FakeProbe(clock, app="firefox", password=True), apps=[],
+                   config=config)
     type_keys(env, keys_for_text(env["km"], "ghbdtn", US))
     press(env, kc.KEY_SPACE)
     assert env["typist"].taps() == []
@@ -1204,7 +1207,7 @@ def test_apps_file_ignores_comments(tmp_path):
     assert cfgmod.load_apps(path) == ["telegram", "code"]
 
 
-@pytest.mark.parametrize("name,expected", [("skip_password_fields", True),
+@pytest.mark.parametrize("name,expected", [("skip_password_fields", False),
                                            ("fix_on_tab", False),
                                            ("fix_on_enter", False)])
 def test_focus_defaults(name, expected):
@@ -1758,7 +1761,9 @@ def test_terminal_blocks_auto_but_manual_fix_is_private_and_not_learned():
     probe = a11y.AtspiProbe(clock=Clock(), query=lambda: a11y.find_focus(DictTree(nodes), "root"))
     probe._refresh()
     corrected = []
-    env = make_env(probe=probe, apps=[])
+    config = Config()
+    config.general.skip_password_fields = True  # проверяемая предпосылка
+    env = make_env(probe=probe, apps=[], config=config)
     env["backend"].current_index = US
     env["ctrl"].on_corrected = lambda *args: corrected.append(args)
     try:

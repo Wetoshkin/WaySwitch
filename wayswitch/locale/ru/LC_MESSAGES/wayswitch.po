@@ -136,10 +136,6 @@ msgstr "Раз в сутки спрашивать GitHub, вышла ли нов
 msgid "Auto-correction"
 msgstr "Автоисправление"
 
-# 29
-msgid "Auto-correction is off. The manual gesture is available, history is hidden"
-msgstr "Автозамена отключена. Ручной жест доступен, история скрыта"
-
 # 30
 msgid "Automatic"
 msgstr "Автоматически"
@@ -1473,3 +1469,708 @@ msgstr "Правый Super"
 #, python-brace-format
 msgid "Manual only · {count} {words} this session"
 msgstr "Только вручную · {count} {words} за сеанс"
+
+msgid "When enabled, blocks auto-correction in all terminals and may block it in MAX and other apps whose input fields cannot be verified. The manual gesture remains available. Off by default for new installations."
+msgstr "При включении полностью отключает автозамену в терминалах и может блокировать её в MAX и других приложениях, чьи поля ввода не удаётся проверить. Ручной жест остаётся доступен. По умолчанию выключена для новых установок."
+
+msgid "\n\nIf the installed service does not support this command yet, use its original package manager or installation method."
+msgstr "\n\nЕсли установленная служба ещё не поддерживает эту команду, обновите её через прежний пакетный менеджер или способ установки."
+
+msgid "\n\nUpdate the native service separately in a terminal on the host system through its original source:\n\n"
+msgstr "\n\nНативную службу обновляйте отдельно в терминале основной системы через её прежний источник:\n\n"
+
+msgid "Arch repository updates include a system upgrade. Run the shown command yourself after reviewing the complete transaction."
+msgstr "Обновление пакета из репозитория Arch включает обновление системы. Выполните показанную команду самостоятельно после проверки полного списка изменений."
+
+msgid "Check the existing installation source"
+msgstr "Проверять прежний источник установки"
+
+msgid "Check the existing installation source periodically. Repository packages keep using their package manager"
+msgstr "Периодически проверять прежний источник установки. Пакеты репозиториев продолжают обновляться через свой пакетный менеджер"
+
+msgid "Copy service update command"
+msgstr "Скопировать команду обновления службы"
+
+msgid "Could not check the installation source"
+msgstr "Не удалось проверить источник установки"
+
+msgid "Could not check {source}. No update result was confirmed."
+msgstr "Не удалось проверить {source}. Наличие обновлений не подтверждено."
+
+msgid "Could not open a terminal. Copy the command and run it in your terminal."
+msgstr "Не удалось открыть терминал. Скопируйте команду и выполните её в своём терминале."
+
+msgid "Downloaded Flatpak bundle · GitHub Releases"
+msgstr "Скачанный пакет Flatpak · выпуски GitHub"
+
+msgid "GitHub Releases"
+msgstr "Выпуски GitHub"
+
+msgid "I installed a downloaded .flatpak bundle…"
+msgstr "Я устанавливал скачанный файл .flatpak…"
+
+msgid "Install in terminal"
+msgstr "Установить через терминал"
+
+msgid "Installation is running in the terminal. Its result will be verified before restarting."
+msgstr "Установка выполняется в терминале. Перед перезапуском её результат будет проверен."
+
+msgid "Installation runs visibly in a terminal; confirm the transaction and enter your password if requested. GNOME extension updates may require signing out and back in."
+msgstr "Ход установки виден в терминале: подтвердите список изменений и при необходимости введите пароль. Для обновления расширения GNOME может потребоваться выйти из сеанса и войти снова."
+
+msgid "Installation source could not be confirmed"
+msgstr "Источник установки не удалось подтвердить"
+
+msgid "Native service version: {version}. Update it separately on the host through its original source:"
+msgstr "Версия нативной службы: {version}. Обновляйте её отдельно на основной системе через прежний источник:"
+
+msgid "No newer package was found in {source}"
+msgstr "В источнике {source} более новый пакет не найден"
+
+msgid "Open Updates to review the changes and install through your existing installation source."
+msgstr "Откройте «Обновления», чтобы просмотреть изменения и установить новую версию через прежний источник установки."
+
+msgid "Packages are verified against the release's SHA256SUMS before installation."
+msgstr "Перед установкой пакеты проверяются по SHA256SUMS выбранного выпуска."
+
+msgid "Press Enter to close this window."
+msgstr "Нажмите Enter, чтобы закрыть это окно."
+
+msgid "Release notes for repository packages are supplied by their maintainer. The package manager or AUR helper shows the proposed transaction."
+msgstr "Сведения об изменениях пакета репозитория предоставляет сопровождающий. Пакетный менеджер или помощник AUR показывает предлагаемый список изменений установки."
+
+msgid "Run this command on the host for a repository installation. For a local bundle, use the verified bundle instructions below. Update the native service separately through its own installation source."
+msgstr "Для установки из репозитория выполните эту команду на основной системе. Для скачанного файла выберите ниже обновление локального пакета с проверкой суммы. Нативную службу обновляйте отдельно через её собственный источник установки."
+
+msgid "Source: {source}\nInstalled: {version} (window {gui})"
+msgstr "Источник: {source}\nУстановлено: {version} (окно {gui})"
+
+msgid "System repositories ({manager})"
+msgstr "Системные репозитории ({manager})"
+
+msgid "The AUR recipe must be updated by its maintainer. Review build-file changes when the helper asks; the installation source stays AUR."
+msgstr "Рецепт AUR должен обновить сопровождающий. Просмотрите изменения файлов сборки по запросу помощника; источником установки остаётся AUR."
+
+msgid "The update or its verification failed. The window was kept open. Review the terminal output before trying again."
+msgstr "Обновление или его проверка завершились ошибкой. Окно осталось открытым. Перед повторной попыткой проверьте вывод терминала."
+
+msgid "The update was installed. Close and reopen WaySwitch to load the new version."
+msgstr "Обновление установлено. Закройте и снова откройте WaySwitch, чтобы загрузить новую версию."
+
+msgid "This uses your package manager's repository metadata. A new GitHub release may not yet be packaged here. Package revisions are included."
+msgstr "Используются сведения о репозиториях вашего пакетного менеджера. Нового выпуска GitHub здесь пока может не быть. Учитываются также ревизии сборки пакета."
+
+msgid "Update installed and verified. Reopening WaySwitch."
+msgstr "Обновление установлено и проверено. WaySwitch запускается заново."
+
+msgid "Update the WaySwitch package or pinned input in your Nix configuration first, then rebuild using your usual command."
+msgstr "Сначала обновите пакет WaySwitch или закреплённый источник в конфигурации Nix, затем выполните пересборку привычной командой."
+
+msgid "Update the deployment using your system updater. Layered local RPMs need a replacement from their original source. A reboot may be required."
+msgstr "Обновляйте развёртывание через системный центр обновлений. Локальные наложенные RPM нужно заменять пакетами из их прежнего источника. Может потребоваться перезагрузка."
+
+msgid "Updates through {source}: manual steps required"
+msgstr "Обновления через {source}: требуются ручные действия"
+
+msgid "Updates…"
+msgstr "Обновления…"
+
+msgid "Use the installation method you originally chose. No other source will be selected automatically."
+msgstr "Используйте прежний способ установки. Другой источник не будет выбран автоматически."
+
+msgid "Version {version} is available from {source}"
+msgstr "Версия {version} доступна в источнике {source}"
+
+msgid "Window and service instructions"
+msgstr "Инструкции для окна и службы"
+
+msgid "Review PKGBUILD and every other build file in the displayed directory. Type yes to build and install, or anything else to cancel:"
+msgstr "Проверьте PKGBUILD и остальные файлы сборки в показанном каталоге. Введите yes для сборки и установки или другой ответ для отмены:"
+
+msgid "This command updates the entire system deployment. Review it in the terminal; it is not run automatically."
+msgstr "Эта команда обновляет всё системное развёртывание. Проверьте её в терминале; автоматически она не запускается."
+
+msgid "This prepares a new deployment. Reboot after reviewing and applying the command; the running session is not replaced."
+msgstr "Будет подготовлено новое развёртывание. После проверки и выполнения команды перезагрузите систему; работающий сеанс не заменяется."
+
+msgid "The original AppImage path is unavailable or not writable. The command downloads a verified new file into the current directory without overwriting an existing file. Close the old window and replace its file yourself."
+msgstr "Путь исходного AppImage недоступен или нет прав на запись. Команда скачивает проверенный новый файл в текущий каталог, не перезаписывая существующие файлы. Закройте старое окно и замените его файл самостоятельно."
+
+msgid "Command for manual update"
+msgstr "Команда для ручного обновления"
+
+msgid "Keyboard layout correction on Wayland"
+msgstr "Исправление раскладки на Wayland"
+
+msgid "start the daemon"
+msgstr "запустить демон"
+
+msgid "detect corrections without typing them"
+msgstr "решать, но не печатать"
+
+msgid "observe input (verbose, no actions)"
+msgstr "демон в режиме наблюдения (verbose, без действий)"
+
+msgid "check the environment and daemon state"
+msgstr "проверить окружение и состояние демона"
+
+msgid "SECONDS"
+msgstr "СЕКУНДЫ"
+
+msgid "wait before checking so you can focus the desired field (default: 0)"
+msgstr "подождать перед проверкой, чтобы вы успели поставить курсор в нужное поле (по умолчанию 0)"
+
+msgid "list input devices"
+msgstr "список устройств ввода"
+
+msgid "pause corrections"
+msgstr "приостановить исправления"
+
+msgid "resume corrections"
+msgstr "возобновить"
+
+msgid "toggle pause (for a keyboard shortcut)"
+msgstr "пауза или возобновление одной командой (для горячей клавиши)"
+
+msgid "stream JSON for Waybar"
+msgstr "поток JSON для модуля Waybar"
+
+msgid "correct the last word"
+msgstr "исправить последнее слово"
+
+msgid "correct selected text (assign a shortcut in system settings)"
+msgstr "исправить выделенный текст (назначьте сочетание клавиш в настройках системы)"
+
+msgid "transliterate selected text: Привет ↔ Privet"
+msgstr "транслитерация выделенного: Привет ↔ Privet"
+
+msgid "spell out the selected number in Russian: 125 → сто двадцать пять"
+msgstr "выделенное число прописью: 125 → сто двадцать пять"
+
+msgid "show daemon state"
+msgstr "состояние демона"
+
+msgid "machine-readable output"
+msgstr "машиночитаемый вывод"
+
+msgid "explain the detector decision for a word"
+msgstr "разобрать решение детектора для слова"
+
+msgid "word typed in the source layout"
+msgstr "слово, набранное в исходной раскладке"
+
+msgid "source layout: en = us (default), ru"
+msgstr "исходная раскладка: en = us (по умолчанию), ru"
+
+msgid "detector threshold; defaults to config.toml"
+msgstr "порог детектора; по умолчанию из config.toml"
+
+msgid "open settings"
+msgstr "открыть настройки"
+
+msgid "check for updates from the installation source"
+msgstr "проверить обновление в источнике установки"
+
+msgid "install an available update through the original source"
+msgstr "установить доступное обновление через прежний источник"
+
+msgid "Check the result: select a single line in a regular editable field."
+msgstr "Проверьте результат: нужно выделение в одну строку в обычном редактируемом поле."
+
+msgid "corrected"
+msgstr "исправлено"
+
+msgid "Could not confirm correction of the selected text. "
+msgstr "Не удалось подтвердить исправление выделенного текста. "
+
+msgid "done"
+msgstr "готово"
+
+msgid "Could not confirm transliteration of the selected text. "
+msgstr "Не удалось подтвердить транслитерацию выделенного текста. "
+
+msgid "Could not confirm spelling out the number. "
+msgstr "Не удалось подтвердить запись числа прописью. "
+
+msgid "Selection correction is unavailable in the current service. Check desktop support and update the WaySwitch service."
+msgstr "Исправление выделенного недоступно для текущей службы. Проверьте поддержку среды и обновите службу WaySwitch."
+
+msgid "{path:<20} (access denied)"
+msgstr "{path:<20} (нет доступа)"
+
+msgid "--delay: seconds must be nonnegative"
+msgstr "--delay: число секунд должно быть неотрицательным"
+
+msgid "Checks start in {ns_delay} s. Focus a regular input field in the desired app and keep it focused until checking finishes."
+msgstr "Проверка начнётся через {ns_delay} с. Поставьте курсор в обычное поле нужной программы и оставьте его там до конца проверки."
+
+msgid "--delay: too many seconds"
+msgstr "--delay: слишком большое число секунд"
+
+msgid "paused"
+msgstr "пауза"
+
+msgid "running"
+msgstr "работает"
+
+msgid "nothing to correct"
+msgstr "нечего исправлять"
+
+msgid "WaySwitch is not responding: {e}"
+msgstr "WaySwitch не отвечает: {e}"
+
+msgid "Start: systemctl --user start wayswitch; diagnose: wayswitch doctor"
+msgstr "Запустить: systemctl --user start wayswitch; проверить: wayswitch doctor"
+
+msgid "sign out and back in so GNOME loads the new version"
+msgstr "выйдите из сеанса и войдите снова — тогда GNOME загрузит новую версию"
+
+msgid "extension is not installed: reinstall WaySwitch using the original installation command"
+msgstr "расширение не установлено: переустановите WaySwitch той же командой, которой устанавливали"
+
+msgid "extension is disabled: enable it with the Enable button in WaySwitch or gnome-extensions enable wayswitch@wetoshkin.github.io"
+msgstr "расширение выключено: включите его (кнопка «Включить» в окне WaySwitch или gnome-extensions enable wayswitch@wetoshkin.github.io)"
+
+msgid "extension is enabled but GNOME will only load it after signing in: "
+msgstr "расширение включено, но GNOME загрузит его только после входа: "
+
+msgid "an older extension is running: "
+msgstr "работает старая версия расширения: "
+
+msgid "access denied to /dev/uinput: uaccess requires an active local session; a separate RDP session may lack device access"
+msgstr "нет прав на /dev/uinput: uaccess требует активного локального сеанса; отдельный RDP-сеанс может не иметь доступа к устройствам"
+
+msgid "cannot open /dev/uinput ({error}) — is the uinput module loaded?"
+msgstr "/dev/uinput не открывается ({error}) — модуль uinput не загружен?"
+
+msgid "this setting is unavailable in the current environment"
+msgstr "в этой среде настройка недоступна"
+
+msgid "gsettings set org.gnome.desktop.interface toolkit-accessibility true and restart applications"
+msgstr "gsettings set org.gnome.desktop.interface toolkit-accessibility true и перезапустить программы"
+
+msgid "Umbriel: an active regular window could not be confirmed; input is locked"
+msgstr "Umbriel: активное обычное окно не подтверждено; ввод заблокирован"
+
+msgid "application unknown"
+msgstr "приложение не определено"
+
+msgid "; window ID: {names}"
+msgstr "; ID окна: {names}"
+
+msgid "; with password protection enabled, auto-correction waits for verified focus"
+msgstr "; при включённой защите паролей автоисправление ждёт фокуса"
+
+msgid "; protected input (such as a password or terminal)"
+msgstr "; защищённый ввод (например, пароль или терминал)"
+
+msgid "; regular input field recognized"
+msgstr "; распознано обычное поле ввода"
+
+msgid "Daemon is unavailable over D-Bus; auto-correction state is unknown"
+msgstr "Демон недоступен по D-Bus, состояние автоисправления неизвестно"
+
+msgid "Invalid daemon response; auto-correction state is unknown"
+msgstr "Некорректный ответ демона, состояние автоисправления неизвестно"
+
+msgid "Latin"
+msgstr "латинская"
+
+msgid "other"
+msgstr "другая"
+
+msgid "undetermined"
+msgstr "не определена"
+
+msgid "Backend: {backend}, layout: {layout}"
+msgstr "Бэкенд: {backend}, раскладка: {layout}"
+
+msgid "Auto-correction is disabled in settings (auto_correct = false)"
+msgstr "Автоисправление выключено в настройках (auto_correct = false)"
+
+msgid "Auto-correction is enabled in settings"
+msgstr "Автоисправление включено в настройках"
+
+msgid "daemon is paused"
+msgstr "демон на паузе"
+
+msgid "session is locked"
+msgstr "сеанс заблокирован"
+
+msgid "resuming after unlock requires confirmation"
+msgstr "требуется возобновление после разблокировки"
+
+msgid "observation mode (dry-run); corrections are not typed"
+msgstr "режим наблюдения (dry-run), исправления не печатаются"
+
+msgid "current layout is unsupported or undetermined"
+msgstr "текущая раскладка не поддерживается или не определена"
+
+msgid "incomplete daemon response; auto-correction state is unknown"
+msgstr "ответ демона неполный, состояние автоисправления неизвестно"
+
+msgid "backend does not support automatic correction"
+msgstr "бэкенд не поддерживает автоматическое исправление"
+
+msgid "on NixOS, enable the WaySwitch module from docs/nixos.md and run sudo nixos-rebuild switch"
+msgstr "в NixOS подключите модуль WaySwitch из docs/nixos.md и выполните sudo nixos-rebuild switch"
+
+msgid "X11 graphics mode is active; WaySwitch requires Wayland: on the login screen, choose a session without Xorg using the gear menu"
+msgstr "включён старый режим графики X11, а WaySwitch работает только в Wayland: на экране входа нажмите на шестерёнку и выберите сеанс без «Xorg»"
+
+msgid "Application and password field recognition (GTK / GNOME setting)"
+msgstr "Распознавание программ и полей пароля (настройка GTK / GNOME)"
+
+msgid "without verified focus, auto-correction waits when password protection is enabled; the manual gesture remains available"
+msgstr "без достоверного фокуса автоисправление при включённой защите паролей ждёт; ручное исправление доступно"
+
+msgid "Application and password field recognition (at-spi service)"
+msgstr "Распознавание программ и полей пароля (служба at-spi)"
+
+msgid "after running wayswitch doctor --delay 5, focus a regular input field in the desired app and keep it focused until checking finishes"
+msgstr "установите курсор в обычное текстовое поле нужного приложения после запуска «wayswitch doctor --delay 5» и оставьте его там до конца проверки"
+
+msgid "; GNOME window IDs require updating the extension and signing out and back in"
+msgstr "; ID окна GNOME появится после обновления расширения и нового входа в сеанс"
+
+msgid "Active application (without text or window title)"
+msgstr "Активное приложение (без текста и заголовка окна)"
+
+msgid "Auto-correction in the running daemon"
+msgstr "Автоисправление в запущенном демоне"
+
+msgid "group {group}; after startup and unlock, confirm input with the WaySwitch switch or wayswitch resume"
+msgstr "группа {group}; после запуска и разблокировки подтвердите вход переключателем WaySwitch или wayswitch resume"
+
+msgid "COSMIC layouts (Wayland)"
+msgstr "Раскладки COSMIC (Wayland)"
+
+msgid "sign into COSMIC; zcosmic_keyboard_layout_manager_v1 is required"
+msgstr "войдите в сеанс COSMIC; нужен zcosmic_keyboard_layout_manager_v1"
+
+msgid "IBus is not responding"
+msgstr "IBus не отвечает"
+
+msgid "current engine {engine}"
+msgstr "текущий движок {engine}"
+
+msgid "Fallback layout switching (IBus)"
+msgstr "Запасной способ переключения (IBus)"
+
+msgid "optional: only needed without the WaySwitch extension"
+msgstr "необязательно: нужен только без расширения WaySwitch"
+
+msgid "KWin exposes layouts (org.kde.keyboard)"
+msgstr "KWin отдаёт раскладки (org.kde.keyboard)"
+
+msgid "KDE Plasma with at least two layouts is required"
+msgstr "нужен KDE Plasma с двумя и более раскладками"
+
+msgid "sway socket not found"
+msgstr "сокет sway не найден"
+
+msgid "Layout switching (Sway IPC)"
+msgstr "Переключение раскладки (Sway IPC)"
+
+msgid "start the service from sway: add exec systemctl --user import-environment SWAYSOCK to the sway config"
+msgstr "запустите службу из сеанса sway: exec systemctl --user import-environment SWAYSOCK в конфиге sway"
+
+msgid "Hyprland socket not found"
+msgstr "сокет Hyprland не найден"
+
+msgid "Layout switching (Hyprland IPC)"
+msgstr "Переключение раскладки (Hyprland IPC)"
+
+msgid "start the service from Hyprland (uwsm or exec-once)"
+msgstr "запустите службу из сеанса Hyprland (uwsm или exec-once)"
+
+msgid "Umbriel socket not found"
+msgstr "сокет Umbriel не найден"
+
+msgid "Umbriel IPC; group {index}"
+msgstr "Umbriel IPC; группа {index}"
+
+msgid "Layout switching (Umbriel IPC)"
+msgstr "Переключение раскладки (Umbriel IPC)"
+
+msgid "start the service from Umbriel; pass UMBRIEL_SOCKET and WAYLAND_DISPLAY to the user systemd environment"
+msgstr "запустите службу из сеанса Umbriel; передайте UMBRIEL_SOCKET и WAYLAND_DISPLAY в окружение пользовательского systemd"
+
+msgid "compositor layouts not found"
+msgstr "раскладки композитора не найдены"
+
+msgid "no layout switching shortcut in xkb_options ({where})"
+msgstr "нет сочетания переключения в xkb_options ({where})"
+
+msgid "the counter cannot confirm layout switching with these sources and shortcuts; the service starts passively. For 3–4 layouts, use grp:alt_shift_toggle without remapping Shift"
+msgstr "счётчик не может подтвердить переключение при этих источниках и сочетаниях; служба запускается пассивно. Для 3–4 раскладок используйте grp:alt_shift_toggle без переназначения Shift"
+
+msgid "Layout switching shortcut (labwc / Wayfire)"
+msgstr "Сочетание переключения раскладки (labwc / Wayfire)"
+
+msgid "set XKB_DEFAULT_LAYOUT=us,ru and XKB_DEFAULT_OPTIONS=grp:alt_shift_toggle in ~/.config/labwc/environment (or xkb_layout / xkb_options in wayfire.ini [input])"
+msgstr "задайте в ~/.config/labwc/environment: XKB_DEFAULT_LAYOUT=us,ru и XKB_DEFAULT_OPTIONS=grp:alt_shift_toggle (или xkb_layout / xkb_options в [input] wayfire.ini)"
+
+msgid "Required libraries (evdev, GTK 4, libadwaita)"
+msgstr "Нужные программные библиотеки (evdev, GTK 4, libadwaita)"
+
+msgid "Keyboard layout library (libxkbcommon)"
+msgstr "Библиотека раскладок (libxkbcommon)"
+
+msgid "sway is not responding (socket not found)"
+msgstr "sway не отвечает (сокет не найден)"
+
+msgid "Hyprland is not responding (socket not found)"
+msgstr "Hyprland не отвечает (сокет не найден)"
+
+msgid "add Russian and English layouts; other layouts can stay. Corrections require the ru/en pair"
+msgstr "добавьте русскую и английскую раскладки; другие удалять не нужно. До появления пары ru/en исправления недоступны"
+
+msgid "WaySwitch working languages"
+msgstr "Рабочие языки WaySwitch"
+
+msgid "Correction typing (/dev/uinput)"
+msgstr "Можно печатать исправления (/dev/uinput)"
+
+msgid "restart the computer; if that does not help, reinstall WaySwitch using the original installation command"
+msgstr "перезагрузите компьютер; если не помогло — переустановите WaySwitch той же командой, которой устанавливали"
+
+msgid "keyboards found: {count}, access denied: {denied}"
+msgstr "клавиатур найдено: {count}, без доступа: {denied}"
+
+msgid "restart the computer (keyboard access is granted at login)"
+msgstr "перезагрузите компьютер (доступ к клавиатуре выдаётся при входе в систему)"
+
+msgid "Keyboard access configured (udev rule)"
+msgstr "Доступ к клавиатуре настроен (правило udev)"
+
+msgid "reinstall WaySwitch using the original installation command"
+msgstr "переустановите WaySwitch той же командой, которой устанавливали"
+
+msgid "Autostart installed"
+msgstr "Автозапуск установлен"
+
+msgid "optional: reinstall WaySwitch using the original installation command"
+msgstr "необязательно: переустановите WaySwitch той же командой, которой устанавливали"
+
+msgid "systemctl unavailable ({exc})"
+msgstr "systemctl недоступен ({exc})"
+
+msgid "systemctl --user start wayswitch; add wayswitch run to Umbriel autostart"
+msgstr "systemctl --user start wayswitch; добавьте wayswitch run в автозапуск Umbriel"
+
+msgid "systemctl --user start wayswitch; for autostart, add to the config: "
+msgstr "systemctl --user start wayswitch; для автозапуска добавьте в конфиг "
+
+msgid "systemctl --user enable --now wayswitch; logs: journalctl --user -u wayswitch"
+msgstr "systemctl --user enable --now wayswitch; журнал: journalctl --user -u wayswitch"
+
+msgid "WaySwitch service running"
+msgstr "Служба WaySwitch работает"
+
+msgid "only needed for the extension"
+msgstr "нужно только для расширения"
+
+msgid "Required checks failed: {count}."
+msgstr "Не пройдено обязательных проверок: {count}."
+
+msgid "Required checks passed."
+msgstr "Обязательные проверки пройдены."
+
+msgid "With password protection enabled, auto-correction is unconfirmed: verified input focus is required."
+msgstr "При включённой защите паролей автоисправление не подтверждено: нужен достоверный фокус в поле ввода."
+
+msgid "could not read configuration: {exc}"
+msgstr "не удалось прочитать конфигурацию: {exc}"
+
+msgid "libxkbcommon is unavailable: Linux with libxkbcommon0 is required; us/ru layouts were not built"
+msgstr "libxkbcommon недоступен: нужен Linux с libxkbcommon0; раскладки us/ru не собраны"
+
+msgid "could not build us/ru layouts: {exc}"
+msgstr "не удалось собрать раскладки us/ru: {exc}"
+
+msgid "could not load dictionaries: {exc}"
+msgstr "не удалось загрузить словари: {exc}"
+
+msgid "cannot type in layout {layout}: {chars!r}"
+msgstr "в раскладке {layout} нельзя набрать: {chars!r}"
+
+msgid "unknown source layout: {from_lang!r}; expected en or ru"
+msgstr "неизвестная исходная раскладка: {from_lang!r}; допустимо en, ru"
+
+msgid "no word supplied"
+msgstr "слово не задано"
+
+msgid "expected one word without whitespace"
+msgstr "нужно одно слово без пробелов"
+
+msgid "unknown sensitivity: {settings_sensitivity!r}"
+msgstr "неизвестная чувствительность: {settings_sensitivity!r}"
+
+msgid "layouts are not in us/ru order: got {actual_0}/{actual_1}, expected {expected_0}/{expected_1}"
+msgstr "раскладки собраны не в порядке us/ru: получено {actual_0}/{actual_1}, нужно {expected_0}/{expected_1}"
+
+msgid "layout {source_layout} cannot type {word!r} unambiguously"
+msgstr "раскладка {source_layout} не позволяет однозначно набрать {word!r}"
+
+msgid "yes"
+msgstr "да"
+
+msgid "no"
+msgstr "нет"
+
+msgid "Word: {report_word}"
+msgstr "Слово: {report_word}"
+
+msgid "Layouts: {source} → {target} (default --from {report_default_from} = us)"
+msgstr "Раскладки: {source} → {target} (по умолчанию --from {report_default_from} = us)"
+
+msgid "Settings: sensitivity={sensitivity_name} (min_length={sensitivity_min_length}, margin={sensitivity_margin:.2f}, floor={sensitivity_floor:.2f}), two_capitals_fix={two_capitals}, exception={exception}"
+msgstr "Настройки: sensitivity={sensitivity_name} (min_length={sensitivity_min_length}, margin={sensitivity_margin:.2f}, floor={sensitivity_floor:.2f}), two_capitals_fix={two_capitals}, исключение={exception}"
+
+msgid "Context: empty — application focus, field and edit_guard are not queried"
+msgstr "Контекст: пустой — реальный фокус приложения, поле и edit_guard не опрашиваются"
+
+msgid " (not computed for the other hypothesis)"
+msgstr " (у другой гипотезы не вычислялась)"
+
+msgid "N-gram scores: "
+msgstr "Оценки n-грамм: "
+
+msgid "N-gram scores: not computed — the decision was made earlier"
+msgstr "Оценки n-грамм: не вычислялись — решение принято раньше"
+
+msgid "Decision: {decision_action} → {decision_target!r} (reason={decision_reason}, confidence={decision_confidence:.2f})"
+msgstr "Решение: {decision_action} → {decision_target!r} (reason={decision_reason}, confidence={decision_confidence:.2f})"
+
+msgid "Limitations:"
+msgstr "Ограничения:"
+
+msgid "on"
+msgstr "вкл"
+
+msgid "off"
+msgstr "выкл"
+
+msgid "Could not confirm correction of the selected text. Check the result: select a single line in a regular editable field."
+msgstr "Не удалось подтвердить исправление выделенного текста. Проверьте результат: нужно выделение в одну строку в обычном редактируемом поле."
+
+msgid "Could not confirm transliteration of the selected text. Check the result: select a single line in a regular editable field."
+msgstr "Не удалось подтвердить транслитерацию выделенного текста. Проверьте результат: нужно выделение в одну строку в обычном редактируемом поле."
+
+msgid "Could not confirm spelling out the number. Check the result: select a single line in a regular editable field."
+msgstr "Не удалось подтвердить запись числа прописью. Проверьте результат: нужно выделение в одну строку в обычном редактируемом поле."
+
+msgid "Only us/ru: layout variants, AltGr, dead keys and XKB options are not read."
+msgstr "Только us/ru: варианты раскладок, AltGr, dead keys и XKB-опции не читаются."
+
+msgid "Empty context: previous word, application, field, system layout and edit_guard are ignored."
+msgstr "Контекст пустой: не учитываются предыдущее слово, приложение, поле, раскладка в системе и edit_guard."
+
+msgid "Only Detector.decide is called: punct/split/particles/caps, early trigger and triple Shift are not checked."
+msgstr "Вызывается только Detector.decide: punct/split/particles/caps, early-триггер и тройной Shift не проверяются."
+
+msgid "The service is not queried; keys are not sent; layout and configuration are not changed."
+msgstr "Служба не опрашивается, клавиши не отправляются, раскладка и конфиг не меняются."
+
+msgid "usage: "
+msgstr "использование: "
+
+msgid "positional arguments"
+msgstr "позиционные аргументы"
+
+msgid "options"
+msgstr "параметры"
+
+msgid "show this help message and exit"
+msgstr "показать эту справку и выйти"
+
+msgid "the following arguments are required: %s"
+msgstr "обязательны следующие аргументы: %s"
+
+msgid "unrecognized arguments: %s"
+msgstr "неизвестные аргументы: %s"
+
+msgid "argument %(argument_name)s: %(message)s"
+msgstr "аргумент %(argument_name)s: %(message)s"
+
+msgid "%(prog)s: error: %(message)s\n"
+msgstr "%(prog)s: ошибка: %(message)s\n"
+
+msgid "invalid %(type)s value: %(value)r"
+msgstr "неверное значение %(type)s: %(value)r"
+
+msgid "invalid choice: %(value)r (choose from %(choices)s)"
+msgstr "неверный выбор: %(value)r (выберите из %(choices)s)"
+
+msgid "expected one argument"
+msgstr "ожидается один аргумент"
+
+msgid "extension is enabled but GNOME will only load it after signing in: sign out and back in so GNOME loads the new version"
+msgstr "расширение включено, но GNOME загрузит его только после входа: выйдите из сеанса и войдите снова — тогда GNOME загрузит новую версию"
+
+msgid "an older extension is running: sign out and back in so GNOME loads the new version"
+msgstr "работает старая версия расширения: выйдите из сеанса и войдите снова — тогда GNOME загрузит новую версию"
+
+msgid "The upstream versions match. The native package supplies the service, systemd unit, keyboard permissions and desktop integration. Review the package manager's transaction and authentication prompt. After installation, sign out and back in for udev and GNOME extension changes, then run wayswitch doctor. Service activation remains a separate action."
+msgstr "Версии исходного приложения совпадают. Нативный пакет устанавливает службу, юнит systemd, права доступа к клавиатуре и интеграцию с рабочим столом. Проверьте список изменений и запрос авторизации пакетного менеджера. После установки выйдите из сеанса и войдите снова, чтобы применились udev и расширение GNOME, затем выполните wayswitch doctor. Включение службы — отдельное действие."
+
+msgid "The package manager reported success. This does not confirm an active service. Sign out and back in, then run wayswitch doctor and check systemctl --user status wayswitch."
+msgstr "Пакетный менеджер сообщил об успехе. Работа службы ещё не подтверждена. Выйдите из сеанса и войдите снова, затем выполните wayswitch doctor и проверьте systemctl --user status wayswitch."
+
+msgid "The package manager failed or was cancelled. It may have made changes. Read its error and use its recovery instructions; no rollback is promised."
+msgstr "Пакетный менеджер завершился с ошибкой или был отменён. Он мог внести изменения. Прочитайте ошибку и воспользуйтесь его инструкцией восстановления; откат не обещается."
+
+msgid "Arch installation includes a full system upgrade. Review and run the command yourself. For AUR, review the maintainer's PKGBUILD and use your existing helper."
+msgstr "Установка в Arch включает полное обновление системы. Проверьте и выполните команду самостоятельно. Для AUR изучите PKGBUILD мейнтейнера и используйте прежний помощник."
+
+msgid "Install the native service in a host terminal. Flatpak remains isolated; do not grant it keyboard device access."
+msgstr "Установите нативную службу в терминале основной системы. Flatpak остаётся изолированным; не предоставляйте ему доступ к устройствам клавиатуры."
+
+msgid "Enable the WaySwitch NixOS module from docs/nixos.md and rebuild the system. The module configures the native service and device permissions."
+msgstr "Подключите модуль WaySwitch для NixOS из docs/nixos.md и пересоберите систему. Модуль настраивает нативную службу и права доступа к устройствам."
+
+msgid "Use the distribution's rpm-ostree layering instructions for the native WaySwitch package, then reboot. Check the configured repository and package version first; this window does not install into /usr."
+msgstr "Для нативного пакета WaySwitch следуйте инструкции дистрибутива по добавлению слоёв rpm-ostree, затем перезагрузитесь. Сначала проверьте подключённый репозиторий и версию пакета; это окно не устанавливает файлы в /usr."
+
+msgid "A native installation already exists. Keep its original source: update it with its package manager or wayswitch update --install. Older services may not support that command. GUI and native versions must match before using this installation assistant."
+msgstr "Нативная установка уже существует. Сохраните её источник: обновляйте через её пакетный менеджер или wayswitch update --install. Старые службы могут не поддерживать эту команду. Для этого помощника версии GUI и нативной службы должны совпадать."
+
+msgid "No supported native package manager was found. Follow your distribution's WaySwitch packaging instructions; no installation was started."
+msgstr "Поддерживаемый нативный пакетный менеджер не найден. Следуйте инструкции вашего дистрибутива по установке WaySwitch; установка не запускалась."
+
+msgid "The native candidate and GUI versions do not match. Obtain matching versions through their respective sources; installation is disabled."
+msgstr "Версии нативного пакета и GUI не совпадают. Получите совпадающие версии через их собственные источники; установка отключена."
+
+msgid "The AUR candidate has the same upstream version as the GUI. Review PKGBUILD and all build files before installing with your helper. Run the displayed command yourself; no source is changed."
+msgstr "Версия исходного приложения в AUR совпадает с GUI. Перед установкой через помощник проверьте PKGBUILD и все файлы сборки. Выполните показанную команду самостоятельно; источник не меняется."
+
+msgid "No native package version was confirmed in the configured repositories. Check the repository or AUR maintainer's instructions, refresh metadata in your terminal and check again:\n\n{command}"
+msgstr "Версия нативного пакета в подключённых репозиториях не подтверждена. Проверьте инструкцию репозитория или мейнтейнера AUR, обновите метаданные в терминале и повторите проверку:\n\n{command}"
+
+msgid "Native service installation"
+msgstr "Установка нативной службы"
+
+msgid "After the package transaction, check again here and run wayswitch doctor. To activate the service when ready: systemctl --user enable --now wayswitch. Installing a package does not confirm a running, correctly configured service."
+msgstr "После транзакции пакетов повторите проверку здесь и выполните wayswitch doctor. Когда будете готовы включить службу: systemctl --user enable --now wayswitch. Установка пакета ещё не подтверждает работу и правильную настройку службы."
+
+msgid "Could not check native packages; no installation was started."
+msgstr "Не удалось проверить нативные пакеты; установка не запускалась."
+
+msgid "Open the native package manager?"
+msgstr "Открыть нативный пакетный менеджер?"
+
+msgid "{distro}\nPackage manager: {manager}\nGUI: {gui}\nNative installed: {installed}\nRepository candidate: {candidate}"
+msgstr "{distro}\nПакетный менеджер: {manager}\nGUI: {gui}\nНативная установка: {installed}\nКандидат из репозитория: {candidate}"
+
+msgid "Review the transaction in the terminal and approve authentication there. Cancellation or failure may leave package-manager changes; use its recovery instructions if needed."
+msgstr "Проверьте список изменений в терминале и подтвердите авторизацию там. После отмены или ошибки могут остаться изменения пакетного менеджера; при необходимости следуйте его инструкции восстановления."
+
+msgid "not found"
+msgstr "не найдена"
+
+msgid "Package information changed. Review it and confirm again."
+msgstr "Данные пакета изменились. Проверьте их и подтвердите снова."
+
+msgid "The package manager was opened in a terminal. Read its result there, then check again; installation and service activation have not been confirmed by this window."
+msgstr "Пакетный менеджер открыт в терминале. Прочитайте его результат там, затем повторите проверку; установка и включение службы этим окном ещё не подтверждены."

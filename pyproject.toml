@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wayswitch"
-version = "1.1.4"
+version = "1.2.0"
 description = "Автоисправление раскладки клавиатуры ru/en для Linux на Wayland"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,7 +24,7 @@ wayswitch-gui = "wayswitch.gui.app:main"
 include = ["wayswitch*"]
 
 [tool.setuptools.package-data]
-wayswitch = ["data/*.gz", "data/LICENSE", "locale/*/LC_MESSAGES/*.po",
+wayswitch = ["data/*.gz", "data/LICENSE", ".update-source", "locale/*/LC_MESSAGES/*.po",
              "locale/*/LC_MESSAGES/*.mo"]
 
 [tool.pytest.ini_options]
