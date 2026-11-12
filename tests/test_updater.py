@@ -206,6 +206,53 @@ def test_rpm_repo_candidates_are_taken_from_manager(case, expected):
     assert "dnf upgrade" in info.command and "github" not in info.command
 
 
+@pytest.mark.parametrize("manager", ["dnf", "zypper", "apt-rpm"])
+@pytest.mark.parametrize("comparison,code,success", [("1", 0, True), ("0", 0, True),
+                                                  ("-1", 0, False), ("", 0, False),
+                                                  ("1", 1, False)])
+def test_rpm_repository_update_checks_native_comparison_before_restart(
+        shell, tmp_path, manager, comparison, code, success):
+    info = updater.UpdateInfo(updater.Source("system", manager, "wayswitch"),
+                              updates.Release("1:1.1.4-2", ""), "available", "true", True)
+    script = updater.install_script(info, app_id="test.app", pid=0)
+    prefix = f'''
+flock() {{ :; }}
+systemctl() {{ echo "$*" >> service-calls; echo active; }}
+python3() {{ :; }}
+rpm() {{
+  case "$1" in
+    -q) printf '1:1.1.5-1';;
+    --eval) printf '%s' '{comparison}'; return {code};;
+    *) return 1;;
+  esac
+}}
+'''
+    result = subprocess.run([shell, "-c", prefix + script], cwd=tmp_path,
+                            input="\n", capture_output=True, text=True)
+    assert (result.returncode == 0) is success, result.stderr
+    assert ("try-restart" in (tmp_path / "service-calls").read_text()) is success
+
+
+@pytest.mark.skipif(shutil.which("rpm") is None, reason="requires native RPM comparator")
+@pytest.mark.parametrize("actual,success", [("1:1.1.4-2", True), ("1:1.1.5-1", True),
+                                         ("1:1.1.4-10", True), ("1:1.1.4~rc1-1", False),
+                                         ("0:9.0.0-1", False), ("2:0.1-1", True)])
+def test_rpm_repository_verification_uses_real_evr_order(shell, tmp_path, actual, success):
+    info = updater.UpdateInfo(updater.Source("system", "dnf", "wayswitch"),
+                              updates.Release("1:1.1.4-2", ""), "available", "true", True)
+    script = updater.install_script(info, app_id="test.app", pid=0)
+    prefix = f'''
+flock() {{ :; }}
+systemctl() {{ echo inactive; }}
+rpm() {{
+  if [ "$1" = -q ]; then printf '%s' '{actual}'; else command rpm "$@"; fi
+}}
+'''
+    result = subprocess.run([shell, "-c", prefix + script], cwd=tmp_path,
+                            input="\n", capture_output=True, text=True)
+    assert (result.returncode == 0) is success, result.stderr
+
+
 @pytest.mark.parametrize("case", ["updated", "bad-xml", "empty"])
 def test_zypper_checks_do_not_infer_success_from_invalid_response(case):
     output = {"updated": '<stream><update name="wayswitch" edition="1.1.4-2"/></stream>',

@@ -408,9 +408,22 @@ def install_script(info: UpdateInfo, *, app_id: str, pid: int) -> str:
             verify = (f"actual=$(pacman -Q {shlex.quote(source.package)} | cut -d ' ' -f2) && "
                       f'[ "$(vercmp "$actual" {shlex.quote(expected)})" -ge 0 ]')
         else:
+            # Отдельные компоненты EVR корректны и для rpm.vercmp до RPM 4.16.
+            compare = ("%{lua:\n"
+                       "local function parts(s)\n"
+                       " local e,vr=s:match('^([0-9]+):(.*)$')\n"
+                       " if not e then e,vr='0',s end\n"
+                       " local v,r=vr:match('^(.*)-([^-]*)$')\n"
+                       " return {e,v or vr,r or ''}\nend\n"
+                       f"local a,b=parts('$actual'),parts('{expected}')\n"
+                       "local c=0\nfor i=1,3 do\n"
+                       " c=rpm.vercmp(a[i],b[i]); if c~=0 then break end\nend\n"
+                       "print(c)}")
             verify = ("actual=$(rpm -q --qf '%{EPOCHNUM}:%{VERSION}-%{RELEASE}' "
-                      f"{shlex.quote(source.package)}) && "
-                      f'[ "${{actual#0:}}" = {shlex.quote(expected.removeprefix("0:"))} ]')
+                      f"{shlex.quote(source.package)}) &&\n"
+                      'case "$actual" in ""|*[!A-Za-z0-9+_.:~^-]*) false;; *) :;; esac &&\n'
+                      f'comparison=$(rpm --eval "{compare}") &&\n'
+                      'case "$comparison" in 0|1) :;; *) false;; esac')
         health = (f"import json,subprocess,time; cli={cli!r}; "
                   "expected=subprocess.check_output([cli,'version'],text=True).strip()"
                   ".removeprefix('wayswitch '); "
