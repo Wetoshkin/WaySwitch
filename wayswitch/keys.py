@@ -100,7 +100,8 @@ class DeviceWatcher:
             return
         try:
             dev = InputDevice(path)
-            caps = set(dev.capabilities().get(ecodes.EV_KEY, []))
+            capabilities = dev.capabilities()
+            caps = set(capabilities.get(ecodes.EV_KEY, []))
         except PermissionError as e:
             # Нет прав на устройство (не применилось правило udev) — важная
             # причина, по которой демон может остаться без клавиатуры;
@@ -116,6 +117,11 @@ class DeviceWatcher:
         if kind is None:
             dev.close()
             return
+        if kind == "keyboard" and ecodes.LED_CAPSL in capabilities.get(ecodes.EV_LED, []):
+            try:
+                self.on_caps(ecodes.LED_CAPSL in dev.leds())
+            except OSError:
+                pass
         device_id = self._next_id
         self._next_id += 1
         condition = GLib.IOCondition.IN | GLib.IOCondition.HUP | GLib.IOCondition.ERR
@@ -169,6 +175,10 @@ class DeviceWatcher:
                 except OSError:
                     self._close(path)
                     return False
+                continue
+            # Композитор обновляет LED уже после отпускания Caps Lock.
+            if ev.type == ecodes.EV_LED and kind == "keyboard" and ev.code == ecodes.LED_CAPSL:
+                self.on_caps(bool(ev.value))
                 continue
             if ev.type == ecodes.EV_REL:
                 if ev.code in kc.WHEEL_AXES and self.on_scroll is not None:
