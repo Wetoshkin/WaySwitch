@@ -156,6 +156,8 @@ def check(gui: str, *, env=None, os_release=None, run=updater.run_command,
 
 
 def handoff(info: Package, *, confirmed: bool) -> bool:
+    from wayswitch.backends.desktop import detect_desktop
+
     if not confirmed or not info.automatic or not info.command:
         return False
     success = _("The package manager reported success. This does not confirm an active "
@@ -166,7 +168,7 @@ def handoff(info: Package, *, confirmed: bool) -> bool:
     script = (f"if {info.command}; then printf '%s\\n' {shlex.quote(success)}; "
               f"wayswitch doctor; else printf '%s\\n' {shlex.quote(failure)}; fi\n"
               f"printf '%s ' {shlex.quote(_(terminal.PRESS_ENTER))}; read answer")
-    argv = terminal.terminal_argv(script, which=host_which)
+    argv = terminal.terminal_argv(script, desktop=detect_desktop(), which=host_which)
     if argv is None:
         return False
     environment = updater.host_environment()

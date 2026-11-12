@@ -113,6 +113,17 @@ def test_cancel_does_not_start_terminal(monkeypatch):
     assert not companion.handoff(info, confirmed=False)
 
 
+def test_handoff_uses_desktop_preferred_host_terminal(monkeypatch):
+    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "KDE")
+    monkeypatch.setattr(companion, "host_which", lambda name:
+                        f"/usr/bin/{name}" if name in {"gnome-terminal", "konsole"} else None)
+    launched = []
+    monkeypatch.setattr(companion.subprocess, "Popen", lambda argv, **kw: launched.append(argv))
+    info = companion.Package("Debian", "apt", command="true", automatic=True)
+    assert companion.handoff(info, confirmed=True)
+    assert launched[0][0] == "konsole"
+
+
 def test_terminal_failure_is_reported_without_installation_claim(monkeypatch):
     info, _ = probe({("apt-cache", "policy", "wayswitch"): (0, "Candidate: 1.1.4-1\n")})
     monkeypatch.setattr(companion.terminal, "terminal_argv", lambda *a, **k: None)
@@ -120,6 +131,7 @@ def test_terminal_failure_is_reported_without_installation_claim(monkeypatch):
 
 
 def test_confirmed_handoff_sanitizes_host_environment(monkeypatch, en_locale):
+    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "GNOME")
     info, _ = probe({("apt-cache", "policy", "wayswitch"): (0, "Candidate: 1.1.4-1\n")})
     monkeypatch.setenv("WAYSWITCH_PACKAGE", "appimage")
     monkeypatch.setenv("PYTHONPATH", "/tmp/bundle")
@@ -165,6 +177,7 @@ def test_native_managers(distro, query, output, expected, automatic):
 @pytest.mark.parametrize("success", [True, False])
 def test_terminal_transaction_reports_result_without_fake_rollback(
         shell, monkeypatch, success, en_locale):
+    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "GNOME")
     info, _ = probe({("apt-cache", "policy", "wayswitch"): (0, "Candidate: 1.1.4-1\n")})
     scripts = []
     monkeypatch.setattr(companion.terminal, "terminal_argv",
