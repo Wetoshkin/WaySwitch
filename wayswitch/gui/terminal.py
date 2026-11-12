@@ -101,6 +101,10 @@ def terminal_argv(command: str, desktop: str = "",
         if name not in TERMINALS or which(name) is None:
             continue
         style = TERMINALS[name]
+        if name == "ptyxis":
+            # Ptyxis раскрывает ${VAR} даже внутри аргумента sh -c.
+            payload = "".join(f"\\0{byte:03o}" for byte in command.encode("utf-8"))
+            command = f'exec sh -c "$(printf %b {shlex.quote(payload)})"'
         if style and style[0] == "string":
             return [name, *style[1:], shlex.join(["sh", "-c", command])]
         return [name, *style, "sh", "-c", command]

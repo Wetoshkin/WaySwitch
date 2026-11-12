@@ -5,6 +5,7 @@ import subprocess
 
 import pytest
 
+from tests.test_get_sh import shell as shell
 from wayswitch.gui import terminal
 
 
@@ -67,3 +68,14 @@ def test_curl_failure_prints_message_without_executing_it(tmp_path, monkeypatch,
 def test_script_is_valid_posix_sh():
     for uninstall in (False, True):
         subprocess.run(["dash", "-n", "-c", terminal.script(uninstall)], check=True)
+
+
+def test_ptyxis_preserves_shell_templates_and_interactive_input(shell):
+    command = "read -r answer; printf '%s|%s' '${Version} — привет' \"$answer\"; exit 7"
+    argv = terminal.terminal_argv(command, 'gnome', which_of('ptyxis'))
+    # Ptyxis 50.1 expands braced environment names in command arguments.
+    delivered = argv[-1].replace('${Version}', 'expanded-by-terminal')
+    result = subprocess.run([shell, '-c', delivered], input=b'confirmed\n',
+                            capture_output=True)
+    assert result.stdout.decode('utf-8') == '${Version} — привет|confirmed'
+    assert result.returncode == 7
