@@ -186,9 +186,28 @@ def test_two_capitals_in_opposite_layout(two_capitals_det, source, target):
     assert (d.action, d.target_text, d.reason) == ("fix", target, "capitals-layout")
 
 
-def test_two_capitals_in_opposite_layout_is_opt_in(two_capitals_det):
-    d = two_capitals_det.decide(typed("{Kt,", US), US, RU)
+@pytest.mark.parametrize("source", [
+    "{Kt,", "K>,jdm", "<>hj", "ghbdtn:", "enjxybnm:", "ytckj;yjt:", "[kt<",
+])
+def test_two_capitals_and_target_camel_in_opposite_layout_are_kept(
+        two_capitals_det, source):
+    d = two_capitals_det.decide(typed(source, US), US, RU)
     assert (d.action, d.reason) == ("keep", "camel")
+
+
+@pytest.mark.parametrize("source", [":", ";", "'''", "::::", "...."])
+def test_pure_punctuation_in_source_layout_is_not_converted_to_letters(det, source):
+    det.models["ru"] = LanguageModel.from_words(
+        "ru", RU_WORDS + [("ж", 950.0), ("эээ", 100.0)], RU_ALPHABET, top_n=10)
+    d = det.decide(typed(source, US), US, RU)
+    assert (d.action, d.reason) == ("keep", "invalid")
+
+
+@pytest.mark.parametrize("source", ["GHBDTN:", "GHBDTN::", "GHBDTN:/", "GHBDTN:?"])
+@pytest.mark.parametrize("two_capitals", [False, True])
+def test_uppercase_word_with_colon_is_kept(det, source, two_capitals):
+    d = det.decide(typed(source, US), US, RU, two_capitals=two_capitals)
+    assert (d.action, d.target_text) == ("keep", source)
 
 
 @pytest.mark.parametrize("text", ["", "П", "ПР", "ПРи"])

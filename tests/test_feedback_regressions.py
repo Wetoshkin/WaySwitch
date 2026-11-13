@@ -60,6 +60,44 @@ def test_window_click_drops_previous_word(models):
     assert backend.current() == US
 
 
+def test_russian_word_then_english_colon_is_not_replaced_with_zhe(models):
+    km = make_keymap()
+    now = [100.0]
+    backend, typist = FakeBackend(current=RU), RecordingTypist()
+    config = Config()
+    config.general.early_switch = False
+    ctrl = Controller(config, km, Detector(km, models), backend, typist,
+                      clock=lambda: now[0], probe=EditorProbe())
+    type_word(ctrl, km, "уточнить", RU)
+    backend.set(US)
+    ctrl.on_layout_changed(US, external=True)
+    now[0] += 2.0  # окно edit_guard_sec уже истекло
+    type_word(ctrl, km, ": ", US)
+    assert typist.taps() == []
+    assert backend.current() == US
+
+
+@pytest.mark.parametrize("word", ["enjxybnm", "ghbkj;tybz", "ltqcndbq", "ytckj;yjt"])
+@pytest.mark.parametrize("uppercase", [False, True])
+@pytest.mark.parametrize("tail", [":", ":/"])
+def test_wrong_layout_word_with_colon_is_not_retyped(models, word, uppercase, tail):
+    km = make_keymap()
+    ctrl, backend, typist = make_controller(km, models, US)
+    type_word(ctrl, km, (word.upper() if uppercase else word) + tail + " ", US)
+    assert typist.taps() == []
+    assert backend.current() == US
+
+
+@pytest.mark.parametrize("source,target", [
+    ("GHBDTN", "ПРИВЕТ"), ("GHBDTN/", "ПРИВЕТ."), ("GHBDTN?", "ПРИВЕТ,"),
+    (":bpym", "Жизнь"), (";t", "же"), ("'nj", "это"),
+])
+def test_colon_guard_preserves_unambiguous_layout_corrections(models, source, target):
+    km = make_keymap()
+    d = Detector(km, models).decide(keys_for_text(km, source, US), US, RU, two_capitals=True)
+    assert (d.action, d.target_text) == ("fix", target)
+
+
 @pytest.mark.skipif(not XkbKeymap.available(), reason="нет libxkbcommon")
 @pytest.mark.parametrize("source,target,word", [(US, RU, "привет"), (RU, US, "hello")])
 def test_dvorak_correction_through_controller(models, source, target, word):
