@@ -132,6 +132,7 @@ class Controller:
                  probe=None,
                  apps_provider: Callable[[], list[str]] = lambda: [],
                  sleep: Callable[[float], None] = time.sleep,
+                 schedule_later: Callable[[float, Callable[[], None]], None] | None = None,
                  schedule: Callable[[Callable[[], None]], None] = lambda fn: fn()):
         """`schedule(fn)` — отложить исполнение вне диспатча источника событий;
         в демоне — GLib.idle_add. Источник evdev в GLib не реентрантен: пока
@@ -158,6 +159,8 @@ class Controller:
         self.learned_words = learned_words
         self._learn_counts: OrderedDict[tuple[str, str], tuple[int, float]] = OrderedDict()
         self._manual_learning: ManualLearningEvent | None = None
+        self._pending_learning: tuple[float, Callable[[], None]] | None = None
+        self.schedule_later = schedule_later
         self.personal_dictionary_error: str | None = None
         # Сведения о фокусе (приложение, поле пароля) — из at-spi, через снимок
         # в отдельном потоке: в пути ввода опрашивать доступность нельзя.
@@ -279,6 +282,7 @@ class Controller:
             self._gesture_keys = kc.SHIFT_KEYS
 
     def reload_config(self, config: Config) -> None:
+        self._pending_learning = None
         if config.general.learn_after_converts != self.config.general.learn_after_converts:
             self._learn_counts.clear()
         self.config = config
@@ -501,6 +505,8 @@ class Controller:
         return True
 
     def _on_key(self, code: int, value: int, device_id: int) -> None:
+        if value == 1:
+            self._flush_pending_learning(force=code not in kc.SHIFT_KEYS)
         if self.screen_locked() or self.lock_confirmation_required:
             if value == 0:
                 self.buffer.note_release(code, device_id)
@@ -804,6 +810,7 @@ class Controller:
     def _clear_context(self) -> None:
         """Сбросить контекст и обесценить все ожидающие колбэки done."""
         self.context.clear()
+        self._pending_learning = None
         if self.buffer.is_empty():
             self._buffer_private = False
         self._context_epoch += 1
@@ -1210,6 +1217,7 @@ class Controller:
         """Исправить последнее слово (или откатить, или просто переключить раскладку).
 
         True — исправление запланировано/выполнено, False — нечего делать."""
+        self._flush_pending_learning(force=True)
         self._word_gesture = None
         if not self._manual_allowed() or not self._ready_for_manual_focus():
             return False
@@ -1302,7 +1310,15 @@ class Controller:
             if done is not None:
                 done(ok, secret)
             elif ok and not secret and learning_scope is not None:
-                self._learn_manual(learning_source, text, other, learning_scope, learning_end)
+                def learn():
+                    self._learn_manual(learning_source, text, other, learning_scope, learning_end)
+
+                if from_gesture and self.config.gesture.manual == "double_shift":
+                    self._pending_learning = self.clock() + self.gesture.window, learn
+                    if self.schedule_later is not None:
+                        self.schedule_later(self.gesture.window, self._flush_pending_learning)
+                else:
+                    learn()
             if from_gesture:
                 self._record_word_gesture(
                     ok, target_group=other, prefix=prefix, prefix_group=current,
@@ -1312,6 +1328,12 @@ class Controller:
                            reason="manual", group_before=current, done=finish,
                            secret=secret or bool(done and last and last.secret))
         return True
+
+    def _flush_pending_learning(self, *, force=False) -> None:
+        pending = self._pending_learning
+        if pending is not None and (force or self.clock() >= pending[0]):
+            self._pending_learning = None
+            pending[1]()
 
     def _refresh_personal(self, *, force=False) -> None:
         store = self.learned_words
@@ -1759,6 +1781,7 @@ class Controller:
         (или отменил правку в прежней). Прямой вызов по D-Bus такого выбора не
         делает и переводит фразу в противоположную группу.
         """
+        self._pending_learning = None
         if not self._manual_allowed():
             return False
         if self.buffer.expire(self.clock()):

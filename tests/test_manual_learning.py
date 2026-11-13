@@ -264,3 +264,34 @@ def test_unrelated_reload_does_not_discard_learning_progress(tmp_path):
     ctrl.reload_config(config)
     convert(ctrl)
     assert store.words == {("en", "ubuntu")}
+
+
+@pytest.mark.parametrize("threshold", [1, 2])
+def test_triple_shift_phrase_never_teaches_its_intermediate_word(tmp_path, threshold):
+    ctrl, store, probe, now = environment(tmp_path, threshold)
+    if threshold == 2:
+        convert(ctrl)
+    ctrl.buffer.reset()
+    ctrl._clear_context()
+    ctrl.backend.set(RU)
+    type_word(ctrl, ctrl.keymap, "руддщ гигтег", RU)
+    assert ctrl.manual_word(from_gesture=True)
+    assert not store.words
+    assert ctrl.manual_phrase(from_gesture=True)
+    now[0] += 1.0
+    ctrl._flush_pending_learning()
+    assert not store.path.exists()
+    convert(ctrl)
+    assert store.words == {("en", "ubuntu")}
+
+
+def test_double_shift_learning_waits_until_gesture_series_is_complete(tmp_path):
+    ctrl, store, probe, now = environment(tmp_path, 1)
+    pending = []
+    ctrl.schedule_later = lambda delay, callback: pending.append(callback)
+    type_word(ctrl, ctrl.keymap, "гигтег", RU)
+    assert ctrl.manual_word(from_gesture=True)
+    assert not store.path.exists()
+    now[0] += 0.5
+    pending.pop()()
+    assert store.words == {("en", "ubuntu")}

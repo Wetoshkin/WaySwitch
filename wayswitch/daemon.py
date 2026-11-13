@@ -199,6 +199,8 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         on_status=lambda s: service and service.emit_status(s),
         persist_exception=cfgmod.add_exception,
         learned_words=LearnedWords(),
+        schedule_later=lambda delay, fn: GLib.timeout_add(
+            max(1, int(delay * 1000)), lambda: (fn(), False)[1]),
         probe=probe,
         apps_provider=cfgmod.load_apps,
         # Исполнение фикса — вне диспатча evdev-источника: он не реентрантен, и
