@@ -2174,3 +2174,78 @@ msgstr "Данные пакета изменились. Проверьте их 
 
 msgid "The package manager was opened in a terminal. Read its result there, then check again; installation and service activation have not been confirmed by this window."
 msgstr "Пакетный менеджер открыт в терминале. Прочитайте его результат там, затем повторите проверку; установка и включение службы этим окном ещё не подтверждены."
+
+msgid "Learn after manual corrections"
+msgstr "Запоминать после ручных исправлений"
+
+msgid "0: off. Saves words locally only in confirmed, unprotected text fields"
+msgstr ""
+"0 — выключено. Слова сохраняются локально только в подтверждённых "
+"незащищённых текстовых полях"
+
+msgid "Personal dictionary"
+msgstr "Персональный словарь"
+
+msgid "Your words"
+msgstr "Ваши слова"
+
+msgid ""
+"Enter the correct word and language. The other spelling follows your system "
+"layouts. Exceptions always take priority."
+msgstr ""
+"Укажите правильное слово и язык. Написание в другой раскладке определяется "
+"по системным раскладкам. Исключения всегда важнее словаря."
+
+msgid "Refresh dictionary"
+msgstr "Обновить список слов"
+
+msgid "Off"
+msgstr "Выключено"
+
+msgid "Disabled by exception"
+msgstr "Автозамена запрещена исключением"
+
+msgid "Edit word"
+msgstr "Изменить слово"
+
+msgid "Never correct automatically"
+msgstr "Никогда не исправлять автоматически"
+
+msgid "Remove word"
+msgstr "Удалить слово"
+
+msgid "Could not save the personal dictionary; no changes were applied"
+msgstr "Не удалось сохранить персональный словарь; изменения не применены"
+
+msgid "Could not save the exception"
+msgstr "Не удалось сохранить исключение"
+
+msgid "Dictionary could not be read completely"
+msgstr "Не удалось прочитать словарь полностью"
+
+msgid "Repair learned_words.txt before making changes"
+msgstr "Исправьте learned_words.txt перед внесением изменений"
+
+msgid "No personal words yet"
+msgstr "Персональный словарь пока пуст"
+
+msgid ""
+"Enter the word in the correct layout, not an arbitrary replacement phrase"
+msgstr ""
+"Введите слово в правильной раскладке; произвольные фразы для замены не "
+"поддерживаются"
+
+msgid "Language"
+msgstr "Язык"
+
+msgid "Word in the correct layout"
+msgstr "Слово в правильной раскладке"
+
+msgid "Save"
+msgstr "Сохранить"
+
+msgid "The dictionary was not saved"
+msgstr "Словарь не сохранён"
+
+msgid "Use 1–64 letters of the selected language; no spaces"
+msgstr "От 1 до 64 букв выбранного языка, без пробелов"

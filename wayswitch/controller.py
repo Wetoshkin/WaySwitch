@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -32,6 +32,13 @@ from wayswitch.config import Config, apps_path
 from wayswitch.detector import SENSITIVITY, Detector
 from wayswitch.editable import _libreoffice_component
 from wayswitch.gesture import ShiftGesture, TapKeyGesture
+from wayswitch.learning import (
+    COUNT_LIMIT,
+    COUNT_TTL,
+    LearnedWords,
+    ManualLearningEvent,
+    normalize_word,
+)
 from wayswitch.selection import convert as convert_selection
 from wayswitch.textops import number_words, transliterate
 
@@ -121,6 +128,7 @@ class Controller:
                  on_fixed: Callable[[bool], None] | None = None,
                  on_status: Callable[[dict], None] | None = None,
                  persist_exception: Callable[[str], None] | None = None,
+                 learned_words: LearnedWords | None = None,
                  probe=None,
                  apps_provider: Callable[[], list[str]] = lambda: [],
                  sleep: Callable[[float], None] = time.sleep,
@@ -147,6 +155,10 @@ class Controller:
         self.on_fixed = on_fixed
         self.on_status = on_status
         self.persist_exception = persist_exception
+        self.learned_words = learned_words
+        self._learn_counts: OrderedDict[tuple[str, str], tuple[int, float]] = OrderedDict()
+        self._manual_learning: ManualLearningEvent | None = None
+        self.personal_dictionary_error: str | None = None
         # Сведения о фокусе (приложение, поле пароля) — из at-spi, через снимок
         # в отдельном потоке: в пути ввода опрашивать доступность нельзя.
         self.probe = probe
@@ -227,6 +239,7 @@ class Controller:
         self.stats = {"corrections": 0, "manual": 0, "undo": 0}
         self._pause_key = kc.KEY_NAMES.get(config.gesture.pause_hotkey.lower()) \
             if config.gesture.pause_hotkey else None
+        self._refresh_personal(force=True)
 
     # --- конфигурация / статус ---------------------------------------------------
 
@@ -266,7 +279,11 @@ class Controller:
             self._gesture_keys = kc.SHIFT_KEYS
 
     def reload_config(self, config: Config) -> None:
+        if config.general.learn_after_converts != self.config.general.learn_after_converts:
+            self._learn_counts.clear()
         self.config = config
+        self._manual_learning = None
+        self._refresh_personal(force=True)
         self._rebuild_gesture(config)
         self._apps_stamp = _UNSET  # Reload — перечитать и список программ
         self.buffer.phrase_timeout = config.general.phrase_timeout_sec
@@ -295,6 +312,7 @@ class Controller:
             "manual_total": self.stats["manual"],
             "undo_total": self.stats["undo"],
             "dry_run": self.dry_run,
+            "personal_dictionary_error": self.personal_dictionary_error or "",
         }
 
     def _layout_alphabet(self) -> str | None:
@@ -1042,6 +1060,7 @@ class Controller:
                 self._undo_counts.pop(last.word or letters(last.original_keys), None)
 
     def _on_word(self, keys: list[KeyPress], device_id: int, code: int) -> None:
+        self._refresh_personal()
         held, self._hold_keys = self._hold_keys, None
         if held is not None and list(keys) == held:
             # То самое слово, которое вернули жестом: не исправлять снова.
@@ -1072,6 +1091,12 @@ class Controller:
             # раскладки: откат «расклад-ка» добавил «раскладка» в исключения.
             self.context.append(None)
             return
+        if self.detector.personal_words:
+            target = self.detector.hypothesis(keys, other)
+            if ((target.lang, target.core.lower()) in self.detector.personal_words
+                    and target.core.lower() in self.detector.exceptions):
+                self.context.append(None)
+                return
         punct = self.detector.punct_fix(keys, current, other) \
             if self.config.general.punct_fix else None
         if punct:
@@ -1125,6 +1150,8 @@ class Controller:
         self.context.append(decision.a.lang if decision.a.in_dict else None)
 
     def _on_letter(self, keys: list[KeyPress], device_id: int, code: int) -> None:
+        if len(keys) == 1:
+            self._refresh_personal()
         groups = self._groups()
         if groups is None:
             return
@@ -1188,6 +1215,7 @@ class Controller:
             return False
         if not self._sync_focus() or self._skip_word:
             return False
+        self._refresh_personal()
         groups = self._groups()
         if groups is None:
             return False
@@ -1266,9 +1294,15 @@ class Controller:
                         # его, а не любое следующее.
                         self._hold_keys = list(self.buffer.last_word_with_tail()[0])
 
+        learning_scope = self._learning_scope()
+        learning_source = self.keymap.decode(word, current)
+        learning_end = len(self.buffer.phrase())
+
         def finish(ok: bool, secret: bool) -> None:
             if done is not None:
                 done(ok, secret)
+            elif ok and not secret and learning_scope is not None:
+                self._learn_manual(learning_source, text, other, learning_scope, learning_end)
             if from_gesture:
                 self._record_word_gesture(
                     ok, target_group=other, prefix=prefix, prefix_group=current,
@@ -1278,6 +1312,76 @@ class Controller:
                            reason="manual", group_before=current, done=finish,
                            secret=secret or bool(done and last and last.secret))
         return True
+
+    def _refresh_personal(self, *, force=False) -> None:
+        store = self.learned_words
+        if store is not None:
+            store.reload(force=force)
+            if store.words != self.detector.personal_words or force:
+                self.detector.set_personal_words(store.words)
+            self.personal_dictionary_error = store.error
+
+    def _learning_scope(self):
+        if (not self.config.general.learn_after_converts or self.learned_words is None
+                or not self._manual_allowed() or self._secret_focus()):
+            return None
+        snap = self._live_snapshot()
+        if (snap.field is None or snap.protection(self.clock()) is not False
+                or self._focus_blocks()):
+            return None
+        return self._probe_epoch, snap.generation, snap.field, snap.app, self._context_epoch
+
+    def _learn_manual(self, source, target, group, scope, end) -> None:
+        if self._learning_scope() != scope or len(self.buffer.phrase()) != end:
+            return
+        store, now = self.learned_words, self.clock()
+        previous, self._manual_learning = self._manual_learning, None
+        if (previous is not None and previous.scope == scope and previous.end == end
+                and 0 <= now - previous.time <= self.config.general.undo_window_sec
+                and (source, target) == (previous.target, previous.source)):
+            try:
+                if previous.digest is not None:
+                    store.update(remove=previous.key, expected=previous.digest,
+                                 allowed=lambda: self._learning_scope() == scope)
+                    self._refresh_personal()
+                if previous.count_before is not None:
+                    if previous.count_before:
+                        self._learn_counts[previous.key] = previous.count_before, now
+                    else:
+                        self._learn_counts.pop(previous.key, None)
+            except (OSError, ValueError) as exc:
+                self.personal_dictionary_error = type(exc).__name__
+                log.warning("персональный словарь: %s", type(exc).__name__)
+            return
+        lang = self.detector.lang_of_group(group)
+        try:
+            word = normalize_word(lang, target)
+        except ValueError:
+            return
+        key = lang, word
+        source_key = "".join(c for c in source.lower() if c.isalpha() or c in "-'")
+        if (source.lower() in self.detector.exceptions or source_key in self.detector.exceptions
+                or word in self.detector.exceptions
+                or self.detector.models[lang].is_word(word)):
+            self._manual_learning = ManualLearningEvent(source, target, scope, end, now, key, None)
+            return
+        self._learn_counts = OrderedDict((k, v) for k, v in self._learn_counts.items()
+                                         if 0 <= now - v[1] <= COUNT_TTL)
+        count, _stamp = self._learn_counts.pop(key, (0, now))
+        self._learn_counts[key] = count + 1, now
+        while len(self._learn_counts) > COUNT_LIMIT:
+            self._learn_counts.popitem(last=False)
+        event = ManualLearningEvent(source, target, scope, end, now, key, count)
+        if count + 1 >= self.config.general.learn_after_converts:
+            try:
+                if store.update(add=key, allowed=lambda: self._learning_scope() == scope):
+                    event.digest = store.digest
+                self._refresh_personal()
+            except (OSError, ValueError) as exc:
+                self.personal_dictionary_error = type(exc).__name__
+                log.warning("персональный словарь: %s", type(exc).__name__)
+                return
+        self._manual_learning = event
 
     def _note_undo(self, word: str) -> None:
         """Исправление слова отменили: на learn_after_undos-й раз — запомнить.

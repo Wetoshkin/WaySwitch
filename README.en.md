@@ -317,6 +317,42 @@ deployments require a reboot. Settings are preserved.
 
 ## Troubleshooting
 
+### Personal dictionary (1.3.0)
+
+Preferences → Personal dictionary lets you add, edit and remove a correct
+word and its language (Russian or English). The spelling in the other layout
+follows the system keymap: adding English `ubuntu` enables `гигтег` → `ubuntu`.
+These are layout pairs, not arbitrary text snippets. “Never correct
+automatically” uses the existing exceptions, which take priority. To keep
+literal `ghbdtn`, add `ghbdtn` under Exceptions → Words.
+
+Learning from manual corrections is separately opt-in: `learn_after_converts`
+defaults to 0 (off); 1–5 sets the threshold. Only successful manual single-word
+conversions in confirmed, unprotected text fields count. Passwords, terminals,
+unknown fields, automatic corrections and phrase conversions never teach words.
+Counts are kept in memory for at most 256 words with a seven-day lifetime;
+restarting clears the counts. Turning learning off keeps saved dictionary words.
+
+An immediate reverse manual gesture in the same field reverses the previous
+learning contribution and removes an entry created by that exact conversion.
+Existing entries stay. This does not intercept system Ctrl+Z; an external file
+change cancels removal to preserve other edits.
+
+`~/.config/wayswitch/learned_words.txt` uses `language<TAB>word` lines, e.g.
+`en<TAB>ubuntu`: up to 5000 words, 64 characters each, with letters and internal
+hyphens/apostrophes. Case is normalized; Russian ё is preserved. Frequency lists
+and n-grams are unchanged. Edits are picked up at word boundaries; the settings
+page also has a refresh action. Invalid lines are skipped on read but must be
+repaired before saving. Read failures keep the previous model.
+
+GUI and daemon writes share a lock, reread the file and replace it atomically;
+one previous copy is kept in `learned_words.bak`. An external editor can still
+race the last check and replacement. A crash may leave `learned_words.lock`;
+remove it only after closing Preferences and stopping the daemon.
+Configuration schema 1 remains readable; saving writes schema 2 and keeps the
+original in `config.toml.before-schema-2`. Version 1.2.0 cannot read schema 2,
+so restore that backup before downgrading.
+
 | Command | What it shows |
 |---|---|
 | `wayswitch doctor` | what works, what is missing and how to fix it |
@@ -326,7 +362,8 @@ deployments require a reboot. Settings are preserved.
 
 `wayswitch explain <word>` evaluates only `Detector.decide` for the word you
 pass: the explicit us/ru layouts and an empty context. It reads `sensitivity`,
-and `two_capitals_fix` from `config.toml`, and exceptions from `exceptions.txt`.
+and `two_capitals_fix` from `config.toml`, exceptions from `exceptions.txt`,
+and words from `learned_words.txt`.
 It writes nothing and
 does not contact the service, read focus, send keys, or change the layout.
 Options: `--from en|ru` (default `en` = us),
@@ -373,7 +410,9 @@ and `dry-run` modes. See [Contributing](CONTRIBUTING.md).
 **What happens to my data?** Correction runs locally; typed text is not sent
 over the network. Recent corrections are held in memory. Word exceptions,
 including those learned from undoing corrections, are saved to
-`~/.config/wayswitch/exceptions.txt`. Logs, including `--verbose` and
+`~/.config/wayswitch/exceptions.txt`. Explicit personal words and words learned
+with opt-in positive learning are saved to `~/.config/wayswitch/learned_words.txt`
+and its previous backup. Logs, including `--verbose` and
 `dry-run`, record decisions and operation results without typed words.
 When focus is unknown or stale, correction text is withheld from the
 window history over D-Bus and from learning after undo.

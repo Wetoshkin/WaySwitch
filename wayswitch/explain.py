@@ -17,6 +17,7 @@ from wayswitch.buffer import KeyPress
 from wayswitch.detector import SENSITIVITY, Detector, LanguageModel
 from wayswitch.i18n import gettext as _
 from wayswitch.keymap import LayoutSpec, XkbKeymap
+from wayswitch.learning import LearnedWords
 
 # Порядок групп в собранной карте: 0 — us, 1 — ru. Он же задаёт --from en|ru.
 SOURCE_LAYOUTS = {"en": "us", "ru": "ru"}
@@ -52,6 +53,7 @@ class Settings:
     sensitivity: str
     exceptions: frozenset[str]
     two_capitals_fix: bool
+    personal_words: frozenset[tuple[str, str]] = frozenset()
 
 
 def load_settings() -> Settings:
@@ -62,7 +64,8 @@ def load_settings() -> Settings:
     except (cfgmod.ConfigError, OSError, UnicodeError) as exc:
         raise ExplainError(_("could not read configuration: {exc}").format(exc=exc)) from exc
     return Settings(
-        config.general.sensitivity, frozenset(exceptions), config.general.two_capitals_fix
+        config.general.sensitivity, frozenset(exceptions), config.general.two_capitals_fix,
+        LearnedWords().words,
     )
 
 
@@ -171,6 +174,8 @@ def build_report(
         )
 
     detector = Detector(keymap, models, set(settings.exceptions), sensitivity)
+    if settings.personal_words:
+        detector.set_personal_words(settings.personal_words)
     decision = detector.decide(
         keys, source_group, target_group, (None, None), two_capitals=settings.two_capitals_fix
     )

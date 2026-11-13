@@ -93,6 +93,54 @@ def key_capture_dialog(parent, current: str, on_done: Callable[[str | None], Non
 
 # --- добавить приложение -----------------------------------------------------------
 
+def personal_word_dialog(parent, entry, on_save):
+    from gi.repository import Adw, Gtk
+
+    from wayswitch.learning import normalize_word
+
+    dialog = Adw.Dialog(title=_("Edit word") if entry else _("Add a word"), content_width=420)
+    toolbar = Adw.ToolbarView()
+    toolbar.add_top_bar(Adw.HeaderBar())
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16,
+                  margin_top=12, margin_bottom=24, margin_start=20, margin_end=20)
+    group = Adw.PreferencesGroup(description=_(
+        "Enter the word in the correct layout, not an arbitrary replacement phrase"))
+    language = Adw.ComboRow(title=_("Language"),
+                           model=Gtk.StringList.new([_("English"), _("Russian")]))
+    language.set_selected(1 if entry and entry[0] == "ru" else 0)
+    word = Adw.EntryRow(title=_("Word in the correct layout"))
+    if entry:
+        word.set_text(entry[1])
+    group.add(language)
+    group.add(word)
+    box.append(group)
+    error = Gtk.Label(wrap=True, xalign=0)
+    error.add_css_class("error")
+    box.append(error)
+    save = Gtk.Button(label=_("Save"))
+    save.add_css_class("suggested-action")
+
+    def apply(*_args):
+        lang = ("en", "ru")[language.get_selected()]
+        try:
+            value = normalize_word(lang, word.get_text())
+        except ValueError:
+            error.set_label(_("Use 1–64 letters of the selected language; no spaces"))
+            return
+        if on_save((lang, value)):
+            dialog.close()
+        else:
+            error.set_label(_("The dictionary was not saved"))
+
+    save.connect("clicked", apply)
+    word.connect("apply", apply)
+    box.append(save)
+    toolbar.set_content(box)
+    dialog.set_child(toolbar)
+    dialog.present(parent)
+    return dialog
+
+
 def _app_info(name: str):
     """Ярлык программы по имени из at-spi: значок и человеческое название."""
     from gi.repository import Gio

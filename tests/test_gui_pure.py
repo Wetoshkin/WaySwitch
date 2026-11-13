@@ -673,7 +673,7 @@ def test_preferences_flush_never_overwrites_future_schema(tmp_path, monkeypatch)
     prefs = _preferences_for_flush(monkeypatch, tmp_path)
     path = cfgmod.default_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    original = "[meta]\nschema = 2\n\n[typing]\nsettle_ms = 30\n"
+    original = f"[meta]\nschema = {cfgmod.CONFIG_SCHEMA + 1}\n\n[typing]\nsettle_ms = 30\n"
     path.write_text(original, encoding="utf-8")
     prefs._dirty = {("general", "auto_correct"): False}
 

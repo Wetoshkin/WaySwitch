@@ -164,7 +164,7 @@ def test_legacy_file_migrates_once_and_saves_marker(tmp_path: Path):
 
     cfgmod.save(cfgmod.load(path), path)
     text = path.read_text(encoding="utf-8")
-    assert "[meta]" in text and "schema = 1" in text
+    assert "[meta]" in text and f"schema = {cfgmod.CONFIG_SCHEMA}" in text
     assert cfgmod.load(path).typing.settle_ms == 120
 
 
@@ -200,7 +200,7 @@ def test_to_dict_roundtrip_and_unknown_top_level_section():
 
 
 @pytest.mark.parametrize("marker", [
-    {"schema": 2},
+    {"schema": cfgmod.CONFIG_SCHEMA + 1},
     {"schema": 0},
     {"schema": -1},
     {"schema": "1"},
@@ -216,7 +216,7 @@ def test_invalid_or_future_marker_is_rejected(marker):
 
 def test_save_does_not_overwrite_unknown_schema(tmp_path: Path):
     path = tmp_path / "future.toml"
-    original = "[meta]\nschema = 2\n\n[typing]\nsettle_ms = 30\n"
+    original = f"[meta]\nschema = {cfgmod.CONFIG_SCHEMA + 1}\n\n[typing]\nsettle_ms = 30\n"
     path.write_text(original, encoding="utf-8")
 
     with pytest.raises(cfgmod.ConfigSchemaError):

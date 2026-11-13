@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import tomllib
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
@@ -65,6 +66,8 @@ class General:
     # Сколько раз нужно отменить исправление одного и того же слова, чтобы
     # WaySwitch его запомнил и больше не трогал. 1 — с первой отмены.
     learn_after_undos: int = 2
+    # Положительное обучение только по явному выбору: 0 — выключено, 1..5 — порог.
+    learn_after_converts: int = 0
     # Раз в сутки спрашивать GitHub о новой версии (только GUI, демон в сеть
     # не ходит). Отключается в Параметрах и на последнем шаге первого запуска.
     check_updates: bool = True
@@ -88,9 +91,8 @@ class Gesture:
 
 
 OLD_SETTLE_MS = 30  # умолчание до 2.0.0a2
-# Маркер формата лежит в отдельной верхней секции: старые читатели не знают
-# её и пропускают целиком, поэтому новый файл для них остаётся читаемым.
-CONFIG_SCHEMA = 1
+# Маркер позволяет старым читателям отклонить будущий формат без перезаписи файла.
+CONFIG_SCHEMA = 2
 _SCHEMA_SECTION = "meta"
 _SCHEMA_KEY = "schema"
 
@@ -221,6 +223,8 @@ def _validate(cfg: Config) -> None:
         raise ConfigError("edit_guard_sec: 0..10")
     if not 1 <= g.learn_after_undos <= 5:
         raise ConfigError("learn_after_undos: 1..5")
+    if not 0 <= g.learn_after_converts <= 5:
+        raise ConfigError("learn_after_converts: 0..5")
     if ge.manual not in MANUAL_MODES:
         raise ConfigError(f"manual: допустимо {MANUAL_MODES}")
     if ge.tap_key.lower() not in GESTURE_KEY_NAMES:
@@ -294,7 +298,7 @@ def selection_key_conflict(ge: Gesture, name: str, manual: str | None = None,
 
 
 def _schema_version(data: dict) -> int:
-    """Версия формата: 0 — файл без маркера, 1 — текущий.
+    """Версия формата: 0 — без маркера; схема 1 читается, новая запись использует 2.
 
     Неизвестные верхние секции по-прежнему игнорируются, но секция-маркер
     известна: без неё нельзя отличить старое умолчание 30 мс от явного
@@ -313,7 +317,7 @@ def _schema_version(data: dict) -> int:
     if isinstance(version, bool) or not isinstance(version, int):
         raise ConfigSchemaError(
             f"{_SCHEMA_SECTION}.{_SCHEMA_KEY}: ожидалось целое число")
-    if version != CONFIG_SCHEMA:
+    if version not in (1, CONFIG_SCHEMA):
         if version > CONFIG_SCHEMA:
             raise ConfigSchemaError(
                 f"конфиг создан более новой версией WaySwitch "
@@ -382,7 +386,7 @@ def load(path: Path | None = None) -> Config:
     return from_dict(data)
 
 
-def _check_existing_schema(path: Path) -> None:
+def _check_existing_schema(path: Path) -> int | None:
     """Не перезаписывать файл, маркер которого мы не понимаем."""
     try:
         with open(path, "rb") as f:
@@ -390,14 +394,26 @@ def _check_existing_schema(path: Path) -> None:
     except (FileNotFoundError, tomllib.TOMLDecodeError):
         # Битый файл, как и раньше, можно заменить осознанной правкой в GUI.
         return
-    _schema_version(data)
+    return _schema_version(data)
 
 
 def save(cfg: Config, path: Path | None = None) -> None:
     _validate(cfg)
     path = path or default_path()
     if path.exists():
-        _check_existing_schema(path)
+        previous_schema = _check_existing_schema(path)
+        backup = path.with_name(path.name + ".before-schema-2")
+        if previous_schema in (0, 1) and not backup.exists():
+            fd, name = tempfile.mkstemp(prefix="config-backup-", dir=path.parent)
+            try:
+                with os.fdopen(fd, "wb") as stream:
+                    stream.write(path.read_bytes())
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(name, backup)
+            finally:
+                if os.path.exists(name):
+                    os.unlink(name)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(dumps(cfg), encoding="utf-8")

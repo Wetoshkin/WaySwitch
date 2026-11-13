@@ -19,6 +19,7 @@ from wayswitch.dbus_service import DaemonService
 from wayswitch.detector import SENSITIVITY, Detector, LanguageModel
 from wayswitch.keymap import LAYOUT_SCOPE, XkbKeymap
 from wayswitch.keys import DeviceWatcher
+from wayswitch.learning import LearnedWords
 from wayswitch.session import SessionGuard
 from wayswitch.sound import ensure_and_play
 
@@ -197,6 +198,7 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         on_fixed=_fixed,
         on_status=lambda s: service and service.emit_status(s),
         persist_exception=cfgmod.add_exception,
+        learned_words=LearnedWords(),
         probe=probe,
         apps_provider=cfgmod.load_apps,
         # Исполнение фикса — вне диспатча evdev-источника: он не реентрантен, и
