@@ -555,10 +555,15 @@ class Detector:
             return keep("abbrev")
         if a.core.lower() in self.exceptions:
             return keep("exception")
+        if _is_camel(b.core) and capitals is None:
+            return keep("camel")
 
         # 4. Валидность.
-        if not a.valid and not b.valid:
+        if not inner or (not a.valid and not b.valid):
             return keep("invalid")
+        # В US двоеточие — Shift+ж: даже полностью заглавное слово не дополняем Ж.
+        if ":" in a.tail:
+            return keep("punctuation")
 
         # 5. Словарь.
         if a.valid and a.in_dict:
