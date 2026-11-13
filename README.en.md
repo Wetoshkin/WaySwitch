@@ -27,9 +27,6 @@
 
 **Automatic Russian–English keyboard layout correction for Linux on Wayland.**
 
-**Source version 1.2.0 — updates that preserve the installation source, an AppImage
-service assistant, ru/en CLI output, and focus, Caps Lock and tray fixes.**
-
 Packages and checksums: [latest published release](https://github.com/Wetoshkin/WaySwitch/releases/latest).
 See [project status](docs/PROGRESS.md) for completed changes, verification and remaining work.
 
@@ -69,6 +66,10 @@ locale; correction supports the Russian ↔ English pair.
 - **Undo that learns.** The same gesture right after an automatic fix
   restores the word; after two undos it is added to exceptions. The threshold
   is configurable.
+- **Personal dictionary.** Add, edit or exclude a correct word and its language
+  in Preferences; for example, `гигтег` → `ubuntu`. Learning from manual
+  corrections is separately opt-in and off by default.
+  [How to use it](docs/personal-dictionary.md#english).
 - **Small typos** (each can be turned off in Preferences): an accidental
   Caps Lock (`пРИВЕТ` → «Привет», Caps Lock is turned off); two capitals at
   the start of a word (`ПРивет` → «Привет», Shift released too late); a
@@ -149,7 +150,7 @@ a release.
 
 ### Flatpak and AppImage
 
-In 1.2.0 the AppImage setup assistant shows the distribution, native package
+The AppImage setup assistant shows the distribution, native package
 manager and version compatibility. After confirmation it hands first installation
 to the system package manager in a terminal; mismatched versions receive
 instructions. Arch and AUR require manual review. Starting a terminal does not
@@ -257,7 +258,7 @@ start systemd user services: without uwsm, add `exec wayswitch run` (Sway) or
 (labwc / Wayfire) WaySwitch reads the layouts from the compositor's XKB
 settings — see the Russian README for snippets.
 
-**Closing the window.** In 1.2.0 a native launch stays in the icon like `--tray`:
+**Closing the window.** A native launch stays in the icon like `--tray`:
 the service keeps correcting, and launching WaySwitch again from the app menu
 reopens the same window with its history. In GNOME the icon requires the
 AppIndicator extension to be enabled (it is usually already enabled on
@@ -271,7 +272,7 @@ choose the language at startup from `LANGUAGE`, `LC_ALL`, `LC_MESSAGES` and
 `LANG`. A Russian locale gives the Russian interface; English, `C`, `C.UTF-8`,
 `POSIX`, an unknown or an unset locale give English (the source language).
 For `C`/`POSIX`, `LANGUAGE` does not enable the Russian catalog. The Plasma
-widget uses KDE's system language. In 1.2.0 commands are localized too; JSON,
+widget uses KDE's system language. JSON,
 reason values, the version line and exit codes retain their previous contract.
 
 The `[meta]` section with `schema = 1` identifies the `config.toml` format. Files without the marker are treated as legacy: their
@@ -284,74 +285,19 @@ install); other settings reload immediately.
 
 ## Updating
 
-The GitHub namespace changes the extension, application and portable package IDs.
-See the [migration guide](docs/identifiers.md) for Flatpak, GNOME and the KDE widget.
-WaySwitch settings are preserved.
+Use **Preferences → System → Updates…** or `wayswitch update`;
+`wayswitch update --install` installs an available update.
+WaySwitch keeps the installation source: AUR and distribution packages use
+their manager; GitHub installations use release packages. Confirmation and
+administrator authentication stay with the package manager.
 
-**First upgrade from 1.1.4.** That version has no `wayswitch update` command.
-Update the native service using its existing manager or installer: AUR and
-distribution packages through their own manager, GitHub installations through
-the previous GitHub installer or release package. Do not replace an AUR or
-distribution package with the GitHub installer. Updating the portable GUI alone
-to 1.2.0 does not update a 1.1.4 service. An old installation without a source
-marker may need one update using its original method.
-
-In 1.2.0 **Preferences → System → Updates…** shows the installation
-source, available version, release notes, installation in a terminal and a
-copyable command. AUR and third-party repositories keep using their package
-manager. Unknown sources are never silently replaced by GitHub. When automatic
-installation is unavailable, the window provides manual steps.
-
-Once native 1.2.0 is installed, `wayswitch update` checks the original source;
-`wayswitch update --install` also installs an available update. Confirmation
-and administrator authentication
-stay with the package manager. After verification the previously active service
-is restarted; an inactive service stays inactive. The GUI's installation button
-also reopens the window; after a manual installation, close and reopen it. Flatpak
-and AppImage update their window separately from the native host service. The Flatpak
-sandbox receives no host-execution permissions. Nix and atomic systems retain an
-explicit manual path. See the [update guide](docs/updates.md).
-
-GNOME extension updates may require signing out and back in; pending atomic
-deployments require a reboot. Settings are preserved.
+If the installed version has no `update` command, update the native service
+using its original method. AppImage and Flatpak update their window separately
+from the service. After a manual installation, reopen the window. GNOME extension
+updates may require signing in again; atomic systems may need a reboot.
+Settings and exceptions are preserved. See the [update guide](docs/updates.md).
 
 ## Troubleshooting
-
-### Personal dictionary (1.3.0)
-
-Preferences → Personal dictionary lets you add, edit and remove a correct
-word and its language (Russian or English). The spelling in the other layout
-follows the system keymap: adding English `ubuntu` enables `гигтег` → `ubuntu`.
-These are layout pairs, not arbitrary text snippets. “Never correct
-automatically” uses the existing exceptions, which take priority. To keep
-literal `ghbdtn`, add `ghbdtn` under Exceptions → Words.
-
-Learning from manual corrections is separately opt-in: `learn_after_converts`
-defaults to 0 (off); 1–5 sets the threshold. Only successful manual single-word
-conversions in confirmed, unprotected text fields count. Passwords, terminals,
-unknown fields, automatic corrections and phrase conversions never teach words.
-Counts are kept in memory for at most 256 words with a seven-day lifetime;
-restarting clears the counts. Turning learning off keeps saved dictionary words.
-
-An immediate reverse manual gesture in the same field reverses the previous
-learning contribution and removes an entry created by that exact conversion.
-Existing entries stay. This does not intercept system Ctrl+Z; an external file
-change cancels removal to preserve other edits.
-
-`~/.config/wayswitch/learned_words.txt` uses `language<TAB>word` lines, e.g.
-`en<TAB>ubuntu`: up to 5000 words, 64 characters each, with letters and internal
-hyphens/apostrophes. Case is normalized; Russian ё is preserved. Frequency lists
-and n-grams are unchanged. Edits are picked up at word boundaries; the settings
-page also has a refresh action. Invalid lines are skipped on read but must be
-repaired before saving. Read failures keep the previous model.
-
-GUI and daemon writes share a lock, reread the file and replace it atomically;
-one previous copy is kept in `learned_words.bak`. An external editor can still
-race the last check and replacement. A crash may leave `learned_words.lock`;
-remove it only after closing Preferences and stopping the daemon.
-Configuration schema 1 remains readable; saving writes schema 2 and keeps the
-original in `config.toml.before-schema-2`. Version 1.2.0 cannot read schema 2,
-so restore that backup before downgrading.
 
 | Command | What it shows |
 |---|---|
@@ -370,7 +316,7 @@ Options: `--from en|ru` (default `en` = us),
 `--sensitivity conservative|normal|aggressive`, `--json`. It does not evaluate
 punct/split/particles/caps, the early trigger or triple Shift; layout variants,
 AltGr, dead keys and XKB options are not considered. Requires Linux with
-libxkbcommon. The command is included in 1.1.4; it is not in 1.1.3.
+libxkbcommon.
 
 Passing the mandatory checks does not confirm that the focused field is accessible.
 If the active application is unknown, run `sleep 5; wayswitch doctor` and focus a
@@ -418,7 +364,7 @@ When focus is unknown or stale, correction text is withheld from the
 window history over D-Bus and from learning after undo.
 
 GitHub update checks send the IP address and WaySwitch version in the
-`User-Agent`, but no typed text. In 1.2.0, AUR installations
+`User-Agent`, but no typed text. AUR installations
 check AUR RPC with the package name; distribution packages use their own
 package manager without contacting GitHub. Checks can be disabled in Preferences.
 
@@ -472,43 +418,14 @@ KDE checks cover Writer with KF6 and GTK3, and selection in Kate/KWrite
 and Writer. Calc was tested with GTK3 VCL; testing with KF6 was limited by
 a LibreOffice plugin failure.
 
-Earlier Writer checks covered both directions, undo after continued typing,
-automatic capitalization and two consecutive words. In 1.1.3, Calc on GNOME 51.1
-passed eight automatic and eight manual corrections:
-F2 and direct input, slow and fast typing. See the project status.
-
-- For the 1.2.0 candidate, Ubuntu 26.04.1 / GNOME 50.1 / Wayland passed a
-  first AppImage installation through Ptyxis/apt, separate service activation
-  and sign-in, and uninstall with settings preserved. Twenty QEMU keyboard
-  scenarios reached real evdev, the daemon, extension and GTK4; accidental
-  Caps Lock deactivation and Tab between fields were checked separately.
-  Physical USB keyboards and live AUR/third-party RPM transactions were not
-  tested. A separate APT upgrade from the published 1.1.4 deb to the 1.2.0
-  candidate preserved settings and exceptions; the old window needs manual
-  reopening. A separate test APT repository confirmed source preservation and
-  service/window restarts when upgrading a 1.2.0 package revision.
-- For 1.1.4, a live CachyOS GNOME 51.1 Wayland session on an isolated GTK4
-  TextView passed 8 of 8 scenarios, including direct FixPhrase in both
-  directions, fresh and expired phrases with a prefix, an empty phrase, triple
-  Shift after a fresh correction, a manual layout switch and automatic
-  correction, and «ПРивет» with undo and a third Shift. Text, caret, layout,
-  counters and the absence of a spurious `Corrected` were checked. The loaded
-  extension used protocol 3, so the uinput fallback was tested; TypeText and
-  native Writer replacement were not exercised.
-- The same run found a lost space when a physical Space was held during
-  synthesized Space; the fix is included in 1.1.4 and passed a repeated live run. Native Writer replacement
-  for 1.1.4 was not verified: the private Flatpak Writer never mapped a fresh
-  window. Writer/Calc 1.1.3 results remain historical and do not confirm 1.1.4.
-  Sway, PrintScreen, async GUI, tray, sound and language-edge checks were not
-  part of that run. The 1.2.0 checks are listed separately and do not confirm
-  every desktop, app or native Writer replacement.
+See [project status](docs/PROGRESS.md) for the live-test matrix and its limits.
 
 Chrome checks cover ordinary fields, editable page elements, passwords and readonly fields.
 The original eXpress message editor was tested in an isolated environment
 without sending messages; an authenticated chat has not been tested.
 
 Firefox Flatpak checks on Bazzite cover input, textarea, contenteditable and the
-address bar. In 1.1.3, native Telegram 7.4.1 on GNOME 51.1
+address bar. Native Telegram 7.4.1 on GNOME 51.1
 passed both directions in an authenticated message composer, without sending
 messages. This does not verify the Telegram Flatpak composer. ONLYOFFICE Desktop Editors 10.0.0
 (Flatpak on Bazzite) did not expose an AT-SPI field tree on the tested setup;
