@@ -14,6 +14,7 @@ from wayswitch import config as cfgmod
 from wayswitch.gui import autostart, dialogs, gesture_keys, portable, texts
 from wayswitch.gui.widgets import StepRow, boxed_list, clear_list, flat_icon_button, keycap
 from wayswitch.i18n import gettext as _
+from wayswitch.learning import LearnedWords
 
 EXTENSION_UUID = "wayswitch@wetoshkin.github.io"
 
@@ -59,6 +60,7 @@ class Preferences:
         self.dialog.set_content_width(640)
         self.dialog.add(self._page_correction())
         self.dialog.add(self._page_exceptions())
+        self.dialog.add(self._page_dictionary())
         self.dialog.add(self._page_system())
         self.dialog.connect("closed", lambda *_: self._flush())
 
@@ -200,6 +202,13 @@ class Preferences:
             c.general.learn_after_undos, 1, 5, 1, texts.format_times,
             lambda v: self._set("general", "learn_after_undos", int(v)))
         manual.add(self.step_learn.row)
+        self.step_positive = StepRow(
+            _("Learn after manual corrections"),
+            _("0: off. Saves words locally only in confirmed, unprotected text fields"),
+            c.general.learn_after_converts, 0, 5, 1,
+            lambda value: _("Off") if not value else texts.format_times(value),
+            lambda value: self._set("general", "learn_after_converts", int(value)))
+        manual.add(self.step_positive.row)
         page.add(manual)
 
         what = Adw.PreferencesGroup(title=_("What to correct"))
@@ -251,6 +260,7 @@ class Preferences:
                 value = getattr(c.gesture, field_name)
                 cap.set_label(gesture_keys.human_name(value) if value else _("None"))
             self.step_learn.set_value(c.general.learn_after_undos)
+            self.step_positive.set_value(c.general.learn_after_converts)
             self.step_undo.set_value(c.general.undo_window_sec)
             for key, row in self.switches.items():
                 row.set_active(getattr(c.general, key))
@@ -308,6 +318,83 @@ class Preferences:
         self._set("gesture", field_name, name)
         self.sel_caps[field_name].set_label(gesture_keys.human_name(name) if name
                                             else _("None"))
+
+    def _page_dictionary(self):
+        from gi.repository import Adw, Gtk
+
+        page = Adw.PreferencesPage(title=_("Personal dictionary"),
+                                   icon_name="accessories-dictionary-symbolic")
+        group = Adw.PreferencesGroup(
+            title=_("Your words"),
+            description=_("Enter the correct word and language. The other spelling follows "
+                          "your system layouts. Exceptions always take priority."))
+        self.personal_store = LearnedWords()
+        self.personal_box = boxed_list()
+        group.add(self.personal_box)
+        add = Gtk.Button(label=_("Add a word"))
+        add.connect("clicked", lambda *_: self._edit_personal())
+        group.set_header_suffix(add)
+        page.add(group)
+        refresh = Adw.ActionRow(title=_("Refresh dictionary"), activatable=True)
+        refresh.add_suffix(Gtk.Image(icon_name="view-refresh-symbolic"))
+        refresh.connect("activated", lambda *_: self._render_personal())
+        more = Adw.PreferencesGroup()
+        more.add(refresh)
+        page.add(more)
+        self._render_personal()
+        return page
+
+    def _render_personal(self):
+        from gi.repository import Adw
+
+        self.personal_store.reload(force=True)
+        clear_list(self.personal_box)
+        if self.personal_store.error:
+            self.personal_box.append(Adw.ActionRow(
+                title=_("Dictionary could not be read completely"),
+                subtitle=_("Repair learned_words.txt before making changes")))
+        exceptions = cfgmod.load_exceptions()
+        for lang, word in sorted(self.personal_store.words):
+            subtitle = _("Russian") if lang == "ru" else _("English")
+            if word in exceptions:
+                subtitle += " · " + _("Disabled by exception")
+            row = Adw.ActionRow(title=word, subtitle=subtitle, use_markup=False)
+            row.add_suffix(flat_icon_button(
+                "document-edit-symbolic", _("Edit word"),
+                lambda entry=(lang, word): self._edit_personal(entry)))
+            row.add_suffix(flat_icon_button(
+                "action-unavailable-symbolic", _("Never correct automatically"),
+                lambda value=word: self._exclude_personal(value)))
+            row.add_suffix(flat_icon_button(
+                "user-trash-symbolic", _("Remove word"),
+                lambda entry=(lang, word): self._change_personal(remove=entry)))
+            self.personal_box.append(row)
+        if not self.personal_store.words and not self.personal_store.error:
+            self.personal_box.append(Adw.ActionRow(title=_("No personal words yet")))
+
+    def _edit_personal(self, entry=None):
+        dialogs.personal_word_dialog(self.dialog, entry, lambda value:
+                                     self._change_personal(add=value, remove=entry))
+
+    def _change_personal(self, *, add=None, remove=None):
+        try:
+            self.personal_store.update(add=add, remove=remove)
+        except (OSError, ValueError):
+            self.toast(_("Could not save the personal dictionary; no changes were applied"))
+            return False
+        self._render_personal()
+        self.proxy.call("Reload")
+        return True
+
+    def _exclude_personal(self, word):
+        try:
+            cfgmod.add_exception(word)
+        except OSError:
+            self.toast(_("Could not save the exception"))
+            return
+        self._render_personal()
+        self._render_words()
+        self.proxy.call("Reload")
 
     # --- страница «Исключения» --------------------------------------------------
 

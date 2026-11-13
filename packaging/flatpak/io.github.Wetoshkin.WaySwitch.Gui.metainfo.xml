@@ -21,6 +21,6 @@
   <url type="bugtracker">https://github.com/Wetoshkin/WaySwitch/issues</url>
   <url type="help">https://github.com/Wetoshkin/WaySwitch#readme</url>
   <content_rating type="oars-1.1"/>
-  <releases><release version="1.2.0" date="2026-11-13"/><release version="1.1.4" date="2026-11-11"/><release version="1.1.3" date="2026-11-09"/><release version="1.1.2" date="2026-11-06"/></releases>
+  <releases><release version="1.2.1" date="2026-11-13"/><release version="1.2.0" date="2026-11-13"/><release version="1.1.4" date="2026-11-11"/><release version="1.1.3" date="2026-11-09"/><release version="1.1.2" date="2026-11-06"/></releases>
   <supports><control>keyboard</control><control>pointing</control></supports>
 </component>

@@ -79,6 +79,10 @@ jobs:
           grep -Fx "WaySwitch $(wayswitch version | cut -d' ' -f2)" report.txt
           grep -F 'Демон недоступен по D-Bus' report.txt
           dbus-run-session -- python3 tools/smoke_cli_i18n.py
+      - name: Настоящие GTK-виджеты персонального словаря
+        run: |
+          sudo apt-get install -y xvfb
+          PYTHONPATH=. dbus-run-session -- xvfb-run -a python3 tools/smoke_personal_dictionary.py
       - uses: actions/upload-artifact@v4
         with:
           name: wayswitch-deb

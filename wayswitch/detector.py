@@ -229,6 +229,11 @@ class LanguageModel:
     def score(self, text: str) -> float:
         return ngram.score(self.model, text)
 
+    def with_extra_words(self, words: Iterable[str]) -> LanguageModel:
+        result = LanguageModel(self.lang, self.words | frozenset(words), self.top, self.model)
+        result._contractions = self._contractions
+        return result
+
 
 @dataclass
 class Hypothesis:
@@ -284,6 +289,16 @@ class Detector:
         self.models = models
         self.exceptions = exceptions if exceptions is not None else set()
         self.sensitivity = sensitivity
+        self.personal_words: frozenset[tuple[str, str]] = frozenset()
+        self._base_models: dict[str, LanguageModel] | None = None
+
+    def set_personal_words(self, words) -> None:
+        if self._base_models is None:
+            self._base_models = dict(self.models)
+        self.personal_words = frozenset(words)
+        self.models = {lang: base.with_extra_words(w for language, w in self.personal_words
+                                                 if language == lang)
+                       for lang, base in self._base_models.items()}
 
     # --- вспомогательное ---------------------------------------------------
 
@@ -417,6 +432,9 @@ class Detector:
         start = a.lower()
         if any(e.startswith(start) for e in self.exceptions):
             return None  # «ghbdtn» в исключениях — не трогать и его начало
+        if any(lang == oth and word.startswith(b.lower()) and word in self.exceptions
+               for lang, word in self.personal_words):
+            return None
         if self.models[cur].has_prefix(start):
             return None
         if self.models[oth].prefix_count(b.lower(), EARLY_MIN_WORDS) < EARLY_MIN_WORDS:
@@ -564,6 +582,10 @@ class Detector:
         # В US двоеточие — Shift+ж: даже полностью заглавное слово не дополняем Ж.
         if ":" in a.tail:
             return keep("punctuation")
+        if b.valid and (b.lang, b.core.lower()) in self.personal_words:
+            if b.core.lower() in self.exceptions:
+                return keep("exception")
+            return fix("personal", 1.0)
 
         # 5. Словарь.
         if a.valid and a.in_dict:

@@ -8,7 +8,7 @@
         "Id": "io.github.Wetoshkin.wayswitch",
         "License": "MIT",
         "Name": "WaySwitch",
-        "Version": "1.2.0",
+        "Version": "1.2.1",
         "Website": "https://github.com/Wetoshkin/WaySwitch"
     },
     "KPackageStructure": "Plasma/Applet",
