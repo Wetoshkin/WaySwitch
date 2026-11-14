@@ -111,13 +111,21 @@ Runner очищает только собственный TextBuffer, держи
 серии, даже если уже записанные образцы совпадают.
 
 Время последнего физического пробела → чтение GTK-буфера измеряет доставку
-текста с шагом опроса 20 мс, а не появление пикселя. Отдельно сохраняются
-время от первой клавиши и стоимость guard. p50/p95 выводятся с 20 успешных
-образцов, p99 — со 100; короткая серия показывает все значения и максимум.
+текста с шагом опроса `--poll-ms` (по умолчанию 20 мс), а не появление пикселя.
+Отдельно сохраняются время от первой клавиши и стоимость guard.
+Для калибровки чтения повторите серию с `--poll-ms 1`, сохранив остальные
+параметры; это меняет измеритель, а не быстродействие продукта. Сравнение
+разных шагов опроса не доказывает ускорение приложения. Не запускайте
+сборки или тесты одновременно с сериями задержки.
+
+p50/p95 выводятся с 20 успешных образцов, p99 — со 100; короткая серия
+показывает все значения и максимум.
 Профилировщик считает обработку событий, решение, AT-SPI, запрос контекста,
-переключение/ожидание и изменение текста. `context` включает попадания в кэш;
+переключение/ожидание и изменение текста. `context` считает вызовы обёртки;
 только `shell_ipc.*` считает фактическую отправку соответствующего D-Bus-метода.
-Стадии вложены, их длительности нельзя складывать. Это инструментированные
+Стадии вложены, их длительности нельзя складывать. Суммарные счётчики за
+весь сеанс включают прогрев, восстановление и фоновый опрос: их нельзя
+напрямую делить на количество измеряемых исправлений. Это инструментированные
 серии с дополнительной стоимостью wrappers, отдельно от обычной работы.
 
 `first_main_dispatch_ns` — от начала скрипта до первого callback главного
@@ -128,17 +136,16 @@ GUI/вспомогательные процессы, отрисовка и кл�
 монотонным генератором с отдельной проверкой готовности. Таймеры разных
 clock domains не вычитайте без проверки их совместимости.
 
-Настоящая доставка Gio-событий проверяется отдельно на приватной шине:
+Проверки существующего расширения выполняются отдельно:
 
 ```bash
-python -m pytest -q tests/test_shell_context_dbus.py
 node tests/test_extension_focus.cjs
 node tests/test_extension_typing.cjs
 ```
 
 Live-матрицу GTK3/4, Qt6, браузер/Electron, Writer/Calc и окружения проверяйте
 отдельно; отсутствие стенда записывайте «не проверено». Зелёный эталон или
-тест приватной шины не означает проверку настоящего композитора.
+проверка расширения без Shell не означает проверку настоящего композитора.
 
 ## Ветки, проверки и выпуск
 
@@ -283,14 +290,17 @@ platform configuration readable; redirect only WaySwitch state with `--state-dir
 
 Measure first input after idle separately with `--idle-seconds 31` and `306`.
 Start with correctness smoke and a pilot; fix sample count/warmup before comparing.
-Boundary-key-to-GTK-readback uses a 20 ms polling interval and does not measure
+Boundary-key-to-GTK-readback uses `--poll-ms` (default 20 ms) and does not measure
 rendered pixels. p50/p95 need 20 successful samples, p99 needs 100. Short series
 list all values. Refusals, timeouts, loss and duplicates are never discarded.
-`context` counts API invocations including cache hits; `shell_ipc.*` counts
-actual corresponding method sends. Profiled stages overlap and include wrapper
-overhead. First main-context dispatch excludes interpreter startup; memory is
+`--poll-ms 1` calibrates readback resolution, not product performance; keep all
+other parameters fixed. Do not run builds or tests alongside latency series.
+`context` counts API invocations; `shell_ipc.*` counts
+actual corresponding method sends. Session totals include warmup, restoration
+and background polling, not only measured corrections. Profiled stages overlap
+and include wrapper overhead. First main-context dispatch excludes interpreter startup; memory is
 daemon-only, and unavailable GUI/helper/render/ack metrics are explicit.
-Private-bus Gio tests and unit tests do not verify a real compositor. Record
+Unit tests do not verify a real compositor. Record
 the GTK/Qt/browser/Writer/Calc and desktop combinations actually tested.
 
 Every release follows the release checklist above: audit both READMEs, the
