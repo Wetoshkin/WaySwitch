@@ -30,6 +30,8 @@ def cycle_case(text: str) -> str | None:
                 continue
             first = True
         result = ''.join(out)
+        if result == text:
+            result = low
     else:
         result = text.lower()
     return result if result != text else None

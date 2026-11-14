@@ -475,6 +475,7 @@ known limitations: [LibreOffice and selection](https://github.com/Wetoshkin/WayS
 case and word capitals. It uses default Unicode casing, preserves combining
 marks and treats an apostrophe between letters as part of the word. Case changes
 can change length (`ß` → `SS`) and are not reversible after three steps.
+An unchanged step is skipped: `A` → `a`, `Я` → `я`, `A B` → `a b`.
 The command preserves the active layout. Both source and result must be
 representable in that layout, including GNOME text transport; otherwise the
 command refuses before writing. Select the appropriate layout first.

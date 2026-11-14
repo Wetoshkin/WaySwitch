@@ -12,6 +12,7 @@ from wayswitch.textops import cycle_case
     ("O'NEILL", "O'neill"), ('ЖУК-ПЁТР', 'Жук-Пётр'), ('e\u0301', 'E\u0301'),
     ('ß', 'SS'), ('SS', 'Ss'), ('Ss', 'ss'), ('123 😀', None), ('', None),
     ('HELLO_WORLD2TEST', 'Hello_World2Test'),
+    ('A', 'a'), ('Я', 'я'), ('A B', 'a b'), ('А-Я', 'а-я'),
 ])
 def test_cycle_case_unicode_boundaries(text, expected):
     assert cycle_case(text) == expected
@@ -41,6 +42,8 @@ def test_mixed_layout_requires_target_model():
 
 @pytest.mark.parametrize('action,original,expected,target', [
     ('case', 'hello', 'HELLO', None), ('case', 'ПРИВЕТ', 'Привет', None),
+    ('case', 'A', 'a', None), ('case', 'Я', 'я', None),
+    ('case', 'A B', 'a b', None),
     ('mixed', 'привет vbh', 'привет мир', 'ru'), ('mixed', 'руддщ hello', 'hello hello', 'en'),
 ])
 def test_bound_actions_recheck_selection_and_use_no_clipboard(
@@ -49,7 +52,7 @@ def test_bound_actions_recheck_selection_and_use_no_clipboard(
     from tests.test_selection import make_ctrl
     from wayswitch import a11y
     typist = RecordingTextTypist()
-    current = RU if original == 'ПРИВЕТ' else US
+    current = RU if original in ('ПРИВЕТ', 'Я') else US
     ctrl, backend, corrected = make_ctrl(original, typist, current=current)
     ctrl.detector.models['ru'] = ctrl.detector.models['ru'].with_extra_words(['мир'])
     reads = []
