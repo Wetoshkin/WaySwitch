@@ -11,7 +11,15 @@ const context = vm.createContext({
     Extension: class {},
     global: {display: {focus_window: null}},
     Main: {modalCount: 0, inputMethod: null},
-    GLib: {get_monotonic_time: () => 1000000},
+    GLib: {
+        get_monotonic_time: () => 1000000,
+        Variant: class {
+            constructor(signature, value) {
+                this.signature = signature;
+                this.value = value;
+            }
+        },
+    },
 });
 vm.runInContext(source + '\nthis.extension = new WaySwitchExtension();', context);
 assert.deepEqual(Array.from(context.extension.GetFocusedApp()), []);
@@ -28,7 +36,9 @@ assert.deepEqual(Array.from(context.extension.GetFocusedApp()),
     ['jetbrains-idea', 'com.jetbrains.IntelliJ-IDEA']);
 
 assert.equal(typeof context.extension.GetFocusedContext, 'function');
-assert.equal(context.extension.GetVersion(), 4);
+assert.equal(context.extension.GetVersion(), 5);
+assert.equal(typeof context.extension.GetCapabilities, 'function');
+assert.deepEqual(Array.from(context.extension.GetCapabilities()), ['focused_context_payload_v2']);
 const plainContext = () => JSON.parse(JSON.stringify(context.extension.GetFocusedContext()));
 context.global.display.focus_window.get_pid = () => 1234;
 assert.deepEqual(plainContext(), [
@@ -91,7 +101,187 @@ assert.deepEqual(signals, Array.from({length: 4}, () => ['FocusedContextChanged'
 context.extension.disable();
 assert.deepEqual(disconnected, [1, 2, 3, 4]);
 assert.equal(context.extension._focusSignals.length, 0);
-assert.match(vm.runInContext('IFACE_XML', context), /<signal name="FocusedContextChanged"\s*\/>/);
+const ifaceXml = vm.runInContext('IFACE_XML', context);
+assert.match(ifaceXml, /<signal name="FocusedContextChanged"\s*\/>/);
+assert.match(ifaceXml, /<method name="GetCapabilities">\s*<arg type="as" name="capabilities" direction="out"\/>\s*<\/method>/);
+assert.match(
+    ifaceXml,
+    /<signal name="FocusedContextChanged2">\s*<arg type="as" name="ids"\/>\s*<arg type="b" name="modal"\/>\s*<arg type="b" name="ime_focus"\/>\s*<arg type="u" name="purpose"\/>\s*<arg type="u" name="hints"\/>\s*<arg type="u" name="pid"\/>\s*<\/signal>/,
+);
+
+subscriptions.length = 0;
+disconnected.length = 0;
+signals.length = 0;
+const displayEmitter = emitter();
+const stageEmitter = emitter();
+const imEmitter = emitter();
+context.global.display = Object.assign(displayEmitter, {
+    focus_window: {
+        get_wm_class: () => 'org.mozilla.firefox',
+        get_gtk_application_id: () => 'org.mozilla.firefox',
+        get_sandboxed_app_id: () => null,
+        get_pid: () => 4321,
+        get_title: () => { throw Error('Window titles must not be read'); },
+    },
+});
+context.global.stage = stageEmitter;
+context.Main.modalCount = 0;
+context.Main.inputMethod = Object.assign(imEmitter, {
+    currentFocus: {},
+    content_purpose: 0,
+    content_hints: 0,
+    getSurroundingText() { throw Error('Surrounding text must not be read'); },
+});
+Object.defineProperty(context.Main.inputMethod, 'surrounding_text', {
+    get() { throw Error('Surrounding text must not be read'); },
+    configurable: true,
+});
+context.extension._dbus = {
+    emit_signal(name, args) { signals.push([name, args]); },
+    unexport() {},
+};
+context.extension._watchFocusedContext();
+assert.deepEqual(subscriptions.map(item => item.signal), [
+    'notify::focus-window', 'notify::key-focus',
+    'notify::content-purpose', 'notify::content-hints',
+]);
+
+// All 4 notify signals emit legacy empty signal FIRST, then FocusedContextChanged2 with method parity.
+for (const item of subscriptions) {
+    signals.length = 0;
+    item.callback(new Proxy({}, {get() { throw Error('Event payload must not be read'); }}));
+    assert.equal(signals.length, 2, item.signal);
+    assert.deepEqual(signals[0], ['FocusedContextChanged', null]);
+    assert.equal(signals[1][0], 'FocusedContextChanged2');
+    assert.equal(signals[1][1].signature, '(asbbuuu)');
+    assert.deepEqual(JSON.parse(JSON.stringify(signals[1][1].value)), plainContext());
+}
+
+// Normal, password, modal, pid=0, and absent focus_window parity cases.
+for (const setup of [
+    () => {
+        context.Main.modalCount = 0;
+        context.Main.inputMethod.content_purpose = 0;
+        context.Main.inputMethod.content_hints = 0;
+        context.global.display.focus_window.get_pid = () => 4321;
+    },
+    () => {
+        context.Main.modalCount = 0;
+        context.Main.inputMethod.content_purpose = 8;
+        context.Main.inputMethod.content_hints = 128;
+        context.global.display.focus_window.get_pid = () => 4321;
+    },
+    () => {
+        context.Main.modalCount = 1;
+        context.Main.inputMethod.content_purpose = 0;
+        context.Main.inputMethod.content_hints = 0;
+        context.global.display.focus_window.get_pid = () => 4321;
+    },
+    () => {
+        context.Main.modalCount = 0;
+        context.global.display.focus_window.get_pid = () => 0;
+    },
+    () => {
+        context.Main.modalCount = 0;
+        context.global.display.focus_window = null;
+    },
+]) {
+    setup();
+    signals.length = 0;
+    subscriptions[0].callback();
+    assert.equal(signals.length, 2);
+    assert.deepEqual(signals[0], ['FocusedContextChanged', null]);
+    assert.equal(signals[1][0], 'FocusedContextChanged2');
+    assert.equal(signals[1][1].signature, '(asbbuuu)');
+    assert.deepEqual(JSON.parse(JSON.stringify(signals[1][1].value)), plainContext());
+}
+
+// Bounded max (16 ids, 256 BMP codepoints, 256 non-BMP codepoints, uint32 max).
+const savedGetFocusedApp = context.extension.GetFocusedApp;
+context.global.display.focus_window = {
+    get_wm_class: () => 'app',
+    get_gtk_application_id: () => null,
+    get_sandboxed_app_id: () => null,
+    get_pid: () => 0xFFFFFFFF,
+    get_title: () => { throw Error('Window titles must not be read'); },
+};
+context.Main.inputMethod.content_purpose = 0xFFFFFFFF;
+context.Main.inputMethod.content_hints = 0xFFFFFFFF;
+context.extension.GetFocusedApp = () => Array.from({length: 16}, (_, i) => `${i}:` + 'a'.repeat(256 - `${i}:`.length));
+signals.length = 0;
+subscriptions[0].callback();
+assert.equal(signals.length, 2);
+assert.deepEqual(signals[0], ['FocusedContextChanged', null]);
+assert.deepEqual(JSON.parse(JSON.stringify(signals[1][1].value)), plainContext());
+
+context.extension.GetFocusedApp = () => ['🚀'.repeat(256)];
+signals.length = 0;
+subscriptions[0].callback();
+assert.equal(signals.length, 2);
+assert.deepEqual(signals[0], ['FocusedContextChanged', null]);
+assert.deepEqual(JSON.parse(JSON.stringify(signals[1][1].value)), plainContext());
+
+// Oversized or malformed payloads must NOT be truncated/sanitized; emit legacy signal only.
+for (const breakPayload of [
+    () => { context.extension.GetFocusedApp = () => Array.from({length: 17}, (_, i) => `app-${i}`); },
+    () => { context.extension.GetFocusedApp = () => ['a'.repeat(257)]; },
+    () => { context.extension.GetFocusedApp = () => ['🚀'.repeat(257)]; },
+    () => { context.extension.GetFocusedApp = () => [123]; },
+    () => { context.extension.GetFocusedApp = () => ['ok']; context.Main.inputMethod.content_purpose = -1; },
+    () => { context.Main.inputMethod.content_purpose = 0x100000000; },
+    () => { context.Main.inputMethod.content_purpose = 1.5; },
+    () => { context.Main.inputMethod.content_purpose = '8'; },
+    () => { context.Main.inputMethod.content_purpose = Number.NaN; },
+    () => { context.Main.inputMethod.content_purpose = 0; context.Main.inputMethod.content_hints = -1; },
+    () => { context.Main.inputMethod.content_hints = 0x100000000; },
+    () => { context.Main.inputMethod.content_hints = 1.5; },
+    () => { context.Main.inputMethod.content_hints = '0'; },
+    () => { context.Main.inputMethod.content_hints = Number.NaN; },
+    () => { context.Main.inputMethod.content_hints = 0; context.global.display.focus_window.get_pid = () => -1; },
+    () => { context.global.display.focus_window.get_pid = () => 0x100000000; },
+    () => { context.global.display.focus_window.get_pid = () => 1.5; },
+    () => { context.global.display.focus_window.get_pid = () => '123'; },
+    () => { context.global.display.focus_window.get_pid = () => Number.NaN; },
+]) {
+    breakPayload();
+    signals.length = 0;
+    subscriptions[0].callback();
+    assert.deepEqual(signals, [['FocusedContextChanged', null]]);
+}
+context.extension.GetFocusedApp = savedGetFocusedApp;
+
+// Unknown/absent IME emits legacy signal only while GetFocusedContext preserves fallback.
+context.global.display.focus_window.get_pid = () => 1234;
+context.Main.inputMethod = {
+    currentFocus: null,
+    get content_purpose() { throw Error('Cached purpose without IME focus must not be read'); },
+    get content_hints() { throw Error('Cached hints without IME focus must not be read'); },
+};
+signals.length = 0;
+subscriptions[0].callback();
+assert.deepEqual(signals, [['FocusedContextChanged', null]]);
+assert.deepEqual(plainContext(), [['app'], false, false, 0, 0, 1234]);
+
+context.Main.inputMethod = null;
+signals.length = 0;
+subscriptions[0].callback();
+assert.deepEqual(signals, [['FocusedContextChanged', null]]);
+assert.deepEqual(plainContext(), [['app'], false, false, 0, 0, 1234]);
+
+// Failure while collecting new payload must never suppress legacy invalidation.
+context.global.display.focus_window = {
+    get_wm_class() { throw Error('boom'); },
+    get_gtk_application_id: () => null,
+    get_sandboxed_app_id: () => null,
+    get_pid: () => 1234,
+};
+signals.length = 0;
+subscriptions[0].callback();
+assert.deepEqual(signals, [['FocusedContextChanged', null]]);
+
+context.extension.disable();
+assert.deepEqual(disconnected, [1, 2, 3, 4]);
+assert.equal(context.extension._focusSignals.length, 0);
 
 const keyEvents = [];
 const inputEvents = [];
