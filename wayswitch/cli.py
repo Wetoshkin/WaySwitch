@@ -268,7 +268,12 @@ def main(argv: list[str] | None = None) -> int:
 
         dry = ns.command == "dry-run" or ns.dry_run
         verbose = dry or ns.verbose if ns.command == "run" else True
-        return run(ns.config, verbose, dry)
+        from wayswitch.config import ConfigError
+        try:
+            return run(ns.config, verbose, dry)
+        except ConfigError as exc:
+            print(_("Invalid configuration: {error}").format(error=exc), file=sys.stderr)
+            return 2
     if ns.command == "doctor":
         from wayswitch.doctor import exit_code, format_report, run_checks
 

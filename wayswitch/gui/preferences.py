@@ -282,6 +282,14 @@ class Preferences:
         if self._loading:
             return
         g = self.cfg.gesture
+        if g.pause_hotkey and cfgmod.selection_key_conflict(
+                g, g.pause_hotkey, mode, field="pause_hotkey"):
+            self._loading = True
+            self.cb_manual.set_selected(cfgmod.MANUAL_MODES.index(g.manual))
+            self._loading = False
+            self.row_key.set_visible(g.manual == "tap_key")
+            self.toast(_("This key pauses WaySwitch"))
+            return
         for field_name, title, *_rest in texts.SELECTION_KEY_ROWS:
             if cfgmod.selection_key_conflict(g, getattr(g, field_name), mode, field=field_name):
                 # Одна клавиша не может и исправлять слово, и выделение.

@@ -21,6 +21,7 @@ BACKEND_PREFS = ("auto", "shell", "kde", "ibus", "hotkey", "sway", "hyprland", "
 # Чем печатать символы при shell-бэкенде: клавишами расширения (keysym-ы, не
 # зависят от раскладки) или сканерами через uinput (как настоящая клавиатура).
 SHELL_TYPING = ("extension", "uinput")
+PAUSE_HOTKEY_NAMES = ("pause", "scrolllock")
 
 
 class ConfigError(ValueError):
@@ -247,6 +248,10 @@ def _validate(cfg: Config) -> None:
         raise ConfigError("tap_key совпадает с клавишей паузы")
     if ge.pause_hotkey and ge.pause_hotkey.lower() not in KEY_NAMES:
         raise ConfigError(f"pause_hotkey: неизвестная клавиша {ge.pause_hotkey!r}")
+    if pause and pause not in {key_code(name) for name in PAUSE_HOTKEY_NAMES}:
+        raise ConfigError("pause_hotkey: допустимы только pause, scrolllock (scroll_lock)")
+    if pause and ge.manual == "pause_key" and pause == key_code("pause"):
+        raise ConfigError("pause_hotkey: Pause уже занята жестом «клавиша Pause»")
     if not 0 <= t.settle_ms <= 2000:
         raise ConfigError("settle_ms: 0..2000")
     if not 0 <= t.key_delay_ms <= 100:
@@ -292,7 +297,7 @@ def selection_key_conflict(ge: Gesture, name: str, manual: str | None = None,
         return "Shift уже занят жестом «двойной Shift»"
     if manual == "pause_key" and name == key_code("pause"):
         return "Pause уже занята жестом «клавиша Pause»"
-    if ge.pause_hotkey and name == key_code(ge.pause_hotkey):
+    if field != "pause_hotkey" and ge.pause_hotkey and name == key_code(ge.pause_hotkey):
         return "эта клавиша ставит WaySwitch на паузу"
     return None
 
