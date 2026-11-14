@@ -155,7 +155,7 @@ def test_skip_reason_uses_shell_app_id_without_atspi_name():
 
 def test_shell_identity_does_not_claim_password_detection(monkeypatch):
     monkeypatch.setattr(a11y, "query_shell_context",
-                        lambda *, fresh=False: a11y.ShellContext(("jetbrains-idea",)))
+                        lambda: a11y.ShellContext(("jetbrains-idea",)))
     monkeypatch.setattr(a11y, "_a11y_connection", lambda: (_ for _ in ()).throw(RuntimeError()))
     snap = a11y.query_focus()
     assert snap.app is None
@@ -278,37 +278,6 @@ def test_shell_context_change_during_accessibility_query_discards_old_field(monk
     assert a11y.query_focus().app is None
 
 
-def test_query_focus_uses_fresh_second_read_and_rejects_a_b_a(monkeypatch):
-    calls = []
-    watch = SimpleNamespace(generation=1)
-    monkeypatch.setattr(a11y, "_SHELL_WATCH", watch, raising=False)
-
-    def context(*, fresh=False):
-        calls.append(fresh)
-        return a11y.ShellContext(("editor",))
-
-    def changed(*_args):
-        watch.generation += 2
-        return FocusSnapshot("Editor", field="same")
-
-    monkeypatch.setattr(a11y, "query_shell_context", context)
-    monkeypatch.setattr(a11y, "_a11y_connection", lambda: object())
-    monkeypatch.setattr(a11y, "_DbusTree", lambda _: object())
-    monkeypatch.setattr(a11y, "find_focus", changed)
-    assert a11y.query_focus().app is None
-    assert calls == [False, True]
-
-
-def test_shell_query_delegates_fresh_to_shared_watch(monkeypatch):
-    calls = []
-    def query(*, fresh=False):
-        calls.append(fresh)
-        return a11y.ShellContext(("editor",))
-    monkeypatch.setattr(a11y, "_SHELL_WATCH", SimpleNamespace(query=query), raising=False)
-    assert a11y.query_shell_context(fresh=True).app_ids == ("editor",)
-    assert calls == [True]
-
-
 @pytest.mark.parametrize("error", ["org.freedesktop.DBus.Error.NoReply",
                                   "org.freedesktop.DBus.Error.Timeout",
                                   "org.freedesktop.DBus.Error.Failed"])
@@ -342,12 +311,6 @@ def test_old_shell_extension_falls_back_to_focused_app(monkeypatch, error):
     calls = shell_bus(monkeypatch, [RemoteDBusError(error), (["editor.desktop"],)])
     assert a11y.query_shell_context() == a11y.ShellContext(("editor.desktop",))
     assert calls == ["GetFocusedContext", "GetFocusedApp"]
-
-
-def test_legacy_shell_transport_error_without_watch_keeps_focus_unknown(monkeypatch):
-    shell_bus(monkeypatch, [RemoteDBusError("org.freedesktop.DBus.Error.UnknownMethod"),
-                            RemoteDBusError("org.freedesktop.DBus.Error.NoReply")])
-    assert a11y.query_shell_context() is None
 
 
 @pytest.mark.parametrize("error", ["org.freedesktop.DBus.Error.NoReply",
@@ -913,7 +876,6 @@ def event_connections(monkeypatch):
 
             assert (sender, iface, member, path, arg0) in [
                 (BUS_NAME, INTERFACE, "FocusedContextChanged", OBJECT_PATH, None),
-                (BUS_NAME, INTERFACE, "FocusedContextChanged2", OBJECT_PATH, None),
                 ("org.freedesktop.DBus", "org.freedesktop.DBus", "NameOwnerChanged",
                  "/org/freedesktop/DBus", BUS_NAME)]
             self.next_id += 1
@@ -934,10 +896,6 @@ def event_connections(monkeypatch):
 
         def close_sync(self, _cancellable):
             self.closed = True
-
-        def call_sync(self, _bus, _path, _iface, method, *_args):
-            assert method == "GetNameOwner"
-            return SimpleNamespace(unpack=lambda: (":1.42",))
 
     connections.session = Session()
 
@@ -966,14 +924,12 @@ def test_shell_context_event_invalidates_same_accessibility_field_without_payloa
 
     class PrivatePayload:
         def unpack(self):
-            if signal == "NameOwnerChanged":
-                return ("io.github.Wetoshkin.WaySwitch.Shell", ":1.42", ":1.43")
-            pytest.fail("legacy focus event payload must never be read")
+            pytest.fail("focus event payload must never be read")
 
     matching = [callback for member, callback in connections.session.callbacks.values()
                 if member == signal]
     for callback in matching:
-        callback(None, ":1.42", None, None, signal, PrivatePayload(), None)
+        callback(None, None, None, None, None, PrivatePayload(), None)
     assert probe.snapshot().app is None
     assert watch.live.is_set()
     watch.close()
@@ -983,9 +939,9 @@ def test_shared_session_watch_cleanup_preserves_other_probe_and_bus(event_connec
     connections, _registered = event_connections
     old = a11y._watch_focus_events(object(), lambda: None)
     new = a11y._watch_focus_events(object(), lambda: None)
-    assert len(connections.session.callbacks) == 6
+    assert len(connections.session.callbacks) == 4
     old.close()
-    assert len(connections.session.callbacks) == 3
+    assert len(connections.session.callbacks) == 2
     assert not connections.session.closed
     assert new.live.is_set()
     new.close()
@@ -1027,7 +983,7 @@ def test_shell_event_during_query_cannot_republish_safe_focus(event_connections)
     def query():
         for member, callback in connections.session.callbacks.values():
             if member == "FocusedContextChanged":
-                callback(None, ":1.42", None, None, member, object(), None)
+                callback(None, None, None, None, None, object(), None)
         return FocusSnapshot("Browser", field=(":1.5", "/same"))
 
     probe = a11y.AtspiProbe(clock=Clock(), query=query)

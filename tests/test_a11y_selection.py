@@ -61,19 +61,12 @@ def selection(monkeypatch):
         tree=SelectionTree(), valid=True, context=a11y.ShellContext(),
         expected=a11y.FocusSnapshot("kate", taken_at=time.monotonic(), field=FIELD,
                                    generation=9))
-    monkeypatch.setattr(a11y, "query_shell_context", lambda *, fresh=False: case.context)
+    monkeypatch.setattr(a11y, "query_shell_context", lambda: case.context)
     return case
 
 
 def read(case, limit=300):
     return a11y._read_selection(case.tree, case.expected, lambda: case.valid, limit)
-
-
-def test_selection_epoch_change_during_read_rejects_same_context(selection, monkeypatch):
-    watch = SimpleNamespace(generation=1)
-    monkeypatch.setattr(a11y, "_SHELL_WATCH", watch)
-    selection.tree.after_read = lambda: setattr(watch, "generation", 3)
-    assert read(selection) is None
 
 
 @pytest.mark.parametrize("gnome", [False, True])

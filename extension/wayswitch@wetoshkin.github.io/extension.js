@@ -23,10 +23,6 @@ const DAEMON_NAME = 'io.github.Wetoshkin.WaySwitch';
 // фрагмент — до нескольких тысяч.
 const MAX_TEXT = 4000;
 const MAX_BACKSPACE = 512;
-const MAX_CONTEXT_IDS = 16;
-const MAX_CONTEXT_ID_CODEPOINTS = 256;
-const MAX_UINT32 = 0xFFFFFFFF;
-const CAPABILITIES = ['focused_context_payload_v2'];
 const IFACE_XML = `
 <node>
   <interface name="io.github.Wetoshkin.WaySwitch.Shell">
@@ -43,7 +39,6 @@ const IFACE_XML = `
       <arg type="u" name="hints" direction="out"/>
       <arg type="u" name="pid" direction="out"/>
     </method>
-    <method name="GetCapabilities"><arg type="as" name="capabilities" direction="out"/></method>
     <method name="SetLayout"><arg type="u" name="index" direction="in"/></method>
     <method name="TypeText"><arg type="s" name="text" direction="in"/></method>
     <method name="Backspace"><arg type="u" name="count" direction="in"/></method>
@@ -51,43 +46,11 @@ const IFACE_XML = `
     <method name="GetVersion"><arg type="u" name="version" direction="out"/></method>
     <signal name="LayoutChanged"><arg type="u" name="index"/></signal>
     <signal name="FocusedContextChanged"/>
-    <signal name="FocusedContextChanged2">
-      <arg type="as" name="ids"/>
-      <arg type="b" name="modal"/>
-      <arg type="b" name="ime_focus"/>
-      <arg type="u" name="purpose"/>
-      <arg type="u" name="hints"/>
-      <arg type="u" name="pid"/>
-    </signal>
   </interface>
 </node>`;
 // Версия протокола: демон сверяет её и просит перелогиниться, если Shell
 // держит старую копию расширения (на Wayland оно перезагружается только так).
-const PROTOCOL_VERSION = 5;
-
-function isUint32(value) {
-    return Number.isInteger(value) && value >= 0 && value <= MAX_UINT32;
-}
-
-function hasAtMostCodepoints(text, limit) {
-    let count = 0;
-    for (const _ch of text) {
-        count += 1;
-        if (count > limit)
-            return false;
-    }
-    return true;
-}
-
-function isValidContextIds(ids) {
-    if (!Array.isArray(ids) || ids.length > MAX_CONTEXT_IDS)
-        return false;
-    for (const id of ids) {
-        if (typeof id !== 'string' || !hasAtMostCodepoints(id, MAX_CONTEXT_ID_CODEPOINTS))
-            return false;
-    }
-    return true;
-}
+const PROTOCOL_VERSION = 4;
 
 // GNOME 51 убрал Clutter.get_default_backend() — берём бэкенд у контекста
 // сцены (get_backend() есть с GNOME 48), а старый путь оставляем для 46–47.
@@ -191,10 +154,6 @@ export default class WaySwitchExtension extends Extension {
         return PROTOCOL_VERSION;
     }
 
-    GetCapabilities() {
-        return [...CAPABILITIES];
-    }
-
     GetFocusedApp() {
         const window = global.display.focus_window;
         if (!window)
@@ -203,45 +162,17 @@ export default class WaySwitchExtension extends Extension {
             window.get_sandboxed_app_id()].filter(Boolean))];
     }
 
-    _collectFocusedContext() {
-        const ids = this.GetFocusedApp();
-        const modal = Main.modalCount > 0;
+    GetFocusedContext() {
         const im = Main.inputMethod;
         const hasFocus = Boolean(im?.currentFocus);
         const purpose = hasFocus ? im.content_purpose : 0;
         const hints = hasFocus ? im.content_hints : 0;
-        const validIME = hasFocus && isUint32(purpose) && isUint32(hints);
-        const rawPid = global.display.focus_window?.get_pid?.() ?? 0;
-        const validPid = isUint32(rawPid);
-        const legacy = [
-            ids,
-            modal,
-            validIME,
-            validIME ? purpose : 0,
-            validIME ? hints : 0,
-            validPid && rawPid > 0 ? rawPid : 0,
-        ];
-        const payload = validIME && validPid && isValidContextIds(ids)
-            ? [ids, modal, true, purpose, hints, rawPid]
-            : null;
-        return {legacy, payload};
-    }
-
-    GetFocusedContext() {
-        return this._collectFocusedContext().legacy;
-    }
-
-    _emitFocusedContextChanged() {
-        this._dbus?.emit_signal('FocusedContextChanged', null);
-        if (!this._dbus)
-            return;
-        try {
-            const {payload} = this._collectFocusedContext();
-            if (payload)
-                this._dbus.emit_signal('FocusedContextChanged2', new GLib.Variant('(asbbuuu)', payload));
-        } catch (_error) {
-            // Сбой сбора нового payload не должен подавлять устаревшую инвалидацию.
-        }
+        const validIME = hasFocus && Number.isInteger(purpose) && Number.isInteger(hints) &&
+            purpose >= 0 && purpose <= 0xFFFFFFFF && hints >= 0 && hints <= 0xFFFFFFFF;
+        const pid = global.display.focus_window?.get_pid?.() ?? 0;
+        const validPid = Number.isInteger(pid) && pid > 0 && pid <= 0xFFFFFFFF;
+        return [this.GetFocusedApp(), Main.modalCount > 0, validIME,
+            validIME ? purpose : 0, validIME ? hints : 0, validPid ? pid : 0];
     }
 
     _watchFocusedContext() {
@@ -253,7 +184,8 @@ export default class WaySwitchExtension extends Extension {
             [Main.inputMethod, 'notify::content-hints'],
         ]) {
             if (object) {
-                const id = object.connect(signal, () => this._emitFocusedContextChanged());
+                const id = object.connect(signal, () =>
+                    this._dbus?.emit_signal('FocusedContextChanged', null));
                 this._focusSignals.push([object, id]);
             }
         }

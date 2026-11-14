@@ -198,19 +198,18 @@ def _replace(tree, focus, source, target, commit, stopped, events) -> SpanResult
     if not _normal(focus) or not _span(source) or not _span(target):
         return SpanResult("aborted")
     node = focus.field
-    generation = a11y._shell_generation()
     try:
-        context = a11y.query_shell_context(fresh=True)
+        context = a11y.query_shell_context()
     except Exception:  # noqa: BLE001 — unknown context is a failed native attempt, not a retry
         return SpanResult("failed")
 
     def safe():
-        if stopped() or not _normal(focus) or a11y._shell_generation() != generation:
+        if stopped() or not _normal(focus):
             return False
         if _calc(focus) and (_live_focus(stopped, focus, time.monotonic()) is None
                              or _physical_count(stopped) is None):
             return False
-        current = a11y.query_shell_context(fresh=True)
+        current = a11y.query_shell_context()
         if (context is None or current != context or context.protected()
                 or not context.ime_focus or type(context.pid) is not int or context.pid <= 0
                 or not focus.app_ids or context.app_ids != focus.app_ids):
@@ -226,8 +225,7 @@ def _replace(tree, focus, source, target, commit, stopped, events) -> SpanResult
                 and tree.input_type(node) not in {None, "password"}
                 and tree.app_of(node) == focus.app and a11y._same_application(pid, context.pid)
                 and type(selections) is int and selections == 0
-                and not stopped() and a11y.query_shell_context(fresh=True) == context
-                and a11y._shell_generation() == generation)
+                and not stopped() and a11y.query_shell_context() == context)
 
     anchor = None
     if _calc(focus):
@@ -445,17 +443,16 @@ def _kde_guard(tree, focus, context, stopped):
     по-узловые проверки остаются прежними.
     """
     stable_pid = None
-    generation = a11y._shell_generation()
 
     def check():
         nonlocal stable_pid
         try:
-            if stopped() or a11y._shell_generation() != generation:
+            if stopped():
                 return _ABORT
             started = time.monotonic()
             if _live_focus(stopped, focus, started) is None:
                 return _ABORT
-            current = a11y.query_shell_context(fresh=True)
+            current = a11y.query_shell_context()
             if current is None or current != context or current.protected():
                 return _ABORT
             node = focus.field
@@ -484,8 +481,7 @@ def _kde_guard(tree, focus, context, stopped):
                 return _ABORT
             if type(role) is not int or role not in {61, 73, 79, 83}:
                 return _ABORT
-            if (stopped() or a11y.query_shell_context(fresh=True) != context
-                    or a11y._shell_generation() != generation):
+            if stopped() or a11y.query_shell_context() != context:
                 return _ABORT
             if not 0 <= time.monotonic() - started <= a11y.MAX_AGE_SEC:
                 return _ABORT
@@ -507,7 +503,7 @@ def try_replace_kde(focus, source, target, commit, stopped) -> SpanResult | None
     if not _kde_focus(focus, time.monotonic()):
         return SpanResult("aborted")
     try:
-        context = a11y.query_shell_context(fresh=True)
+        context = a11y.query_shell_context()
     except Exception:  # noqa: BLE001 — неизвестный контекст не разрешает попытку
         return SpanResult("aborted")
     if context != a11y.ShellContext():

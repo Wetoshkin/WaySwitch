@@ -24,8 +24,6 @@ import time
 from collections.abc import Callable
 from typing import NamedTuple, Protocol
 
-from wayswitch.shell_context import MAX_AGE_SEC, ShellContext, ShellWatch
-
 log = logging.getLogger("wayswitch")
 
 # Биты в маске состояний at-spi.
@@ -34,6 +32,10 @@ DEFUNCT = 6
 EDITABLE = 7
 FOCUSED = 12
 SHOWING = 25
+
+# Снимок старше этого возраста считается недостоверным: лучше не мешать
+# человеку (не исправлять), чем мешать по устаревшим данным.
+MAX_AGE_SEC = 3.0
 
 # Как часто поток обновляет снимок. Чаще нет смысла: фокус не скачет,
 # а каждый опрос — это обход дерева доступности.
@@ -526,7 +528,6 @@ def find_focus(tree, root, focused_pid: int = 0) -> FocusSnapshot:
 
 
 _CONN = None
-_SHELL_WATCH: ShellWatch | None = None
 
 
 def _a11y_connection():
@@ -550,8 +551,9 @@ def _new_a11y_connection():
 
 
 def _watch_focus_events(query_connection, invalidate) -> _FocusWatch:
-    global _SHELL_WATCH
     from gi.repository import Gio, GLib
+
+    from wayswitch.backends.gnome_shell import BUS_NAME, INTERFACE, OBJECT_PATH
 
     # Отдельное имя клиента не даёт старому probe удалить подписку нового при Reload.
     connection = _new_a11y_connection()
@@ -562,7 +564,6 @@ def _watch_focus_events(query_connection, invalidate) -> _FocusWatch:
     live.set()
     subscriptions = []
     closed_handlers = []
-    shell_watch = None
 
     def changed(*_args):
         invalidate()
@@ -572,12 +573,7 @@ def _watch_focus_events(query_connection, invalidate) -> _FocusWatch:
         invalidate()
 
     def close():
-        global _SHELL_WATCH
         live.clear()
-        if shell_watch is not None:
-            shell_watch.close()
-            if _SHELL_WATCH is shell_watch:
-                _SHELL_WATCH = None
         for bus, subscription in subscriptions:
             bus.signal_unsubscribe(subscription)
         for bus, handler in closed_handlers:
@@ -594,7 +590,12 @@ def _watch_focus_events(query_connection, invalidate) -> _FocusWatch:
         closed_handlers.append((connection, connection.connect("closed", lost)))
         session = Gio.bus_get_sync(Gio.BusType.SESSION, None)
         closed_handlers.append((session, session.connect("closed", lost)))
-        shell_watch = ShellWatch(session, invalidate)
+        subscriptions.append((session, session.signal_subscribe(
+            BUS_NAME, INTERFACE, "FocusedContextChanged", OBJECT_PATH, None,
+            Gio.DBusSignalFlags.NONE, changed, None)))
+        subscriptions.append((session, session.signal_subscribe(
+            "org.freedesktop.DBus", "org.freedesktop.DBus", "NameOwnerChanged",
+            "/org/freedesktop/DBus", BUS_NAME, Gio.DBusSignalFlags.NONE, changed, None)))
         subscriptions.append((connection, connection.signal_subscribe(
             None, "org.a11y.atspi.Event.Object", "StateChanged", None, "focused",
             Gio.DBusSignalFlags.NONE, changed, None)))
@@ -611,7 +612,6 @@ def _watch_focus_events(query_connection, invalidate) -> _FocusWatch:
                              Gio.DBusCallFlags.NONE, 1500, None)
         if owner() != registered_owner or not live.is_set():
             raise RuntimeError("реестр at-spi сменился во время подписки")
-        _SHELL_WATCH = shell_watch
     except Exception:
         close()
         raise
@@ -775,16 +775,21 @@ class _DbusTree:
 ROOT = ("org.a11y.atspi.Registry", "/org/a11y/atspi/accessible/root")
 
 
-def _shell_generation():
-    watch = _SHELL_WATCH
-    return watch, watch.generation if watch is not None else None
+class ShellContext(NamedTuple):
+    app_ids: tuple[str, ...] = ()
+    modal: bool = False
+    ime_focus: bool = False
+    purpose: int = 0
+    hints: int = 0
+    pid: int = 0
+
+    def protected(self) -> bool:
+        return self.modal or self.ime_focus and (self.purpose in (8, 12)
+                                                 or bool(self.hints & (64 | 128)))
 
 
-def query_shell_context(*, fresh: bool = False) -> ShellContext | None:
+def query_shell_context() -> ShellContext | None:
     """Атомарные сведения GNOME; старое расширение отдаёт только идентификаторы."""
-    watch = _SHELL_WATCH
-    if watch is not None:
-        return watch.query(fresh=fresh)
     try:
         from gi.repository import Gio, GLib
 
@@ -809,12 +814,11 @@ def query_shell_context(*, fresh: bool = False) -> ShellContext | None:
         if error in {"org.freedesktop.DBus.Error.UnknownMethod",
                      "org.freedesktop.DBus.Error.UnknownInterface"}:
             # Совместимость с расширением до появления GetFocusedContext.
-            ids = query_shell_app_ids(strict=True)
-            return ShellContext(ids) if ids is not None else None
+            return ShellContext(query_shell_app_ids())
         return None
 
 
-def query_shell_app_ids(*, strict: bool = False) -> tuple[str, ...] | None:
+def query_shell_app_ids() -> tuple[str, ...]:
     """Идентификаторы активного окна GNOME; старое расширение не обязано их отдавать."""
     try:
         from gi.repository import Gio, GLib
@@ -825,24 +829,13 @@ def query_shell_app_ids(*, strict: bool = False) -> tuple[str, ...] | None:
         result = bus.call_sync(BUS_NAME, OBJECT_PATH, INTERFACE, "GetFocusedApp", None,
                                GLib.VariantType("(as)"), Gio.DBusCallFlags.NONE, 500, None)
         return tuple(result.unpack()[0])
-    except Exception as exc:  # noqa: BLE001 — расширение необязательно вне GNOME
-        if strict:
-            try:
-                error = Gio.DBusError.get_remote_error(exc)
-            except (NameError, AttributeError, TypeError):
-                error = None
-            if error not in {"org.freedesktop.DBus.Error.ServiceUnknown",
-                             "org.freedesktop.DBus.Error.NameHasNoOwner",
-                             "org.freedesktop.DBus.Error.UnknownMethod",
-                             "org.freedesktop.DBus.Error.UnknownInterface"}:
-                return None
+    except Exception:  # noqa: BLE001 — расширение необязательно вне GNOME
         return ()
 
 
 def query_focus() -> FocusSnapshot:
     """Приложение в фокусе и признак защищённого ввода (блокирует на D-Bus)."""
     global _CONN
-    generation = _shell_generation()
     context = query_shell_context()
     if context is None:
         return FocusSnapshot()
@@ -856,13 +849,13 @@ def query_focus() -> FocusSnapshot:
         if not context.app_ids:
             raise
         snap = FocusSnapshot()
-    current = query_shell_context(fresh=True)
+    current = query_shell_context()
     if current is None:
         return FocusSnapshot()
     if current.protected():
         return FocusSnapshot(current.app_ids[0] if current.app_ids else "gnome-shell", True,
                              app_ids=current.app_ids)
-    if current != context or _shell_generation() != generation:
+    if current != context:
         snap = FocusSnapshot()
     return snap._replace(app_ids=current.app_ids)
 
@@ -877,23 +870,20 @@ def _selection_ready(expected, valid, limit):
 
 def _read_selection(tree, expected, valid, limit) -> TextSelection | None:
     try:
-        generation = _shell_generation()
         if not _selection_ready(expected, valid, limit):
             return None
-        context = query_shell_context(fresh=True)
+        context = query_shell_context()
         if (context is None or context.protected()
                 or context.app_ids != expected.app_ids):
             return None
 
         def same_focus():
             if (not _selection_ready(expected, valid, limit)
-                    or _shell_generation() != generation
-                    or query_shell_context(fresh=True) != context):
+                    or query_shell_context() != context):
                 return False
             snap = find_focus(tree, ROOT, context.pid)
             return (snap.app == expected.app and snap.field == expected.field
-                    and snap.password is False and query_shell_context(fresh=True) == context
-                    and _shell_generation() == generation
+                    and snap.password is False and query_shell_context() == context
                     and _selection_ready(expected, valid, limit))
 
         def metadata():

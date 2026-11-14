@@ -41,7 +41,7 @@ def test_writer_native_path_does_not_open_other_libreoffice_components(
 def test_calc_native_range_requires_component_title(native, monkeypatch):
     native.focus = native.focus._replace(app_ids=("libreoffice-calc", "org.libreoffice"))
     native.context = native.context._replace(app_ids=native.focus.app_ids)
-    monkeypatch.setattr(a11y, "query_shell_context", lambda *, fresh=False: native.context)
+    monkeypatch.setattr(a11y, "query_shell_context", lambda: native.context)
     assert replace(native) == editable.SpanResult("aborted")
     assert native.tree.reads == native.tree.writes == native.committed == []
 
@@ -147,7 +147,7 @@ def native(monkeypatch):
     events = []
     tree = Tree(events)
     context = a11y.ShellContext(("libreoffice-writer",), False, True, 0, 0, 1234)
-    monkeypatch.setattr(a11y, "query_shell_context", lambda *, fresh=False: context)
+    monkeypatch.setattr(a11y, "query_shell_context", lambda: context)
     focus = a11y.FocusSnapshot("soffice", False, time.monotonic(), context.app_ids, FIELD)
     committed = []
     return SimpleNamespace(tree=tree, events=events, context=context, focus=focus,
@@ -158,25 +158,6 @@ def native(monkeypatch):
 def replace(native, source=SOURCE, target=TARGET):
     return editable._replace(native.tree, native.focus, source, target, native.commit,
                              native.stopped, native.events)
-
-
-def test_native_owner_epoch_change_after_insert_never_deletes(native, monkeypatch):
-    watch = SimpleNamespace(generation=1)
-    monkeypatch.setattr(a11y, "_SHELL_WATCH", watch)
-    native.tree.after_insert = lambda: setattr(watch, "generation", 3)
-    result = replace(native)
-    assert result.status == "failed" and result.committed
-    assert native.tree.writes == [("insert", 5, TARGET)]
-
-
-def test_native_checks_always_request_fresh_shell_context(native, monkeypatch):
-    fresh_reads = []
-    def context(*, fresh=False):
-        fresh_reads.append(fresh)
-        return native.context if fresh else native.context._replace(purpose=8)
-    monkeypatch.setattr(a11y, "query_shell_context", context)
-    assert replace(native).status == "done"
-    assert fresh_reads and all(fresh_reads)
 
 
 def test_insert_first_exact_replace_preserves_physical_append(native):
@@ -283,7 +264,7 @@ def test_delete_timeout_does_not_repeat_or_fall_back(native):
 
 def test_shell_context_change_before_attempt_never_reads(native, monkeypatch):
     monkeypatch.setattr(a11y, "query_shell_context",
-                        lambda *, fresh=False: native.context._replace(purpose=8))
+                        lambda: native.context._replace(purpose=8))
     assert replace(native).status in {"aborted", "failed"}
     assert not native.tree.reads and not native.tree.writes
 
@@ -335,7 +316,7 @@ def test_unsafe_focus_after_commit_prelude_never_inserts_or_reads(native, monkey
             native.tree.kind = "password"
         else:
             monkeypatch.setattr(a11y, "query_shell_context",
-                                lambda *, fresh=False: native.context._replace(purpose=8))
+                                lambda: native.context._replace(purpose=8))
         return True
 
     result = editable._replace(native.tree, native.focus, SOURCE, TARGET, commit,
@@ -389,7 +370,7 @@ def test_outer_cleanup_failure_cannot_forget_attempt(native, monkeypatch):
 def test_context_becomes_password_after_insert_never_reads_again(native, monkeypatch):
     def protected():
         monkeypatch.setattr(a11y, "query_shell_context",
-                            lambda *, fresh=False: native.context._replace(purpose=8))
+                            lambda: native.context._replace(purpose=8))
 
     native.tree.after_insert = protected
     assert replace(native) == editable.SpanResult("failed", True)
@@ -820,7 +801,7 @@ def kde_native(monkeypatch):
     events = []
     tree = KdeTree(events)
     context = a11y.ShellContext()
-    monkeypatch.setattr(a11y, "query_shell_context", lambda *, fresh=False: context)
+    monkeypatch.setattr(a11y, "query_shell_context", lambda: context)
     focus = a11y.FocusSnapshot("soffice.bin", False, time.monotonic(), (), FIELD,
                                window="doc — LibreOffice Writer")
     connection = SimpleNamespace(close_sync=lambda _cancellable: None)
@@ -887,7 +868,7 @@ def gnome_calc(native, monkeypatch):
     native.focus = native.focus._replace(app_ids=("libreoffice-calc", "org.libreoffice"),
                                          window="doc — LibreOffice Calc")
     native.context = native.context._replace(app_ids=native.focus.app_ids)
-    monkeypatch.setattr(a11y, "query_shell_context", lambda *, fresh=False: native.context)
+    monkeypatch.setattr(a11y, "query_shell_context", lambda: native.context)
     native.stopped = KdeStop(lambda: native.focus._replace(taken_at=time.monotonic()))
     native.stopped.append = lambda: 0
     native.tree.silent_events = True
@@ -1222,7 +1203,7 @@ def test_kde_changed_owner_pid_is_cancelled_before_read(kde_native):
 def test_kde_changed_shell_context_is_cancelled_before_read(kde_native, monkeypatch):
     contexts = [kde_native.context, kde_native.context._replace(app_ids=("other",))]
     monkeypatch.setattr(a11y, "query_shell_context",
-                        lambda *, fresh=False: contexts.pop(0) if contexts else
+                        lambda: contexts.pop(0) if contexts else
                         kde_native.context._replace(app_ids=("other",)))
     assert kde_replace(kde_native).status == "aborted"
     assert not kde_native.tree.reads and not kde_native.tree.writes
@@ -1233,7 +1214,7 @@ def test_kde_changed_shell_context_is_cancelled_before_read(kde_native, monkeypa
     a11y.ShellContext(("libreoffice-writer",), False, True, 0, 64, 1234),
 ])
 def test_kde_protected_shell_context_is_never_accepted(kde_native, monkeypatch, context):
-    monkeypatch.setattr(a11y, "query_shell_context", lambda *, fresh=False: context)
+    monkeypatch.setattr(a11y, "query_shell_context", lambda: context)
     assert kde_replace(kde_native).status == "aborted"
     assert not kde_native.tree.reads and not kde_native.tree.writes
 
@@ -1449,7 +1430,7 @@ def test_kde_role_changed_after_live_focus_never_enables_key_fallback(kde_native
 ])
 def test_kde_rejects_unprotected_context_from_another_session(
         kde_native, monkeypatch, context):
-    monkeypatch.setattr(a11y, "query_shell_context", lambda *, fresh=False: context)
+    monkeypatch.setattr(a11y, "query_shell_context", lambda: context)
     assert kde_replace(kde_native) == editable.SpanResult("aborted")
     assert kde_native.tree.reads == kde_native.tree.writes == kde_native.committed == []
 
