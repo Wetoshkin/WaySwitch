@@ -12,6 +12,7 @@ import tomllib
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
+from wayswitch.i18n import gettext as _
 from wayswitch.keycodes import GESTURE_KEY_NAMES, KEY_NAMES
 
 SENSITIVITY_NAMES = ("conservative", "normal", "aggressive")
@@ -89,11 +90,14 @@ class Gesture:
     # `wayswitch translit` и `wayswitch number-words`.
     translit_key: str = ""
     numbers_key: str = ""
+    case_key: str = ""
+    mixed_key: str = ""
+    mixed_target: str = "current"
 
 
 OLD_SETTLE_MS = 30  # умолчание до 2.0.0a2
 # Маркер позволяет старым читателям отклонить будущий формат без перезаписи файла.
-CONFIG_SCHEMA = 2
+CONFIG_SCHEMA = 3
 _SCHEMA_SECTION = "meta"
 _SCHEMA_KEY = "schema"
 
@@ -228,6 +232,8 @@ def _validate(cfg: Config) -> None:
         raise ConfigError("learn_after_converts: 0..5")
     if ge.manual not in MANUAL_MODES:
         raise ConfigError(f"manual: допустимо {MANUAL_MODES}")
+    if ge.mixed_target not in ("current", "ru", "en"):
+        raise ConfigError("mixed_target: current, ru, en")
     if ge.tap_key.lower() not in GESTURE_KEY_NAMES:
         # Не только «неизвестная»: буква или цифра сломали бы жест — он бы
         # срабатывал на каждой набранной букве.
@@ -249,9 +255,9 @@ def _validate(cfg: Config) -> None:
     if ge.pause_hotkey and ge.pause_hotkey.lower() not in KEY_NAMES:
         raise ConfigError(f"pause_hotkey: неизвестная клавиша {ge.pause_hotkey!r}")
     if pause and pause not in {key_code(name) for name in PAUSE_HOTKEY_NAMES}:
-        raise ConfigError("pause_hotkey: допустимы только pause, scrolllock (scroll_lock)")
+        raise ConfigError(_("pause_hotkey: allowed keys are pause and scrolllock (scroll_lock)"))
     if pause and ge.manual == "pause_key" and pause == key_code("pause"):
-        raise ConfigError("pause_hotkey: Pause уже занята жестом «клавиша Pause»")
+        raise ConfigError(_("pause_hotkey: Pause is already used by the manual gesture"))
     if not 0 <= t.settle_ms <= 2000:
         raise ConfigError("settle_ms: 0..2000")
     if not 0 <= t.key_delay_ms <= 100:
@@ -265,7 +271,9 @@ def _validate(cfg: Config) -> None:
 # Клавиши действий над выделенным текстом и что они делают (для сообщений).
 SELECTION_KEY_FIELDS = {"selection_key": "исправляет выделенный текст",
                         "translit_key": "делает транслитерацию",
-                        "numbers_key": "пишет число прописью"}
+                        "numbers_key": "пишет число прописью",
+                        "case_key": "меняет регистр выделенного",
+                        "mixed_key": "переводит выделенное в выбранную раскладку"}
 
 
 def key_code(name: str) -> int | str | None:
@@ -303,7 +311,7 @@ def selection_key_conflict(ge: Gesture, name: str, manual: str | None = None,
 
 
 def _schema_version(data: dict) -> int:
-    """Версия формата: 0 — без маркера; схема 1 читается, новая запись использует 2.
+    """Версия формата: 0 — без маркера; старые схемы читаются, запись использует текущую.
 
     Неизвестные верхние секции по-прежнему игнорируются, но секция-маркер
     известна: без неё нельзя отличить старое умолчание 30 мс от явного
@@ -322,7 +330,7 @@ def _schema_version(data: dict) -> int:
     if isinstance(version, bool) or not isinstance(version, int):
         raise ConfigSchemaError(
             f"{_SCHEMA_SECTION}.{_SCHEMA_KEY}: ожидалось целое число")
-    if version not in (1, CONFIG_SCHEMA):
+    if version not in range(1, CONFIG_SCHEMA + 1):
         if version > CONFIG_SCHEMA:
             raise ConfigSchemaError(
                 f"конфиг создан более новой версией WaySwitch "
@@ -407,8 +415,12 @@ def save(cfg: Config, path: Path | None = None) -> None:
     path = path or default_path()
     if path.exists():
         previous_schema = _check_existing_schema(path)
-        backup = path.with_name(path.name + ".before-schema-2")
-        if previous_schema in (0, 1) and not backup.exists():
+        versions = range(max(2, previous_schema + 1), CONFIG_SCHEMA + 1) \
+            if previous_schema is not None else ()
+        for version in versions:
+            backup = path.with_name(path.name + f".before-schema-{version}")
+            if backup.exists():
+                continue
             fd, name = tempfile.mkstemp(prefix="config-backup-", dir=path.parent)
             try:
                 with os.fdopen(fd, "wb") as stream:

@@ -2249,3 +2249,48 @@ msgstr "Словарь не сохранён"
 
 msgid "Use 1–64 letters of the selected language; no spaces"
 msgstr "От 1 до 64 букв выбранного языка, без пробелов"
+
+msgid "Invalid configuration: {error}"
+msgstr "Ошибка конфигурации: {error}"
+
+msgid "pause_hotkey: allowed keys are pause and scrolllock (scroll_lock)"
+msgstr "pause_hotkey: допустимы только pause и scrolllock (scroll_lock)"
+
+msgid "pause_hotkey: Pause is already used by the manual gesture"
+msgstr "pause_hotkey: Pause уже занята ручным жестом"
+
+msgid "cycle the case of selected text"
+msgstr "циклически изменить регистр выделенного текста"
+
+msgid "convert selected words to a target layout"
+msgstr "перевести выделенные слова в выбранную раскладку"
+
+msgid "explicit target language"
+msgstr "явный целевой язык"
+
+msgid "Could not confirm the selection change."
+msgstr "Не удалось подтвердить изменение выделенного текста."
+
+msgid "Change case"
+msgstr "Сменить регистр"
+
+msgid "lower → UPPER → Word Capitals for selected text"
+msgstr "строчные → ПРОПИСНЫЕ → Каждое Слово С Заглавной"
+
+msgid "Press a key to change the case of selected text"
+msgstr "Нажмите клавишу для смены регистра выделенного текста"
+
+msgid "Target layout"
+msgstr "Перевод в выбранную раскладку"
+
+msgid "Convert selected words to the chosen layout"
+msgstr "Перевести выделенные слова в выбранную раскладку"
+
+msgid "Press a key to convert selected words"
+msgstr "Нажмите клавишу для перевода выделенных слов"
+
+msgid "Target for the selection key"
+msgstr "Цель перевода выделенного"
+
+msgid "Current layout is resolved when the key is pressed"
+msgstr "Текущая раскладка определяется в момент нажатия клавиши"

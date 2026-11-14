@@ -40,7 +40,8 @@ from wayswitch.learning import (
     normalize_word,
 )
 from wayswitch.selection import convert as convert_selection
-from wayswitch.textops import number_words, transliterate
+from wayswitch.selection import mixed_layout
+from wayswitch.textops import cycle_case, number_words, transliterate
 
 log = logging.getLogger("wayswitch")
 
@@ -260,11 +261,11 @@ class Controller:
 
     def _rebuild_gesture(self, config: Config) -> None:
         """Жест по настройке: двойной Shift или одиночный тап своей клавиши."""
-        # Клавиши действий над выделенным: «Исправить выделенное»,
-        # транслитерация, число прописью — у каждой свой тап-жест.
+        # У каждой команды над выделенным свой тап-жест.
         self._selection_gestures: list[tuple[TapKeyGesture, str]] = []
         for field_name, action in (("selection_key", "layout"), ("translit_key", "translit"),
-                                   ("numbers_key", "numbers")):
+                                   ("numbers_key", "numbers"), ("case_key", "case"),
+                                   ("mixed_key", "mixed")):
             name = getattr(config.gesture, field_name).lower()
             if name in kc.KEY_NAMES:
                 self._selection_gestures.append(
@@ -594,7 +595,15 @@ class Controller:
             self._note_own_key(code, value, device_id)
             tap, action = own[0]
             if tap:
-                self.schedule(lambda a=action: self.transform_selection(a))
+                if action == "mixed":
+                    target = self.config.gesture.mixed_target
+                    if target == "current":
+                        groups = self._groups()
+                        target = self.detector.lang_of_group(groups[0]) \
+                            if groups is not None else None
+                    self.schedule(lambda t=target: self.transform_selection("mixed", target=t))
+                else:
+                    self.schedule(lambda a=action: self.transform_selection(a))
             return
         if self.config.gesture.manual == "tap_key" and code in self._gesture_keys \
                 and not (self.paused or self.locked):
@@ -1454,12 +1463,27 @@ class Controller:
         return None
 
     def _convert_selection(self, action: str, text: str,
-                           groups: tuple[int, int]) -> tuple[str, int] | None:
+                           groups: tuple[int, int],
+                           target: str | None = None) -> tuple[str, int] | None:
         if action == "layout":
             return convert_selection(self.keymap, text, groups)
-        new_text = transliterate(text) if action == "translit" else number_words(text)
+        if action == "mixed":
+            if target is None:
+                return None
+            group = groups[0] if target == "current" else next(
+                (g for g in groups if self.detector.lang_of_group(g) == target), None)
+            result = mixed_layout(self.keymap, text, groups, self.detector.models, group)
+            return (result, group) if result is not None else None
+        transforms = {"case": cycle_case, "translit": transliterate, "numbers": number_words}
+        if action not in transforms:
+            return None
+        new_text = transforms[action](text)
         if new_text is None:
             return None
+        if action == "case":
+            if keys_for_typing(text, groups[0], self.keymap, self.buffer.caps) is None:
+                return None
+            return new_text, groups[0]
         target = self._group_for_text(new_text, groups)
         return (new_text, target) if target is not None else None
 
@@ -1616,9 +1640,11 @@ class Controller:
             return None
         return expected
 
-    def transform_selection(self, action: str, text: str | None = None) -> bool:
+    def transform_selection(self, action: str, text: str | None = None, *,
+                            target: str | None = None) -> bool:
         """Действие над выделенным текстом: «layout» — другая раскладка,
-        «translit» — транслитерация, «numbers» — число прописью.
+        «translit» — транслитерация, «numbers» — число прописью,
+        «case» — регистр, «mixed» — явно выбранная раскладка слов.
 
         Читается текущее выделение конкретного поля через AT-SPI: PRIMARY и
         backend.get_selection устарели и не доказывают, что выделено сейчас.
@@ -1659,7 +1685,7 @@ class Controller:
             if text is not None and text != selection.text:
                 log.info("исправить выделенное: явный текст не совпадает с текущим")
                 return False
-            converted = self._convert_selection(action, selection.text, groups)
+            converted = self._convert_selection(action, selection.text, groups, target)
             if converted is None:
                 log.info("выделенное: нечего менять (%s)", action)
                 return False
@@ -1671,7 +1697,9 @@ class Controller:
             if keys is None:
                 log.warning("исправить выделенное: есть символы, которые не напечатать")
                 return False
-            steps: list = [ReleaseModifiers(), SwitchLayout(target)]
+            steps: list = [ReleaseModifiers()]
+            if target != groups[0] or bool(getattr(self.backend, "always_switch", False)):
+                steps.append(SwitchLayout(target))
             steps.append(Type(new_text, [] if isinstance(self.typist, TextTypist) else keys))
             if self.dry_run:
                 log.info("[dry-run] выделенное → %d символов", len(new_text))
@@ -1686,7 +1714,9 @@ class Controller:
                 # Повторно читаем ТО ЖЕ выделение после ожиданий и подтверждения
                 # раскладки: старый снимок не доказывает, что границы не сдвинулись.
                 again = self._read_bound_selection(expected, probe, epoch)
-                return again is not None and again == selection
+                verify = getattr(self.backend, "verify_layout", None)
+                return (again is not None and again == selection
+                        and self.backend.current() == target and (verify is None or verify()))
 
             # Стирающих шагов нет: execute вызывает before_write перед первой
             # печатаемой клавишей; отказ не оставляет ни текста, ни статистики.

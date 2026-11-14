@@ -44,6 +44,10 @@ def build_parser() -> argparse.ArgumentParser:
         "fix-selection", help=_("correct selected text (assign a shortcut in system settings)")
     )
     sub.add_parser("translit", help=_("transliterate selected text: Привет ↔ Privet"))
+    sub.add_parser("change-case", help=_("cycle the case of selected text"))
+    mixed = sub.add_parser("mixed-layout", help=_("convert selected words to a target layout"))
+    mixed.add_argument("--to", dest="to_lang", required=True, choices=("ru", "en"),
+                       help=_("explicit target language"))
     sub.add_parser(
         "number-words", help=_("spell out the selected number in Russian: 125 → сто двадцать пять")
     )
@@ -75,7 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def call_daemon(method: str):
+def call_daemon(method: str, target: str | None = None):
     from gi.repository import Gio, GLib
 
     from wayswitch.dbus_service import BUS_NAME, INTERFACE, OBJECT_PATH
@@ -83,7 +87,9 @@ def call_daemon(method: str):
     bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
     try:
         reply = bus.call_sync(
-            BUS_NAME, OBJECT_PATH, INTERFACE, method, None, None, Gio.DBusCallFlags.NONE, 3000, None
+            BUS_NAME, OBJECT_PATH, INTERFACE, method,
+            GLib.Variant("(s)", (target,)) if target is not None else None,
+            None, Gio.DBusCallFlags.NONE, 3000, None
         )
     except GLib.Error as exc:
         if Gio.DBusError.get_remote_error(exc) == BUS_NAME + ".ScreenLocked":
@@ -96,6 +102,8 @@ def call_daemon(method: str):
 _UNCONFIRMED_HINT = "Check the result: select a single line in a regular editable field."
 
 _SELECTION_COMMANDS = {
+    "change-case": ("ChangeCaseSelection", "done", "Could not confirm the selection change."),
+    "mixed-layout": ("MixedLayoutSelection", "done", "Could not confirm the selection change."),
     "fix-selection": (
         "FixSelection",
         "corrected",
@@ -124,13 +132,14 @@ def _single(reply):
     return reply[0] if isinstance(reply, tuple) and len(reply) == 1 else None
 
 
-def _selection(command: str) -> int:
+def _selection(command: str, target: str | None = None) -> int:
     status = _single(call_daemon("GetStatus"))
     if not isinstance(status, dict) or status.get("selection_supported") is not True:
         print(_(_SELECTION_UNAVAILABLE))
         return 1
     method, done, unconfirmed = _SELECTION_COMMANDS[command]
-    if _single(call_daemon(method)) is True:
+    reply = call_daemon(method, target) if target is not None else call_daemon(method)
+    if _single(reply) is True:
         print(_(done))
         return 0
     # bool не говорит, изменился ли текст: подтвердить успех нельзя, но и обратное не факт.
@@ -308,7 +317,7 @@ def main(argv: list[str] | None = None) -> int:
         return gui_main()
     try:
         if ns.command in _SELECTION_COMMANDS:
-            return _selection(ns.command)
+            return _selection(ns.command, getattr(ns, "to_lang", None))
         if ns.command == "pause":
             call_daemon("Pause")
             print(_("paused"))
