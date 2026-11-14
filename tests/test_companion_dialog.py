@@ -62,10 +62,12 @@ def test_failed_recheck_clears_previous_package_instructions(monkeypatch, en_loc
     repository.Gtk = SimpleNamespace(
         ScrolledWindow=Widget, Box=Widget, Label=tracked(labels), Button=tracked(buttons),
         Orientation=SimpleNamespace(VERTICAL=0), PolicyType=SimpleNamespace(NEVER=0))
+    repository.Pango = SimpleNamespace(WrapMode=SimpleNamespace(WORD_CHAR=2))
     repository.Gdk = SimpleNamespace()
     monkeypatch.setitem(sys.modules, "gi", ModuleType("gi"))
     monkeypatch.setitem(sys.modules, "gi.repository", repository)
     monkeypatch.setattr(companion_dialog, "run_in_thread", lambda work, done: pending.append(done))
+    monkeypatch.setattr(companion_dialog, "adapt_header", lambda *args: None)
     monkeypatch.setattr(companion, "handoff", lambda *a, **kw: launched.append(True))
 
     companion_dialog.show(object())
