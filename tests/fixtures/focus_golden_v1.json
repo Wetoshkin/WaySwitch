@@ -1,0 +1,3025 @@
+{
+  "schema_version": 1,
+  "provenance": {
+    "kind": "synthetic",
+    "source": "hand-authored decisions and physical key sequences; no user data",
+    "license": "CC0-1.0",
+    "unicode_normalization": "NFC",
+    "seed": 0
+  },
+  "data_sha256": {
+    "en.ngrams.json.gz": "2bcea9feac81e65f64e4bf378641041c4a2946958424bbedd937a3484c711779",
+    "en.words.gz": "0c7e3397a45d0db809517b47ec404e408d5e398b0fcbccbe61a432036dca6200",
+    "ru.ngrams.json.gz": "97ee9d52a22930a01b0e57b3215fbaee4786a33ad7febdc2ccd7f5a348807680",
+    "ru.words.gz": "c334ab0006ae927717fef35931ed87ebc81c99e861272e2826e10d492fa1e134"
+  },
+  "defaults": {
+    "settings": {
+      "sensitivity": "normal",
+      "two_capitals": false,
+      "skip_password_fields": false,
+      "excluded_apps": [],
+      "phrase_timeout_sec": 8.0
+    },
+    "exceptions": [],
+    "personal": []
+  },
+  "cases": [
+    {
+      "id": "ru-dict-ghbdtn",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "dictionary"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 34,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 35,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 48,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 32,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 49,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "fix",
+        "target": "привет",
+        "group": 1,
+        "reason": "dict-b"
+      }
+    },
+    {
+      "id": "ru-dict-leading-punctuation",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "dictionary"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 51,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 18,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 19,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 32,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 33,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "fix",
+        "target": "буква",
+        "group": 1,
+        "reason": "dict-b"
+      }
+    },
+    {
+      "id": "ru-dict-apostrophe",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "dictionary"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 40,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 49,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 36,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "fix",
+        "target": "это",
+        "group": 1,
+        "reason": "dict-b"
+      }
+    },
+    {
+      "id": "ru-tail-period",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "dictionary"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 34,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 35,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 48,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 32,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 49,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 53,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "fix",
+        "target": "привет.",
+        "group": 1,
+        "reason": "dict-b"
+      }
+    },
+    {
+      "id": "ru-shift-tail",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "dictionary",
+        "case"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 34,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          {
+            "code": 35,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 48,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 32,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 49,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 53,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "action": "fix",
+        "target": "Привет,",
+        "group": 1,
+        "reason": "dict-b"
+      }
+    },
+    {
+      "id": "ru-all-caps",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "dictionary",
+        "case"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 34,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          {
+            "code": 35,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          {
+            "code": 48,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          {
+            "code": 32,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          {
+            "code": 49,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "action": "fix",
+        "target": "ПРИВЕТ",
+        "group": 1,
+        "reason": "dict-b"
+      }
+    },
+    {
+      "id": "ru-yo-shift-grave",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "dictionary",
+        "e-yo",
+        "case"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 41,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          {
+            "code": 37,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 19,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 33,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "fix",
+        "target": "Ёлка",
+        "group": 1,
+        "reason": "dict-b"
+      }
+    },
+    {
+      "id": "ru-yo-entered-e",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "dictionary",
+        "e-yo"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 21,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 51,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 36,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 46,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 19,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 35,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 51,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "fix",
+        "target": "небоскреб",
+        "group": 1,
+        "reason": "dict-b"
+      }
+    },
+    {
+      "id": "ru-yo-entered-yo",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "dictionary",
+        "e-yo"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 21,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 51,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 36,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 46,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 19,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 35,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 41,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 51,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "fix",
+        "target": "небоскрёб",
+        "group": 1,
+        "reason": "dict-b"
+      }
+    },
+    {
+      "id": "ru-yo-correct-source",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "e-yo",
+        "case"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 1,
+      "input": {
+        "keys": [
+          {
+            "code": 21,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 51,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 36,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 46,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 19,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 35,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 41,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 51,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "keep",
+        "target": "небоскрёб",
+        "group": 1,
+        "reason": "dict-a"
+      }
+    },
+    {
+      "id": "ru-dc-collision",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "dictionary",
+        "e-yo"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 32,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 46,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 41,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "keep",
+        "target": "dc`",
+        "group": 0,
+        "reason": "dict-a"
+      }
+    },
+    {
+      "id": "en-dict",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-en",
+        "dictionary"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 1,
+      "input": {
+        "keys": [
+          {
+            "code": 35,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 18,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 38,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 38,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 24,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "fix",
+        "target": "hello",
+        "group": 0,
+        "reason": "dict-b"
+      }
+    },
+    {
+      "id": "en-contraction-normal",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-en",
+        "contraction"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 1,
+      "input": {
+        "keys": [
+          {
+            "code": 23,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          {
+            "code": 40,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 50,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "fix",
+        "target": "I'm",
+        "group": 0,
+        "reason": "dict-b"
+      }
+    },
+    {
+      "id": "en-contraction-conservative",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-en",
+        "contraction",
+        "short",
+        "threshold"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 1,
+      "input": {
+        "keys": [
+          {
+            "code": 23,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          {
+            "code": 40,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 50,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "keep",
+        "target": "Шэь",
+        "group": 1,
+        "reason": "short"
+      },
+      "settings": {
+        "sensitivity": "conservative"
+      }
+    },
+    {
+      "id": "en-contraction-wont-conservative",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-en",
+        "contraction",
+        "threshold"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 1,
+      "input": {
+        "keys": [
+          {
+            "code": 17,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 24,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 49,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 40,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "fix",
+        "target": "won't",
+        "group": 0,
+        "reason": "dict-b"
+      },
+      "settings": {
+        "sensitivity": "conservative"
+      }
+    },
+    {
+      "id": "ru-ngram-known-form",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "ngram"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 34,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 35,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 36,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 22,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 35,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 33,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 47,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 47,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 48,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 35,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 36,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 32,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 33,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 21,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 48,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "fix",
+        "target": "программирование",
+        "group": 1,
+        "reason": "ngram"
+      }
+    },
+    {
+      "id": "ru-dict-near-threshold",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "dictionary",
+        "threshold"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 19,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 21,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 48,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 22,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 36,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 16,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "fix",
+        "target": "книгой",
+        "group": 1,
+        "reason": "dict-b"
+      }
+    },
+    {
+      "id": "ru-ngram-near-below-normal",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "ngram",
+        "threshold"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 33,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 30,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 47,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 37,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 21,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 48,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "keep",
+        "target": "favtkyb",
+        "group": 0,
+        "reason": "ngram"
+      }
+    },
+    {
+      "id": "ru-ngram-near-below-aggressive",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "ngram",
+        "threshold"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 33,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 30,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 47,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 37,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 21,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 48,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "fix",
+        "target": "афмелни",
+        "group": 1,
+        "reason": "ngram"
+      },
+      "settings": {
+        "sensitivity": "aggressive"
+      }
+    },
+    {
+      "id": "ru-ngram-context-doubles-margin",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "ngram",
+        "threshold"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 19,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 37,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 33,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 32,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 48,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 33,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 49,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 18,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 35,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 31,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "keep",
+        "target": "rkfdbfnehs",
+        "group": 0,
+        "reason": "ngram"
+      },
+      "context": [
+        "en",
+        "en"
+      ]
+    },
+    {
+      "id": "ru-ngram-without-context",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "ngram",
+        "threshold"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 19,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 37,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 33,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 32,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 48,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 33,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 49,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 18,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 35,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 31,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "fix",
+        "target": "клавиатуры",
+        "group": 1,
+        "reason": "ngram"
+      }
+    },
+    {
+      "id": "tech-path",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "technical"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 35,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 18,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 38,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 38,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 24,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 53,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 17,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 24,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 19,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 38,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 32,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "keep",
+        "target": "hello/world",
+        "group": 0,
+        "reason": "tech"
+      }
+    },
+    {
+      "id": "tech-backslash",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "technical"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 22,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 31,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 19,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 43,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 48,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 23,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 49,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "keep",
+        "target": "usr\\bin",
+        "group": 0,
+        "reason": "tech"
+      }
+    },
+    {
+      "id": "tech-digits",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "technical"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 30,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 48,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 46,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 2,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 3,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 4,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "keep",
+        "target": "abc123",
+        "group": 0,
+        "reason": "digits"
+      }
+    },
+    {
+      "id": "tech-camel",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "technical",
+        "mixed",
+        "case"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 46,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 30,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 50,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 18,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 38,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 46,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          {
+            "code": 30,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 31,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 18,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "keep",
+        "target": "camelCase",
+        "group": 0,
+        "reason": "camel"
+      }
+    },
+    {
+      "id": "tech-abbrev",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "technical",
+        "case"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 49,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          {
+            "code": 30,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          {
+            "code": 31,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          {
+            "code": 30,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "action": "keep",
+        "target": "NASA",
+        "group": 0,
+        "reason": "abbrev"
+      }
+    },
+    {
+      "id": "tech-mixed-token",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "technical",
+        "mixed",
+        "case"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 30,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          {
+            "code": 25,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          {
+            "code": 23,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          {
+            "code": 12,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 19,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 37,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 52,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 45,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "keep",
+        "target": "API-rk.x",
+        "group": 0,
+        "reason": "camel"
+      }
+    },
+    {
+      "id": "tech-url",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-en",
+        "technical",
+        "url"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 1,
+      "input": {
+        "keys": [
+          {
+            "code": 35,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 25,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 31,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 39,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          {
+            "code": 53,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 53,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 31,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 23,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 18,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 52,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 46,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 24,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 50,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "fix",
+        "target": "https://site.com",
+        "group": 0,
+        "reason": "url"
+      }
+    },
+    {
+      "id": "case-two-capitals-off",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "case"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 34,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          {
+            "code": 35,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          {
+            "code": 48,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 32,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 49,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "keep",
+        "target": "GHbdtn",
+        "group": 0,
+        "reason": "camel"
+      }
+    },
+    {
+      "id": "case-two-capitals-on",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "case"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 34,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          {
+            "code": 35,
+            "value": 1,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          {
+            "code": 48,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 32,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 49,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "fix",
+        "target": "Привет",
+        "group": 1,
+        "reason": "capitals-layout"
+      },
+      "settings": {
+        "two_capitals": true
+      }
+    },
+    {
+      "id": "exception",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "exception"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 34,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 35,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 48,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 32,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 49,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "keep",
+        "target": "ghbdtn",
+        "group": 0,
+        "reason": "exception"
+      },
+      "exceptions": [
+        "ghbdtn"
+      ]
+    },
+    {
+      "id": "personal",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-en",
+        "personal"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 1,
+      "input": {
+        "keys": [
+          {
+            "code": 22,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 48,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 22,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 49,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 22,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "fix",
+        "target": "ubuntu",
+        "group": 0,
+        "reason": "personal"
+      },
+      "personal": [
+        [
+          "en",
+          "ubuntu"
+        ]
+      ]
+    },
+    {
+      "id": "personal-exception",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-en",
+        "personal",
+        "exception"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 1,
+      "input": {
+        "keys": [
+          {
+            "code": 22,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 48,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 22,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 49,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "modifiers": []
+          },
+          {
+            "code": 22,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "keep",
+        "target": "гигтег",
+        "group": 1,
+        "reason": "exception"
+      },
+      "personal": [
+        [
+          "en",
+          "ubuntu"
+        ]
+      ],
+      "exceptions": [
+        "ubuntu"
+      ]
+    },
+    {
+      "id": "short-valid-source-kept",
+      "kind": "decision",
+      "provenance": "synthetic",
+      "tags": [
+        "direction-ru",
+        "short"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "keys": [
+          {
+            "code": 44,
+            "value": 1,
+            "modifiers": []
+          }
+        ]
+      },
+      "expected": {
+        "action": "keep",
+        "target": "z",
+        "group": 0,
+        "reason": "dict-a"
+      },
+      "context": [
+        "en",
+        "en"
+      ]
+    },
+    {
+      "id": "edit-backspace",
+      "kind": "buffer",
+      "provenance": "synthetic",
+      "tags": [
+        "editing"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "events": [
+          {
+            "code": 34,
+            "value": 1,
+            "time": 0.0
+          },
+          {
+            "code": 34,
+            "value": 0,
+            "time": 0.01
+          },
+          {
+            "code": 35,
+            "value": 1,
+            "time": 0.1
+          },
+          {
+            "code": 35,
+            "value": 0,
+            "time": 0.11
+          },
+          {
+            "code": 48,
+            "value": 1,
+            "time": 0.2
+          },
+          {
+            "code": 48,
+            "value": 0,
+            "time": 0.21000000000000002
+          },
+          {
+            "code": 32,
+            "value": 1,
+            "time": 0.30000000000000004
+          },
+          {
+            "code": 32,
+            "value": 0,
+            "time": 0.31000000000000005
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "time": 0.4
+          },
+          {
+            "code": 20,
+            "value": 0,
+            "time": 0.41000000000000003
+          },
+          {
+            "code": 49,
+            "value": 1,
+            "time": 0.5
+          },
+          {
+            "code": 49,
+            "value": 0,
+            "time": 0.51
+          },
+          {
+            "code": 14,
+            "value": 1,
+            "time": 0.6
+          },
+          {
+            "code": 14,
+            "value": 0,
+            "time": 0.61
+          },
+          {
+            "code": 57,
+            "value": 1,
+            "time": 0.7
+          },
+          {
+            "code": 57,
+            "value": 0,
+            "time": 0.71
+          }
+        ]
+      },
+      "expected": {
+        "kind": "word",
+        "text": "ghbdt",
+        "key_count": 5,
+        "reset_before": false
+      }
+    },
+    {
+      "id": "edit-repeat-resets",
+      "kind": "buffer",
+      "provenance": "synthetic",
+      "tags": [
+        "editing",
+        "repeat"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "events": [
+          {
+            "code": 34,
+            "value": 1,
+            "time": 0.0
+          },
+          {
+            "code": 34,
+            "value": 0,
+            "time": 0.01
+          },
+          {
+            "code": 35,
+            "value": 1,
+            "time": 0.1
+          },
+          {
+            "code": 35,
+            "value": 0,
+            "time": 0.11
+          },
+          {
+            "code": 48,
+            "value": 2,
+            "time": 0.2
+          },
+          {
+            "code": 57,
+            "value": 1,
+            "time": 0.30000000000000004
+          },
+          {
+            "code": 57,
+            "value": 0,
+            "time": 0.31000000000000005
+          }
+        ]
+      },
+      "expected": {
+        "kind": "reset",
+        "text": null,
+        "key_count": null,
+        "reset_before": false
+      }
+    },
+    {
+      "id": "stale-phrase",
+      "kind": "buffer",
+      "provenance": "synthetic",
+      "tags": [
+        "stale",
+        "editing"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "events": [
+          {
+            "code": 34,
+            "value": 1,
+            "time": 0.0
+          },
+          {
+            "code": 34,
+            "value": 0,
+            "time": 0.01
+          },
+          {
+            "code": 35,
+            "value": 1,
+            "time": 0.1
+          },
+          {
+            "code": 35,
+            "value": 0,
+            "time": 0.11
+          },
+          {
+            "code": 48,
+            "value": 1,
+            "time": 0.2
+          },
+          {
+            "code": 48,
+            "value": 0,
+            "time": 0.21000000000000002
+          },
+          {
+            "code": 32,
+            "value": 1,
+            "time": 0.30000000000000004
+          },
+          {
+            "code": 32,
+            "value": 0,
+            "time": 0.31000000000000005
+          },
+          {
+            "code": 20,
+            "value": 1,
+            "time": 0.4
+          },
+          {
+            "code": 20,
+            "value": 0,
+            "time": 0.41000000000000003
+          },
+          {
+            "code": 49,
+            "value": 1,
+            "time": 0.5
+          },
+          {
+            "code": 49,
+            "value": 0,
+            "time": 0.51
+          },
+          {
+            "code": 57,
+            "value": 1,
+            "time": 9.0
+          },
+          {
+            "code": 57,
+            "value": 0,
+            "time": 9.01
+          }
+        ]
+      },
+      "expected": {
+        "kind": "reset",
+        "text": null,
+        "key_count": null,
+        "reset_before": false
+      }
+    },
+    {
+      "id": "held-shift",
+      "kind": "buffer",
+      "provenance": "synthetic",
+      "tags": [
+        "held",
+        "case",
+        "editing"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "events": [
+          {
+            "code": 42,
+            "value": 1,
+            "time": 0.0
+          },
+          {
+            "code": 34,
+            "value": 1,
+            "time": 0.1
+          },
+          {
+            "code": 34,
+            "value": 0,
+            "time": 0.11
+          },
+          {
+            "code": 35,
+            "value": 1,
+            "time": 0.2
+          },
+          {
+            "code": 35,
+            "value": 0,
+            "time": 0.21
+          },
+          {
+            "code": 42,
+            "value": 0,
+            "time": 0.3
+          },
+          {
+            "code": 57,
+            "value": 1,
+            "time": 0.4
+          },
+          {
+            "code": 57,
+            "value": 0,
+            "time": 0.41
+          }
+        ]
+      },
+      "expected": {
+        "kind": "word",
+        "text": "GH",
+        "key_count": 2,
+        "reset_before": false
+      }
+    },
+    {
+      "id": "focus-safe",
+      "kind": "focus",
+      "provenance": "synthetic",
+      "tags": [
+        "focus"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "focus": {
+          "app": "Editor",
+          "password": false,
+          "taken_at": 100.0,
+          "app_ids": []
+        },
+        "now": 100.0
+      },
+      "settings": {
+        "skip_password_fields": true
+      },
+      "expected": {
+        "blocked": false,
+        "reason": null
+      }
+    },
+    {
+      "id": "focus-password",
+      "kind": "focus",
+      "provenance": "synthetic",
+      "tags": [
+        "focus",
+        "password"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "focus": {
+          "app": "Firefox",
+          "password": true,
+          "taken_at": 100.0,
+          "app_ids": []
+        },
+        "now": 100.0
+      },
+      "settings": {
+        "skip_password_fields": true
+      },
+      "expected": {
+        "blocked": true,
+        "reason": "защищённый ввод"
+      }
+    },
+    {
+      "id": "focus-password-disabled",
+      "kind": "focus",
+      "provenance": "synthetic",
+      "tags": [
+        "focus",
+        "password"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "focus": {
+          "app": "Firefox",
+          "password": true,
+          "taken_at": 100.0,
+          "app_ids": []
+        },
+        "now": 100.0
+      },
+      "settings": {
+        "skip_password_fields": false
+      },
+      "expected": {
+        "blocked": false,
+        "reason": null
+      }
+    },
+    {
+      "id": "focus-unknown",
+      "kind": "focus",
+      "provenance": "synthetic",
+      "tags": [
+        "focus",
+        "unknown"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "focus": {
+          "app": null,
+          "password": false,
+          "taken_at": 100.0,
+          "app_ids": []
+        },
+        "now": 100.0
+      },
+      "settings": {
+        "skip_password_fields": true
+      },
+      "expected": {
+        "blocked": true,
+        "reason": "фокус недоступен"
+      }
+    },
+    {
+      "id": "focus-stale",
+      "kind": "focus",
+      "provenance": "synthetic",
+      "tags": [
+        "focus",
+        "stale"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "focus": {
+          "app": "Editor",
+          "password": false,
+          "taken_at": 90.0,
+          "app_ids": []
+        },
+        "now": 100.0
+      },
+      "settings": {
+        "skip_password_fields": true
+      },
+      "expected": {
+        "blocked": true,
+        "reason": "фокус устарел"
+      }
+    },
+    {
+      "id": "focus-excluded",
+      "kind": "focus",
+      "provenance": "synthetic",
+      "tags": [
+        "focus",
+        "excluded"
+      ],
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "input": {
+        "focus": {
+          "app": "TelegramDesktop",
+          "password": false,
+          "taken_at": 100.0,
+          "app_ids": []
+        },
+        "now": 100.0
+      },
+      "settings": {
+        "skip_password_fields": true,
+        "excluded_apps": [
+          "telegram"
+        ]
+      },
+      "expected": {
+        "blocked": true,
+        "reason": "приложение TelegramDesktop"
+      }
+    },
+    {
+      "id": "controller-correct",
+      "kind": "controller",
+      "provenance": "synthetic",
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "tags": [
+        "controller",
+        "focus"
+      ],
+      "input": {
+        "events": [
+          {
+            "code": 34,
+            "value": 1
+          },
+          {
+            "code": 34,
+            "value": 0
+          },
+          {
+            "code": 35,
+            "value": 1
+          },
+          {
+            "code": 35,
+            "value": 0
+          },
+          {
+            "code": 48,
+            "value": 1
+          },
+          {
+            "code": 48,
+            "value": 0
+          },
+          {
+            "code": 32,
+            "value": 1
+          },
+          {
+            "code": 32,
+            "value": 0
+          },
+          {
+            "code": 20,
+            "value": 1
+          },
+          {
+            "code": 20,
+            "value": 0
+          },
+          {
+            "code": 49,
+            "value": 1
+          },
+          {
+            "code": 49,
+            "value": 0
+          },
+          {
+            "code": 57,
+            "value": 1
+          },
+          {
+            "code": 57,
+            "value": 0
+          }
+        ],
+        "focus": "safe"
+      },
+      "expected": {
+        "corrections": [
+          "привет"
+        ],
+        "writes": true,
+        "group": 1
+      }
+    },
+    {
+      "id": "controller-click-cancels",
+      "kind": "controller",
+      "provenance": "synthetic",
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "tags": [
+        "controller",
+        "cancel"
+      ],
+      "input": {
+        "events": [
+          {
+            "code": 34,
+            "value": 1
+          },
+          {
+            "code": 34,
+            "value": 0
+          },
+          {
+            "code": 35,
+            "value": 1
+          },
+          {
+            "code": 35,
+            "value": 0
+          },
+          {
+            "code": 48,
+            "value": 1
+          },
+          {
+            "code": 48,
+            "value": 0
+          },
+          {
+            "code": 32,
+            "value": 1
+          },
+          {
+            "code": 32,
+            "value": 0
+          },
+          {
+            "code": 20,
+            "value": 1
+          },
+          {
+            "code": 20,
+            "value": 0
+          },
+          {
+            "code": 49,
+            "value": 1
+          },
+          {
+            "code": 49,
+            "value": 0
+          },
+          {
+            "code": 57,
+            "value": 1
+          },
+          {
+            "code": 57,
+            "value": 0
+          },
+          {
+            "action": "click"
+          }
+        ],
+        "focus": "safe"
+      },
+      "expected": {
+        "corrections": [],
+        "writes": false,
+        "group": 0
+      }
+    },
+    {
+      "id": "controller-field-change",
+      "kind": "controller",
+      "provenance": "synthetic",
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "tags": [
+        "controller",
+        "cancel"
+      ],
+      "input": {
+        "events": [
+          {
+            "code": 34,
+            "value": 1
+          },
+          {
+            "code": 34,
+            "value": 0
+          },
+          {
+            "code": 35,
+            "value": 1
+          },
+          {
+            "code": 35,
+            "value": 0
+          },
+          {
+            "code": 48,
+            "value": 1
+          },
+          {
+            "code": 48,
+            "value": 0
+          },
+          {
+            "code": 32,
+            "value": 1
+          },
+          {
+            "code": 32,
+            "value": 0
+          },
+          {
+            "code": 20,
+            "value": 1
+          },
+          {
+            "code": 20,
+            "value": 0
+          },
+          {
+            "code": 49,
+            "value": 1
+          },
+          {
+            "code": 49,
+            "value": 0
+          },
+          {
+            "code": 57,
+            "value": 1
+          },
+          {
+            "code": 57,
+            "value": 0
+          },
+          {
+            "action": "field"
+          }
+        ],
+        "focus": "safe"
+      },
+      "expected": {
+        "corrections": [],
+        "writes": false,
+        "group": 0
+      }
+    },
+    {
+      "id": "controller-password",
+      "kind": "controller",
+      "provenance": "synthetic",
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "tags": [
+        "controller",
+        "focus"
+      ],
+      "input": {
+        "events": [
+          {
+            "code": 34,
+            "value": 1
+          },
+          {
+            "code": 34,
+            "value": 0
+          },
+          {
+            "code": 35,
+            "value": 1
+          },
+          {
+            "code": 35,
+            "value": 0
+          },
+          {
+            "code": 48,
+            "value": 1
+          },
+          {
+            "code": 48,
+            "value": 0
+          },
+          {
+            "code": 32,
+            "value": 1
+          },
+          {
+            "code": 32,
+            "value": 0
+          },
+          {
+            "code": 20,
+            "value": 1
+          },
+          {
+            "code": 20,
+            "value": 0
+          },
+          {
+            "code": 49,
+            "value": 1
+          },
+          {
+            "code": 49,
+            "value": 0
+          },
+          {
+            "code": 57,
+            "value": 1
+          },
+          {
+            "code": 57,
+            "value": 0
+          }
+        ],
+        "focus": "password"
+      },
+      "expected": {
+        "corrections": [],
+        "writes": false,
+        "group": 0
+      }
+    },
+    {
+      "id": "controller-unknown",
+      "kind": "controller",
+      "provenance": "synthetic",
+      "layouts": [
+        "us",
+        "ru"
+      ],
+      "group": 0,
+      "tags": [
+        "controller",
+        "focus"
+      ],
+      "input": {
+        "events": [
+          {
+            "code": 34,
+            "value": 1
+          },
+          {
+            "code": 34,
+            "value": 0
+          },
+          {
+            "code": 35,
+            "value": 1
+          },
+          {
+            "code": 35,
+            "value": 0
+          },
+          {
+            "code": 48,
+            "value": 1
+          },
+          {
+            "code": 48,
+            "value": 0
+          },
+          {
+            "code": 32,
+            "value": 1
+          },
+          {
+            "code": 32,
+            "value": 0
+          },
+          {
+            "code": 20,
+            "value": 1
+          },
+          {
+            "code": 20,
+            "value": 0
+          },
+          {
+            "code": 49,
+            "value": 1
+          },
+          {
+            "code": 49,
+            "value": 0
+          },
+          {
+            "code": 57,
+            "value": 1
+          },
+          {
+            "code": 57,
+            "value": 0
+          }
+        ],
+        "focus": "unknown"
+      },
+      "expected": {
+        "corrections": [],
+        "writes": false,
+        "group": 0
+      }
+    }
+  ]
+}
