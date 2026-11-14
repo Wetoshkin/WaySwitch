@@ -66,6 +66,15 @@ key-down проверяются собственное активное GTK-по
 Отказ прекращает ввод. Отрицательная проверка скрытого окна использует
 записывающую заглушку, а не настоящее устройство.
 
+Отдельная проверка контекста создаёт свои обычное и парольное GTK4-поля,
+проверяет их защиту и считает настоящие D-Bus-вызовы. Клавиши не отправляет.
+Запускайте её в графическом сеансе; для окружения без расширения замените
+`present` на `absent`:
+
+```bash
+python tests/smoke_shell_context_desktop.py --expect-shell present --output build/bench/context.json
+```
+
 Запускайте на отдельном тестовом рабочем столе. Сохраните состояние штатной
 службы и раскладки, предусмотрите их восстановление в `finally`/shell trap,
 остановите штатный демон и используйте отдельный синтетический конфиг.
@@ -256,6 +265,11 @@ device. Any failure stops injection; partial runs are failures. Every successful
 sample checks text readback and the target layout, and multi-sample runs cover
 both directions. After a successful series it restores the original layout;
 after a failure it reports restoration status without recovery typing.
+
+For context-only checks on a real desktop, run
+`python tests/smoke_shell_context_desktop.py --expect-shell present --output
+build/bench/context.json`. It creates its own normal/password GTK4 fields and
+counts actual IPC without injecting keys. Use `absent` without the extension.
 
 Stop the normal daemon only on a dedicated test desktop, save its state, and
 arrange automatic restoration. Use a synthetic config with early correction
