@@ -81,6 +81,7 @@ def main(argv=None):
     parser.add_argument("--samples", type=int, default=20)
     parser.add_argument("--warmup", type=int, default=3)
     parser.add_argument("--idle-seconds", type=float, default=0)
+    parser.add_argument("--poll-ms", type=int, default=20)
     parser.add_argument("--app-sha", required=True)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--check-refusal", action="store_true")
@@ -89,6 +90,8 @@ def main(argv=None):
         parser.error("samples must be 1..1000 and warmup 0..20")
     if not 0 <= args.idle_seconds <= 600:
         parser.error("idle seconds must be 0..600")
+    if not 1 <= args.poll_ms <= 1000:
+        parser.error("poll milliseconds must be 1..1000")
     try:
         return _run(args)
     except Exception as exc:
@@ -303,7 +306,7 @@ def _run(args):
             quit_run()
             return
         GLib.timeout_add(1500, next_trial)
-        GLib.timeout_add(20, monitor)
+        GLib.timeout_add(args.poll_ms, monitor)
         window.connect("close-request", lambda *_: (quit_run(), False)[1])
 
     window = view = None
@@ -337,6 +340,7 @@ def _run(args):
                         "gtk": Gtk.get_major_version(), "clock": "monotonic_ns"},
         "settings": {"samples": args.samples, "warmup": args.warmup,
                      "idle_seconds": args.idle_seconds, "key_interval_ms": 40,
+                     "poll_ms": args.poll_ms,
                      "config_sha256": hashlib.sha256(args.config.read_bytes()).hexdigest()},
         "data": {name: hashlib.sha256((root / "wayswitch/data" / name).read_bytes()).hexdigest()
                  for name in DATA_FILES},

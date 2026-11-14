@@ -84,3 +84,16 @@ def test_initialization_failure_writes_failed_report(monkeypatch, tmp_path):
     report = json.loads(output.read_text())
     assert report["success"] is False
     assert "private-provider-diagnostic" not in output.read_text()
+
+
+def test_readback_interval_is_explicit_and_bounded(monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(live_focus, "_run", lambda args: seen.append(args.poll_ms) or 0)
+    argv = ["--session-id", "one", "--app-sha", "abc", "--config", "config",
+            "--output", str(tmp_path / "result.json")]
+    assert live_focus.main(argv) == 0
+    assert live_focus.main([*argv, "--poll-ms", "1"]) == 0
+    assert seen == [20, 1]
+    for invalid in ("0", "1001"):
+        with pytest.raises(SystemExit):
+            live_focus.main([*argv, "--poll-ms", invalid])
