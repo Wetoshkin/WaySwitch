@@ -1,0 +1,13 @@
+[package]
+name = "wayswitch-model-store-experiment"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "MIT"
+
+[lib]
+path = "store.rs"
+crate-type = ["cdylib"]
+
+[profile.release]
+strip = true
