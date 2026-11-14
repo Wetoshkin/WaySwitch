@@ -35,6 +35,102 @@ python -m ruff check .
 Описание устройства проекта — в [архитектуре](docs/architecture.md).
 Порядок подготовки пакета Arch — в [инструкции AUR](docs/aur.md).
 
+## Воспроизводимый эталон и измерения
+
+`tests/fixtures/focus_golden_v1.json` содержит только синтетические данные:
+физические коды, Shift/Caps/group, настройки, исключения, локальные словарные
+фикстуры и фиксированные ожидаемые решения. Включены детектор, буфер, защита
+фокуса и отмена отложенной коррекции. Формат имеет `schema_version=1`, seed,
+проверяемую NFC-нормализацию и SHA256 моделей. Runner не переснимает ожидания:
+намеренное изменение поведения требует отдельного объяснения diff корпуса.
+
+```bash
+python tools/benchmark_focus.py golden --output build/bench/base.json
+python tools/benchmark_focus.py compare build/bench/base.json build/bench/candidate.json
+python -m pytest -q tests/test_focus_golden.py tests/test_benchmark_focus.py
+```
+
+Сравнивайте два checkout на одном стенде с одинаковыми инструментами и
+корпусом. При переносе harness в старый checkout сохраняйте его файлы и
+фикстуры без изменений. Результат содержит SHA приложения, хеш harness,
+настройки, окружение, хеши данных и каждый неуспех. Отличающиеся окружение,
+корпус или конфиг делают сравнение несовместимым. Персональные данные и
+необработанные результаты не добавляйте в Git.
+
+Для настоящего ввода есть отдельный opt-in инструмент `tools/live_focus.py`.
+Он поддерживает GNOME/Wayland с ровно двумя XKB-источниками us/ru, одной
+локальной графической сессией текущего пользователя на seat0 и доступным
+`udevadm`. Другие окружения этим runner не подтверждаются. Перед каждым
+key-down проверяются собственное активное GTK-поле, PID из Shell и активная
+разблокированная сессия; виртуальное устройство должно принадлежать seat0.
+Отказ прекращает ввод. Отрицательная проверка скрытого окна использует
+записывающую заглушку, а не настоящее устройство.
+
+Запускайте на отдельном тестовом рабочем столе. Сохраните состояние штатной
+службы и раскладки, предусмотрите их восстановление в `finally`/shell trap,
+остановите штатный демон и используйте отдельный синтетический конфиг.
+Не меняйте пользовательский dconf ради измерений: `XDG_CONFIG_HOME` влияет и
+на чтение раскладок GNOME, а отдельный XDG-каталог не изолирует общую шину.
+Профилировщик изолирует только файлы состояния WaySwitch через `--state-dir`.
+
+```bash
+python tools/profile_focus.py --config build/bench/config.toml --state-dir build/bench/state --output build/bench/stages.json
+# В другом терминале того же тестового сеанса:
+python tools/live_focus.py --session-id SESSION --app-sha SHA --config build/bench/config.toml --output build/bench/live.json --samples 100 --warmup 5 --check-refusal
+```
+
+`SESSION` — ID графического сеанса из `loginctl`, а не SSH-сеанса; `SHA` —
+проверенный коммит работающего демона. Конфиг должен отключать раннее
+исправление и обучение, включать защиту паролей и использовать изолированные
+исключения/словарь. Для завершения профилировщика отправьте его процессу
+SIGTERM: обычное завершение демона записывает отчёт. Не запускайте второй
+демон рядом со штатной службой на одной сессионной шине.
+
+Runner очищает только собственный TextBuffer, держит виртуальное устройство
+открытым до конца операции и читает настоящий результат из GTK. Каждая
+успешная коррекция должна оставить ожидаемую раскладку; серия из нескольких
+образцов проверяет оба направления. После успешной серии исходная раскладка
+восстанавливается ещё одной проверенной коррекцией. После неуспеха новых
+нажатий нет; отчёт явно указывает, восстановлена ли раскладка. Внешнее
+восстановление после ошибки выполняйте только по достоверному состоянию.
+
+`--idle-seconds 31` и `--idle-seconds 306` задают разные серии первого слова
+после простоя; для длинных серий достаточно малого количества попыток,
+но по ним нельзя заявлять p99. Сначала выполните smoke корректности, затем
+пилот, зафиксируйте прогрев и размер серии до сравнения версий. Не исключайте
+таймауты, отказы, потери или дубликаты. `compare` отвергает незавершённые live
+серии, даже если уже записанные образцы совпадают.
+
+Время последнего физического пробела → чтение GTK-буфера измеряет доставку
+текста с шагом опроса 20 мс, а не появление пикселя. Отдельно сохраняются
+время от первой клавиши и стоимость guard. p50/p95 выводятся с 20 успешных
+образцов, p99 — со 100; короткая серия показывает все значения и максимум.
+Профилировщик считает обработку событий, решение, AT-SPI, запрос контекста,
+переключение/ожидание и изменение текста. `context` включает попадания в кэш;
+только `shell_ipc.*` считает фактическую отправку соответствующего D-Bus-метода.
+Стадии вложены, их длительности нельзя складывать. Это инструментированные
+серии с дополнительной стоимостью wrappers, отдельно от обычной работы.
+
+`first_main_dispatch_ns` — от начала скрипта до первого callback главного
+контекста, без запуска интерпретатора; `imports_ns` выделяет импорты.
+RSS/HWM относятся к процессу демона, fd/потоки измеряются при завершении.
+GUI/вспомогательные процессы, отрисовка и клиентский ack отмечены
+`unavailable`, а не нулём. Полную стоимость запуска измеряйте внешним
+монотонным генератором с отдельной проверкой готовности. Таймеры разных
+clock domains не вычитайте без проверки их совместимости.
+
+Настоящая доставка Gio-событий проверяется отдельно на приватной шине:
+
+```bash
+python -m pytest -q tests/test_shell_context_dbus.py
+node tests/test_extension_focus.cjs
+node tests/test_extension_typing.cjs
+```
+
+Live-матрицу GTK3/4, Qt6, браузер/Electron, Writer/Calc и окружения проверяйте
+отдельно; отсутствие стенда записывайте «не проверено». Зелёный эталон или
+тест приватной шины не означает проверку настоящего композитора.
+
 ## Ветки, проверки и выпуск
 
 Перед работой обновите сведения о main и проверьте состояние issue/PR:
@@ -144,6 +240,44 @@ Run the commands above before submitting a change. Keep platform imports
 local in the pure Python modules and include a focused regression test
 when changing behaviour. Mention which checks you actually ran, including
 whether the change was tested in a live Wayland session.
+
+For deterministic comparisons, run `python tools/benchmark_focus.py golden
+--output build/bench/base.json` in each source checkout, then
+`python tools/benchmark_focus.py compare build/bench/base.json build/bench/candidate.json`.
+Use identical harness/corpus files and the same machine, settings and data.
+The synthetic NFC corpus pins physical inputs and expected outcomes; the runner
+never regenerates expectations. Keep raw results outside Git.
+
+The opt-in `tools/live_focus.py` runner supports a dedicated GNOME/Wayland
+desktop with exactly us/ru, one local graphical login on seat0, and `udevadm`.
+It verifies its own active editable GTK field, Shell PID and unlocked active
+session before every key-down. The negative focus probe uses a recording
+device. Any failure stops injection; partial runs are failures. Every successful
+sample checks text readback and the target layout, and multi-sample runs cover
+both directions. After a successful series it restores the original layout;
+after a failure it reports restoration status without recovery typing.
+
+Stop the normal daemon only on a dedicated test desktop, save its state, and
+arrange automatic restoration. Use a synthetic config with early correction
+and learning disabled, password protection enabled, and isolated exceptions
+and dictionary. Run `tools/profile_focus.py --config CONFIG --state-dir STATE
+--output STAGES`, then in the same session run `tools/live_focus.py
+--session-id SESSION --app-sha SHA --config CONFIG --output RESULT --samples 100
+--warmup 5 --check-refusal`. SESSION is the graphical login, not SSH. Stop the
+profile process normally with SIGTERM to write its report. Keep GNOME's real
+platform configuration readable; redirect only WaySwitch state with `--state-dir`.
+
+Measure first input after idle separately with `--idle-seconds 31` and `306`.
+Start with correctness smoke and a pilot; fix sample count/warmup before comparing.
+Boundary-key-to-GTK-readback uses a 20 ms polling interval and does not measure
+rendered pixels. p50/p95 need 20 successful samples, p99 needs 100. Short series
+list all values. Refusals, timeouts, loss and duplicates are never discarded.
+`context` counts API invocations including cache hits; `shell_ipc.*` counts
+actual corresponding method sends. Profiled stages overlap and include wrapper
+overhead. First main-context dispatch excludes interpreter startup; memory is
+daemon-only, and unavailable GUI/helper/render/ack metrics are explicit.
+Private-bus Gio tests and unit tests do not verify a real compositor. Record
+the GTK/Qt/browser/Writer/Calc and desktop combinations actually tested.
 
 Every release follows the release checklist above: audit both READMEs, the
 user documentation, changelog, release notes and the website when affected;

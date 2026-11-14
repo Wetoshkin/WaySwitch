@@ -494,6 +494,9 @@ and discuss eligibility of the required host service with the reviewers.
 See [Contributing](CONTRIBUTING.md), the [architecture](docs/architecture.md)
 and the [live-session checklist](docs/testing-vm.md).
 
+See [Contributing](CONTRIBUTING.md#english) for the fixed behaviour corpus
+and opt-in text delivery measurements.
+
 ## In the media
 
 Coverage of WaySwitch:
