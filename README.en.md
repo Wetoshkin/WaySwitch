@@ -275,7 +275,7 @@ For `C`/`POSIX`, `LANGUAGE` does not enable the Russian catalog. The Plasma
 widget uses KDE's system language. JSON,
 reason values, the version line and exit codes retain their previous contract.
 
-The `[meta]` section with `schema = 1` identifies the `config.toml` format. Files without the marker are treated as legacy: their
+The `[meta]` section with `schema = 3` identifies the `config.toml` format. Files without the marker are treated as legacy: their
 `settle_ms = 30` is migrated to 120. An explicit 30 saved by this version stays
 30. An older WaySwitch version ignores the marker and replaces 30 with 120 again
 when it saves the file. Saving over a file with an unsupported format marker
@@ -468,6 +468,42 @@ requires explicit `backend.track_hotkey`; mouse layout switches are invisible
 to the shortcut counter. LibreOffice and some Flatpak applications still have
 known limitations: [LibreOffice and selection](https://github.com/Wetoshkin/WaySwitch/issues/18),
 [Firefox, Telegram and ONLYOFFICE on Bazzite](https://github.com/Wetoshkin/WaySwitch/issues/19).
+
+## Prepared selection actions (not released)
+
+`wayswitch change-case` cycles a confirmed selection through lower case, upper
+case and word capitals. It uses default Unicode casing, preserves combining
+marks and treats an apostrophe between letters as part of the word. Case changes
+can change length (`ß` → `SS`) and are not reversible after three steps.
+The command preserves the active layout. Both source and result must be
+representable in that layout, including GNOME text transport; otherwise the
+command refuses before writing. Select the appropriate layout first.
+
+`wayswitch mixed-layout --to ru` (or `--to en`) requires an explicit target.
+For example, RU converts `привет vbh` to `привет мир`. Existing target-language
+words and separators remain; converted words must exist in the target model.
+Mixed tokens, technical text, unknown words, ambiguous punctuation and unsupported
+characters refuse the entire command before typing. Technical-prefix conversion
+such as `proxy-ghbkj;tybt` is not implemented. Mixed-script compounds and
+foreign tokens with several potentially ambiguous punctuation characters refuse.
+
+Preferences provides `case_key`, `mixed_key` and `mixed_target` (`current`, `ru`,
+`en`). The current-layout goal is captured when the key tap is recognized. CLI always
+requires `--to`. Both commands retain AT-SPI selection, password, terminal and
+focus checks and verify the same selection again before writing. They do not use
+the clipboard or change automatic correction. Unsupported output characters
+refuse before the selection is replaced.
+
+`pause_hotkey` accepts only `pause`, `scrolllock` or its `scroll_lock` alias;
+an empty value disables it. It cannot share Pause with `manual = "pause_key"`.
+Invalid old values produce a configuration error and are not silently changed.
+evdev observes keys passively: the original event still goes to the desktop/app.
+External Pause/ScrollLock shortcuts cannot be detected; Ctrl+P is a GUI shortcut.
+
+Saving an older config uses schema 3 and preserves its exact contents in
+`config.toml.before-schema-3`. Existing legacy `.before-schema-2` backups remain.
+To return to 1.2.1, restore the schema-2 backup. New installations have no earlier
+config to back up. The installed release is unchanged until a separate release.
 
 ## Development
 
