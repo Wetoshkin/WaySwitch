@@ -4,7 +4,7 @@
 pkgname=wayswitch
 epoch=1
 pkgver=1.2.1
-pkgrel=1
+pkgrel=2
 pkgdesc="Fixes words typed in the wrong keyboard layout on Wayland (ru/en)"
 arch=('any')
 url="https://github.com/Wetoshkin/WaySwitch"
@@ -17,9 +17,9 @@ optdepends=('gnome-shell: расширение для переключения �
 backup=('etc/xdg/autostart/wayswitch-session.desktop')
 install=wayswitch.install
 # Полный коммит исключает зависимость контрольной суммы от самого PKGBUILD в теге.
-_commit=38a211793d99ad48f200d0af280c36dfdb469f28
+_commit=8902c18f9fc4eb0bd1c8854f6a25960440b88d09
 source=("$pkgname-$pkgver.tar.gz::$url/archive/$_commit.tar.gz")
-sha256sums=('5a38fdebddd40c7f424e9d9821c3b5b1adf27d67cf50b0bac9eaa29ccc2a1984')
+sha256sums=('3a610a7bf47b6b4dc01aea4d1d810947cd2f452e77abd8e467ab1bb552bf20ad')
 
 package() {
     cd "WaySwitch-$_commit"
