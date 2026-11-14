@@ -93,10 +93,10 @@ def use_appearance(font: str, dark: bool) -> None:
 
 def make_window(app, width: int, height: int):
     window = Adw.ApplicationWindow(application=app)
-    # Размер стенда — область содержимого, без зависящей от X11 тени окна.
-    window.set_decorated(False)
     window.set_default_size(width, height)
-    window.set_content(Gtk.Label(label="WaySwitch geometry probe"))
+    # Минимум задаётся содержимому: размер GtkWindow в X11 включает тень CSD.
+    window.set_content(Gtk.Label(label="WaySwitch geometry probe",
+                                 width_request=width, height_request=height))
     window.present()
     wait_until(window.get_mapped, f"{width}x{height} parent window")
     settle()
