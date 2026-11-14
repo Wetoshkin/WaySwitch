@@ -166,7 +166,11 @@ def _validate_case(case: dict, index: int) -> None:
         _require(isinstance(events, list) and events, f"{where}: controller events")
         for event in events:
             if "action" in event:
-                _require(event["action"] in {"click", "field"}, f"{where}: controller action")
+                _require(event["action"] in {"click", "field", "layout"},
+                         f"{where}: controller action")
+                if event["action"] == "layout":
+                    _require(type(event.get("group")) is int and event["group"] in (0, 1),
+                             f"{where}: controller layout")
             else:
                 _require(type(event.get("code")) is int and event.get("value") in (0, 1, 2),
                          f"{where}: controller key event")
@@ -337,11 +341,14 @@ def _run_controller(case: dict, defaults: dict) -> tuple[bool, dict]:
         config, _keymap(), Detector(_keymap(), _models()), backend, typist,
         clock=lambda: 100.0, probe=probe, schedule=pending.append,
         on_corrected=lambda _original, fixed, _manual: corrected.append(fixed))
+    backend.on_change(controller.on_layout_changed)
     for event in case["input"]["events"]:
         if event.get("action") == "click":
             controller.on_click()
         elif event.get("action") == "field":
             probe._snapshot = probe._snapshot._replace(field=(":fixture", "/other"), generation=2)
+        elif event.get("action") == "layout":
+            backend.emit_external_change(event["group"])
         else:
             controller.on_key(event["code"], event["value"], 1)
     for operation in pending:

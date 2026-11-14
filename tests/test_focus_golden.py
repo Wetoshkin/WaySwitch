@@ -235,3 +235,5 @@ def test_golden_covers_queued_correction_and_cancellation(report):
     for name in ("controller-click-cancels", "controller-field-change",
                  "controller-password", "controller-unknown"):
         assert cases[name]["actual"] == {"corrections": [], "writes": False, "group": 0}
+    assert cases["controller-layout-cancels"]["actual"] == {
+        "corrections": [], "writes": False, "group": 1}
