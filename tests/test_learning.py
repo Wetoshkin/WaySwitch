@@ -185,7 +185,7 @@ def test_learning_setting_schema_and_validation(tmp_path):
         path = tmp_path / "config.toml"
         config.save(cfg, path)
         assert config.load(path).general.learn_after_converts == threshold
-        assert config.to_dict(cfg)["meta"]["schema"] == 2
+        assert config.to_dict(cfg)["meta"]["schema"] == config.CONFIG_SCHEMA
     for bad in (-1, 6, True, "2"):
         with pytest.raises(config.ConfigError):
             config.from_dict({"general": {"learn_after_converts": bad}})

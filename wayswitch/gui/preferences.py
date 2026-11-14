@@ -191,6 +191,15 @@ class Preferences:
                             title=t, hint=h))
             self.sel_caps[field_name] = cap
             manual.add(row)
+        self.cb_mixed_target = Adw.ComboRow(
+            title=_("Target for the selection key"),
+            subtitle=_("Current layout is resolved when the key is pressed"),
+            model=Gtk.StringList.new([_("Current layout"), _("Russian"), _("English")]),
+            selected=("current", "ru", "en").index(c.gesture.mixed_target))
+        self.cb_mixed_target.connect("notify::selected", lambda row, _p:
+                                    self._set("gesture", "mixed_target",
+                                              ("current", "ru", "en")[row.get_selected()]))
+        manual.add(self.cb_mixed_target)
         self.step_undo = StepRow(
             _("Undo window"), _("Repeating the gesture within this time returns the word"),
             c.general.undo_window_sec, 0, 60, 1, texts.format_seconds,
@@ -254,6 +263,7 @@ class Preferences:
             self.sw_auto.set_active(c.general.auto_correct)
             self.cb_sens.set_selected(cfgmod.SENSITIVITY_NAMES.index(c.general.sensitivity))
             self.cb_manual.set_selected(cfgmod.MANUAL_MODES.index(c.gesture.manual))
+            self.cb_mixed_target.set_selected(("current", "ru", "en").index(c.gesture.mixed_target))
             self.key_cap.set_label(gesture_keys.human_name(c.gesture.tap_key))
             self.row_key.set_visible(c.gesture.manual == "tap_key")
             for field_name, cap in self.sel_caps.items():
@@ -282,6 +292,14 @@ class Preferences:
         if self._loading:
             return
         g = self.cfg.gesture
+        if g.pause_hotkey and cfgmod.selection_key_conflict(
+                g, g.pause_hotkey, mode, field="pause_hotkey"):
+            self._loading = True
+            self.cb_manual.set_selected(cfgmod.MANUAL_MODES.index(g.manual))
+            self._loading = False
+            self.row_key.set_visible(g.manual == "tap_key")
+            self.toast(_("This key pauses WaySwitch"))
+            return
         for field_name, title, *_rest in texts.SELECTION_KEY_ROWS:
             if cfgmod.selection_key_conflict(g, getattr(g, field_name), mode, field=field_name):
                 # Одна клавиша не может и исправлять слово, и выделение.
