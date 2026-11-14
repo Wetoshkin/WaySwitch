@@ -210,3 +210,27 @@ def test_unreadable_payload_still_invalidates_previous_focus(shell):
     shell.calls.clear()
     assert watch.query().pid == 123
     assert shell.calls == ["GetFocusedContext"]
+
+
+def test_initial_lookup_timeout_requires_owner_recovery_before_safe_context(shell):
+    def timeout(method):
+        if method == "GetNameOwner":
+            raise RemoteError("org.freedesktop.DBus.Error.NoReply")
+    shell.hook = timeout
+    watch = ShellWatch(shell, lambda: None)
+    assert watch.query() is None
+    shell.hook = None
+    assert watch.query().pid == 123
+    generation = watch.generation
+    shell.emit("FocusedContextChanged")
+    assert watch.generation > generation
+
+
+def test_extension_without_either_context_method_keeps_atspi_fallback(shell):
+    def unsupported(method):
+        if method != "GetNameOwner":
+            raise RemoteError("org.freedesktop.DBus.Error.UnknownMethod")
+    shell.hook = unsupported
+    watch = ShellWatch(shell, lambda: None)
+    assert watch.query() == ShellContext()
+    assert watch.query() == ShellContext()

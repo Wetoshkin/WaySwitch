@@ -69,15 +69,7 @@ class ShellWatch:
                     sender, iface, member, path, arg, Gio.DBusSignalFlags.NONE,
                     self._changed, None))
             generation = self.generation
-            try:
-                owner = bus.call_sync(
-                    "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
-                    "GetNameOwner", GLib.Variant("(s)", (BUS_NAME,)),
-                    GLib.VariantType("(s)"), Gio.DBusCallFlags.NONE, 500, None).unpack()[0]
-            except Exception as exc:
-                owner = "" if self._error(exc) in {
-                    "org.freedesktop.DBus.Error.NameHasNoOwner",
-                    "org.freedesktop.DBus.Error.ServiceUnknown"} else None
+            owner = self._lookup_owner()
             with self._lock:
                 if self._generation == generation and not self._closed:
                     self._owner = owner
@@ -95,6 +87,17 @@ class ShellWatch:
             return self._gio.DBusError.get_remote_error(exc)
         except (AttributeError, TypeError):
             return None
+
+    def _lookup_owner(self):
+        try:
+            return self._bus.call_sync(
+                "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+                "GetNameOwner", self._glib.Variant("(s)", (BUS_NAME,)),
+                self._glib.VariantType("(s)"), self._gio.DBusCallFlags.NONE, 500, None).unpack()[0]
+        except Exception as exc:
+            return "" if self._error(exc) in {
+                "org.freedesktop.DBus.Error.NameHasNoOwner",
+                "org.freedesktop.DBus.Error.ServiceUnknown"} else None
 
     def _lost(self, *_args):
         with self._lock:
@@ -116,11 +119,12 @@ class ShellWatch:
                 self._owner = owner
                 self._capabilities = None
                 self._legacy = False
-            elif not self._owner or sender != self._owner:
+            elif self._owner is not None and (not self._owner or sender != self._owner):
                 return
             self._generation += 1
             self._payload = None
-            if member == "FocusedContextChanged2" and self._capabilities is not None:
+            if (member == "FocusedContextChanged2" and self._owner
+                    and self._capabilities is not None):
                 try:
                     context = _context(parameters.unpack())
                 except (AttributeError, TypeError, ValueError):
@@ -148,6 +152,15 @@ class ShellWatch:
             if (not fresh and self._payload is not None
                     and 0 <= self._clock() - self._received <= MAX_AGE_SEC):
                 return self._payload
+        if owner is None:
+            recovered = self._lookup_owner()
+            with self._lock:
+                if self._closed or self._generation != generation or recovered is None:
+                    return None
+                self._owner = recovered
+                self._generation += 1
+            self._invalidate()
+            return self.query(fresh=fresh)
         if owner and capabilities is None:
             try:
                 values = self._call(owner, "GetCapabilities", "(as)")[0]
@@ -178,8 +191,14 @@ class ShellWatch:
                     ids = self._call(owner, "GetFocusedApp", "(as)")[0]
                     result = _context((ids, False, False, 0, 0, 0))
                     legacy = True
-                except Exception:
-                    result = None
+                except Exception as legacy_error:
+                    result = ShellContext() if self._error(legacy_error) in {
+                        "org.freedesktop.DBus.Error.UnknownMethod",
+                        "org.freedesktop.DBus.Error.UnknownInterface"} else None
+                    legacy = result is not None
+            elif legacy and error in {"org.freedesktop.DBus.Error.UnknownMethod",
+                                       "org.freedesktop.DBus.Error.UnknownInterface"}:
+                result = ShellContext()
             elif error in {"org.freedesktop.DBus.Error.ServiceUnknown",
                            "org.freedesktop.DBus.Error.NameHasNoOwner"}:
                 # The owner signal, not a failed call to an old unique name, proves absence.

@@ -344,6 +344,12 @@ def test_old_shell_extension_falls_back_to_focused_app(monkeypatch, error):
     assert calls == ["GetFocusedContext", "GetFocusedApp"]
 
 
+def test_legacy_shell_transport_error_without_watch_keeps_focus_unknown(monkeypatch):
+    shell_bus(monkeypatch, [RemoteDBusError("org.freedesktop.DBus.Error.UnknownMethod"),
+                            RemoteDBusError("org.freedesktop.DBus.Error.NoReply")])
+    assert a11y.query_shell_context() is None
+
+
 @pytest.mark.parametrize("error", ["org.freedesktop.DBus.Error.NoReply",
                                   "org.freedesktop.DBus.Error.Timeout",
                                   "org.freedesktop.DBus.Error.Failed"])

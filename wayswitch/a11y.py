@@ -809,11 +809,12 @@ def query_shell_context(*, fresh: bool = False) -> ShellContext | None:
         if error in {"org.freedesktop.DBus.Error.UnknownMethod",
                      "org.freedesktop.DBus.Error.UnknownInterface"}:
             # Совместимость с расширением до появления GetFocusedContext.
-            return ShellContext(query_shell_app_ids())
+            ids = query_shell_app_ids(strict=True)
+            return ShellContext(ids) if ids is not None else None
         return None
 
 
-def query_shell_app_ids() -> tuple[str, ...]:
+def query_shell_app_ids(*, strict: bool = False) -> tuple[str, ...] | None:
     """Идентификаторы активного окна GNOME; старое расширение не обязано их отдавать."""
     try:
         from gi.repository import Gio, GLib
@@ -824,7 +825,17 @@ def query_shell_app_ids() -> tuple[str, ...]:
         result = bus.call_sync(BUS_NAME, OBJECT_PATH, INTERFACE, "GetFocusedApp", None,
                                GLib.VariantType("(as)"), Gio.DBusCallFlags.NONE, 500, None)
         return tuple(result.unpack()[0])
-    except Exception:  # noqa: BLE001 — расширение необязательно вне GNOME
+    except Exception as exc:  # noqa: BLE001 — расширение необязательно вне GNOME
+        if strict:
+            try:
+                error = Gio.DBusError.get_remote_error(exc)
+            except (NameError, AttributeError, TypeError):
+                error = None
+            if error not in {"org.freedesktop.DBus.Error.ServiceUnknown",
+                             "org.freedesktop.DBus.Error.NameHasNoOwner",
+                             "org.freedesktop.DBus.Error.UnknownMethod",
+                             "org.freedesktop.DBus.Error.UnknownInterface"}:
+                return None
         return ()
 
 
