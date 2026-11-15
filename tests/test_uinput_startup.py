@@ -39,7 +39,7 @@ def test_startup_waits_for_uinput_and_continues_without_restart(
     sleeps = []
     device = object()
 
-    def open_device(events, *, name):
+    def open_device(events, *, name, **identity):
         assert events == {1: list(range(1, 128))}
         assert name == "WaySwitch Virtual Keyboard"
         opened.append(True)
