@@ -1,4 +1,5 @@
 from pathlib import Path
+from xml.etree import ElementTree
 
 import pytest
 
@@ -155,6 +156,19 @@ def test_symbolic_tray_icons_use_fill_only():
         text = (ROOT / "icons" / name).read_text(encoding="utf-8")
         assert 'viewBox="0 0 16 16"' in text
         assert "stroke" not in text and "<text" not in text
+
+
+@pytest.mark.parametrize("suffix", ["symbolic", "paused-symbolic"])
+def test_symbolic_tray_icons_follow_plasma_text_color(suffix):
+    root = ElementTree.parse(ROOT / "icons" / f"io.github.Wetoshkin.WaySwitch-{suffix}.svg")
+    ns = {"svg": "http://www.w3.org/2000/svg"}
+    style = root.find(".//svg:style[@id='current-color-scheme']", ns)
+    assert style is not None and ".ColorScheme-Text" in style.text
+    group = root.find("svg:g", ns)
+    assert group.attrib == {"class": "ColorScheme-Text", "fill": "currentColor"}
+    shapes = list(group)
+    assert shapes
+    assert all("fill" not in shape.attrib and "style" not in shape.attrib for shape in shapes)
 
 
 def test_installer_installs_icon_and_removes_old_entry():
