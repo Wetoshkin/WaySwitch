@@ -6,6 +6,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -76,6 +77,18 @@ def test_explain_reverse_direction_ru_to_us(models):
     assert report["decision"] == {
         "action": "keep", "target": "привет", "reason": "dict-a", "confidence": 1.0,
     }
+
+
+def test_explain_short_words_follow_config(monkeypatch, models):
+    cfg = cfgmod.Config()
+    cfg.general.short_words_fix = True
+    monkeypatch.setattr(cfgmod, "load", lambda: cfg)
+    monkeypatch.setattr(cfgmod, "load_exceptions", set)
+    monkeypatch.setattr(explain, "LearnedWords", lambda: SimpleNamespace(words=frozenset()))
+    settings = explain.load_settings()
+    report = _report("lf", settings=settings, models=models)
+    assert report["settings"]["short_words_fix"] is True
+    assert (report["decision"]["action"], report["decision"]["target"]) == ("fix", "да")
 
 
 @pytest.mark.parametrize(("word", "exceptions", "reason"), [

@@ -5,6 +5,17 @@ import pytest
 from wayswitch import config as cfgmod
 
 
+def test_short_words_setting_is_opt_in_and_round_trips(tmp_path):
+    cfg = cfgmod.from_dict({})
+    assert cfg.general.short_words_fix is False
+    cfg.general.short_words_fix = True
+    path = tmp_path / "config.toml"
+    cfgmod.save(cfg, path)
+    assert cfgmod.load(path).general.short_words_fix is True
+    with pytest.raises(cfgmod.ConfigError):
+        cfgmod.from_dict({"general": {"short_words_fix": "yes"}})
+
+
 def test_defaults_when_file_missing(tmp_path: Path):
     cfg = cfgmod.load(tmp_path / "nope.toml")
     assert cfg.general.auto_correct is True

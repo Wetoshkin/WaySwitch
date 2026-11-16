@@ -532,7 +532,7 @@ class Detector:
 
     def decide(self, keys, current_group: int, other_group: int,
                context: tuple[str | None, str | None] = (None, None), *,
-               two_capitals: bool = False) -> Decision:
+               two_capitals: bool = False, short_words: bool = False) -> Decision:
         a = self.hypothesis(keys, current_group)
         b = self.hypothesis(keys, other_group)
         sens = self.sensitivity
@@ -588,6 +588,13 @@ class Detector:
             return fix("personal", 1.0)
 
         # 5. Словарь.
+        # Частотное короткое слово может совпасть с редким сокращением («lf» → «да»).
+        if short_words and 1 <= len(b.core) <= 2 and b.valid \
+                and b.core.lower() in self.models[b.lang].top \
+                and a.core.lower() not in self.models[a.lang].top \
+                and (a.lang, a.core.lower()) not in self.personal_words \
+                and context[-1] in (None, b.lang):
+            return fix("dict-short-opt-in", 0.8)
         if a.valid and a.in_dict:
             return keep("dict-a", 1.0)
         short = len(b.core) < sens.min_length

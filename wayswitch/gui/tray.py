@@ -128,6 +128,7 @@ def menu_layout(status: dict | None, update: str | None = None) -> list[MenuItem
                               icon="software-update-available-symbolic"))
     items += [
         MenuItem("settings", _("Open WaySwitch"), icon="window-new-symbolic"),
+        MenuItem("preferences", _("Settings"), icon="preferences-system-symbolic"),
         MenuItem("quit", _("Quit"), icon="application-exit-symbolic"),
     ]
     return items
@@ -136,7 +137,7 @@ def menu_layout(status: dict | None, update: str | None = None) -> list[MenuItem
 # Постоянные номера пунктов dbusmenu (0 — корень).
 MENU_IDS = {ident: n for n, ident in enumerate(
     ("summary", "sep1", "auto", "pause", "fix_selection", "sep2", "update",
-     "settings", "quit"), start=1)}
+     "settings", "quit", "preferences"), start=1)}
 
 # Имена значков из packaging/icons: ставятся установщиком в hicolor.
 INSTALLED_ICON = (portable.FLATPAK_ID if portable.package_kind() == "flatpak"

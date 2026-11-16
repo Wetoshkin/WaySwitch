@@ -89,6 +89,17 @@ def capture_app(monkeypatch, argv=None, package_kind="flatpak"):
     return classes[0]
 
 
+def test_tray_preferences_opens_dialog_and_keeps_window_action(monkeypatch):
+    app_class = capture_app(monkeypatch)
+    calls = []
+    monkeypatch.setattr(app_class, "show_preferences", lambda self: calls.append("preferences"))
+    monkeypatch.setattr(app_class, "show_window", lambda self: calls.append("window"))
+    instance = app_class()
+    instance.tray._activate("preferences")
+    instance.tray._activate("settings")
+    assert calls == ["preferences", "window"]
+
+
 class FakeWindow:
     def __init__(self, request_close):
         self.request_close = request_close

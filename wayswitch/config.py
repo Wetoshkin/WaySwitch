@@ -37,6 +37,7 @@ class ConfigSchemaError(ConfigError):
 class General:
     auto_correct: bool = True
     sensitivity: str = "normal"
+    short_words_fix: bool = False
     phrase_timeout_sec: float = 8.0
     undo_window_sec: float = 5.0
     # Пауза автоисправления после Backspace/стрелок/Delete и после ручной смены

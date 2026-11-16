@@ -54,6 +54,7 @@ class Settings:
     exceptions: frozenset[str]
     two_capitals_fix: bool
     personal_words: frozenset[tuple[str, str]] = frozenset()
+    short_words_fix: bool = False
 
 
 def load_settings() -> Settings:
@@ -65,7 +66,7 @@ def load_settings() -> Settings:
         raise ExplainError(_("could not read configuration: {exc}").format(exc=exc)) from exc
     return Settings(
         config.general.sensitivity, frozenset(exceptions), config.general.two_capitals_fix,
-        LearnedWords().words,
+        LearnedWords().words, config.general.short_words_fix,
     )
 
 
@@ -177,7 +178,8 @@ def build_report(
     if settings.personal_words:
         detector.set_personal_words(settings.personal_words)
     decision = detector.decide(
-        keys, source_group, target_group, (None, None), two_capitals=settings.two_capitals_fix
+        keys, source_group, target_group, (None, None), two_capitals=settings.two_capitals_fix,
+        short_words=settings.short_words_fix,
     )
     return {
         "word": word,
@@ -195,6 +197,7 @@ def build_report(
                 "floor": sensitivity.floor,
             },
             "two_capitals_fix": settings.two_capitals_fix,
+            "short_words_fix": settings.short_words_fix,
         },
         "a": _hypothesis(decision.a),
         "b": _hypothesis(decision.b),

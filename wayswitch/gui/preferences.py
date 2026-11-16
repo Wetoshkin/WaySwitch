@@ -223,6 +223,8 @@ class Preferences:
         what = Adw.PreferencesGroup(title=_("What to correct"))
         self.switches = {}
         for key, title, subtitle in (
+                ("short_words_fix", _("Short words (1–2 letters)"),
+                 _("May replace abbreviations. Off by default.")),
                 ("punct_fix", _("Punctuation"), "пирогб → пирог,   домю → дом."),
                 ("particles_fix", _("Joined particles"),
                  "чтото → что-то,   кембы → кем бы"),

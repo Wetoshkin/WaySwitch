@@ -35,6 +35,13 @@ def main():
         config.default_path().write_bytes(original)
         prefs = Preferences(SimpleNamespace(proxy=proxy, update_text=lambda: "Test profile"))
         prefs.present(window)
+        short_words = prefs.switches["short_words_fix"]
+        assert not short_words.get_active()
+        for enabled in (True, False):
+            short_words.set_active(enabled)
+            prefs._flush()
+            assert config.load().general.short_words_fix is enabled
+            assert calls[-1] == "Reload"
         assert prefs.cfg.general.learn_after_converts == 0
         prefs.step_positive.plus.emit("clicked")
         prefs.step_positive.plus.emit("clicked")

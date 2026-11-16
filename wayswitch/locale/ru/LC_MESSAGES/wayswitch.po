@@ -904,6 +904,12 @@ msgid "Sensitivity"
 msgstr "Чувствительность"
 
 # 221
+msgid "Short words (1–2 letters)"
+msgstr "Короткие слова (1–2 буквы)"
+
+msgid "May replace abbreviations. Off by default."
+msgstr "Возможны замены сокращений. По умолчанию выключено."
+
 msgid "Settings"
 msgstr "Параметры"
 
