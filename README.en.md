@@ -344,6 +344,28 @@ If your installed version reports that `--delay` is unknown, run
 `sleep 5; wayswitch doctor; wayswitch status --json` and switch back to the
 field within five seconds. Older versions print daemon status separately.
 
+**keyd is installed.** keyd 2.6.0 and newer skips the WaySwitch virtual
+keyboard because it is created with vendor `0x0FAC`, which keyd treats as its
+own device. This is a keyd implementation detail, not a general virtual-keyboard
+standard. keyd 2.4.3–2.5.0 excludes only the exact name
+`keyd virtual keyboard` and may grab WaySwitch; the daemon's Backspace and
+letters then return through keyd and correction stops after the first Backspace
+(`dict-b: failed` in the log). On those versions, find the actual
+`WaySwitch Virtual Keyboard` ID in `sudo keyd monitor`, add it as an exclusion
+under `[ids]` in every `/etc/keyd/*.conf` file that matches the device
+(for example, `default.conf`), and run `sudo keyd reload`:
+
+```
+[ids]
+*
+-0fac:0001
+```
+
+On keyd 2.5.0, the full ID including its hash from `keyd monitor` narrows the
+exclusion to this device; the prefix `-0fac:0001` also works.
+WaySwitch never edits `/etc/keyd` automatically. Other local rules keyed to
+vendor `0x0FAC` may also treat it as keyd.
+
 A word was fixed by mistake — press <kbd>Shift</kbd> <kbd>Shift</kbd> right
 away. Still stuck — [open an issue](https://github.com/Wetoshkin/WaySwitch/issues/new)
 with diagnostic output (also available under About → Troubleshooting).
