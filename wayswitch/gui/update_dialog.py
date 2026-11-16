@@ -7,6 +7,7 @@ import subprocess
 
 from wayswitch import __version__, updater
 from wayswitch.gui import portable, terminal
+from wayswitch.gui.widgets import adapt_header
 from wayswitch.i18n import gettext as _
 
 
@@ -27,50 +28,75 @@ def launch(info: updater.UpdateInfo, app_id: str) -> bool:
 
 
 def show(app):
-    from gi.repository import Adw, Gdk, Gtk
+    from gi.repository import Adw, Gdk, Gtk, Pango
 
     dialog = Adw.Dialog(title=_("Updates"), content_width=720, content_height=640)
     toolbar = Adw.ToolbarView()
-    toolbar.add_top_bar(Adw.HeaderBar())
+    header = Adw.HeaderBar()
+    adapt_header(dialog, header)
+    refresh = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text=_("Check again"))
+    refresh.add_css_class("flat")
+    refresh.update_property([Gtk.AccessibleProperty.LABEL], [_("Check again")])
+    header.pack_start(refresh)
+    copy = Gtk.Button(icon_name="edit-copy-symbolic", tooltip_text=_("Copy command"))
+    copy.add_css_class("flat")
+    copy.update_property([Gtk.AccessibleProperty.LABEL], [_("Copy command")])
+    header.pack_start(copy)
+    # Действия диалога — в заголовке: три длинные подписи в строке не
+    # помещались в узкое окно. Установка — единственная основная кнопка.
+    install = Gtk.Button(label=_("Install"))
+    install.add_css_class("suggested-action")
+    install.set_tooltip_text(_("Install in terminal"))
+    install.update_property([Gtk.AccessibleProperty.LABEL], [_("Install in terminal")])
+    header.pack_end(install)
+    toolbar.add_top_bar(header)
     scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16,
                   margin_top=20, margin_bottom=20, margin_start=24, margin_end=24)
-    source_label = Gtk.Label(xalign=0, selectable=True, wrap=True)
+    source_label = Gtk.Label(xalign=0, selectable=True, wrap=True,
+                             wrap_mode=Pango.WrapMode.WORD_CHAR, max_width_chars=52)
     source_label.add_css_class("heading")
     box.append(source_label)
-    status_label = Gtk.Label(xalign=0, selectable=True, wrap=True)
+    status_label = Gtk.Label(xalign=0, selectable=True, wrap=True,
+                             wrap_mode=Pango.WrapMode.WORD_CHAR, max_width_chars=52)
     box.append(status_label)
-    message = Gtk.Label(xalign=0, selectable=True, wrap=True)
+    message = Gtk.Label(xalign=0, selectable=True, wrap=True,
+                        wrap_mode=Pango.WrapMode.WORD_CHAR, max_width_chars=52)
     box.append(message)
-    buttons = Gtk.Box(spacing=12)
-    check = Gtk.Button(label=_("Check again"))
-    install = Gtk.Button(label=_("Install in terminal"))
-    install.add_css_class("suggested-action")
-    copy = Gtk.Button(label=_("Copy command"))
-    for button in (check, install, copy):
-        buttons.append(button)
-    box.append(buttons)
-    notes = Gtk.TextView(editable=False, cursor_visible=False, wrap_mode=Gtk.WrapMode.WORD_CHAR)
-    notes.set_hexpand(True)
+    # WORD_CHAR переносит и длинные версии/команды без пробелов. Обычные
+    # Label вместо TextView не запрашивают ширину целой строки.
+    notes = Gtk.Label(xalign=0, selectable=True, wrap=True,
+                      wrap_mode=Pango.WrapMode.WORD_CHAR, max_width_chars=52)
     box.append(notes)
-    command = Gtk.TextView(editable=False, cursor_visible=False, monospace=True,
-                           wrap_mode=Gtk.WrapMode.WORD_CHAR)
-    command_details = Gtk.Expander(label=_("Command for manual update"))
+    command = Gtk.Label(xalign=0, selectable=True, wrap=True,
+                        wrap_mode=Pango.WrapMode.WORD_CHAR, max_width_chars=52)
+    command.add_css_class("monospace")
+    command_details = Gtk.Expander()
+    command_details.set_label_widget(Gtk.Label(
+        label=_("Command for manual update"), xalign=0, wrap=True,
+        wrap_mode=Pango.WrapMode.WORD_CHAR, max_width_chars=52))
     command_details.set_child(command)
     box.append(command_details)
     if portable.package_kind():
         version = (app.proxy.status or {}).get("version", _("unknown"))
         service = Gtk.Label(xalign=0, wrap=True, selectable=True,
+                            wrap_mode=Pango.WrapMode.WORD_CHAR, max_width_chars=52,
                             label=_("Native service version: {version}. Update it separately "
                                     "on the host through its original source:").format(
                                         version=version) + "\n\nwayswitch update --install")
         box.append(service)
-        service_copy = Gtk.Button(label=_("Copy service update command"), halign=Gtk.Align.START)
+        service_copy = Gtk.Button(label=_("Copy"), tooltip_text=_("Copy service update command"),
+                                  halign=Gtk.Align.START)
+        service_copy.update_property([Gtk.AccessibleProperty.LABEL],
+                                     [_("Copy service update command")])
         service_copy.connect("clicked", lambda *_: Gdk.Display.get_default().get_clipboard().set(
             "wayswitch update --install"))
         box.append(service_copy)
-        instructions = Gtk.Button(label=_("Window and service instructions"),
+        instructions = Gtk.Button(label=_("Instructions"),
+                                   tooltip_text=_("Window and service instructions"),
                                    halign=Gtk.Align.START)
+        instructions.update_property([Gtk.AccessibleProperty.LABEL],
+                                     [_("Window and service instructions")])
         instructions.connect("clicked", lambda *_: portable.show_instructions(
             app._parent(), "update"))
         box.append(instructions)
@@ -96,7 +122,7 @@ def show(app):
             return
         info = getattr(app, "update_info", None)
         state["info"] = info
-        check.set_sensitive(True)
+        refresh.set_sensitive(True)
         if info is None:
             status_label.set_label(_("Could not check the installation source"))
             return
@@ -109,16 +135,16 @@ def show(app):
                           "GNOME extension updates may require signing out and back in."))
         install.set_sensitive(bool(info.available and info.automatic))
         state["copy"] = updater.manual_command(info)
-        command.get_buffer().set_text(state["copy"])
+        command.set_label(state["copy"])
         command_details.set_visible(bool(state["copy"]))
         copy.set_sensitive(bool(state["copy"]))
-        notes.get_buffer().set_text(
+        notes.set_label(
             info.available.notes if info.available and info.available.notes else
             _("Release notes for repository packages are supplied by their maintainer. "
               "The package manager or AUR helper shows the proposed transaction."))
 
     def do_check(*_args):
-        check.set_sensitive(False)
+        refresh.set_sensitive(False)
         install.set_sensitive(False)
         copy.set_sensitive(False)
         status_label.set_label(_("Checking…"))
@@ -136,7 +162,7 @@ def show(app):
             status_label.set_label(_("Could not open a terminal. Copy the command and run "
                                     "it in your terminal."))
 
-    check.connect("clicked", do_check)
+    refresh.connect("clicked", do_check)
     copy.connect("clicked", lambda *_: Gdk.Display.get_default().get_clipboard().set(state["copy"]))
     install.connect("clicked", do_install)
     dialog.present(app._parent())

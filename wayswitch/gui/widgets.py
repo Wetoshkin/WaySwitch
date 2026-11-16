@@ -32,6 +32,16 @@ def keycaps(names: list[str]):
     return box
 
 
+def adapt_header(dialog, header) -> None:
+    from gi.repository import Adw
+
+    # В узком диалоге заголовок уступает место доступным действиям.
+    dialog.set_size_request(300, 200)
+    narrow = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 450sp"))
+    narrow.add_setter(header, "show-title", False)
+    dialog.add_breakpoint(narrow)
+
+
 def flat_icon_button(icon: str, tooltip: str, on_click: Callable[[], None]):
     from gi.repository import Gtk
 

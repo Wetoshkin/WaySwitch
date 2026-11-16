@@ -2294,3 +2294,9 @@ msgstr "Цель перевода выделенного"
 
 msgid "Current layout is resolved when the key is pressed"
 msgstr "Текущая раскладка определяется в момент нажатия клавиши"
+
+msgid "Dictionary"
+msgstr "Словарь"
+
+msgid "Install"
+msgstr "Установить"

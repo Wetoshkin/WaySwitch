@@ -3,35 +3,42 @@
 from __future__ import annotations
 
 from wayswitch import __version__, companion
-from wayswitch.gui.widgets import run_in_thread
+from wayswitch.gui.widgets import adapt_header, run_in_thread
 from wayswitch.i18n import gettext as _
 
 
 def show(parent):
-    from gi.repository import Adw, Gdk, Gtk
+    from gi.repository import Adw, Gdk, Gtk, Pango
 
     dialog = Adw.Dialog(title=_("Native service installation"), content_width=680,
                         content_height=600)
     toolbar = Adw.ToolbarView()
-    toolbar.add_top_bar(Adw.HeaderBar())
+    header = Adw.HeaderBar()
+    adapt_header(dialog, header)
+    toolbar.add_top_bar(header)
     scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16,
                   margin_top=20, margin_bottom=20, margin_start=24, margin_end=24)
-    status = Gtk.Label(label=_("Checking…"), xalign=0, wrap=True, selectable=True)
+    status = Gtk.Label(label=_("Checking…"), xalign=0, wrap=True, selectable=True,
+                       wrap_mode=Pango.WrapMode.WORD_CHAR, max_width_chars=52)
     status.add_css_class("heading")
-    details = Gtk.Label(xalign=0, wrap=True, selectable=True)
-    command = Gtk.Label(xalign=0, wrap=True, selectable=True)
+    details = Gtk.Label(xalign=0, wrap=True, selectable=True,
+                        wrap_mode=Pango.WrapMode.WORD_CHAR, max_width_chars=52)
+    command = Gtk.Label(xalign=0, wrap=True, selectable=True,
+                        wrap_mode=Pango.WrapMode.WORD_CHAR, max_width_chars=52)
     command.add_css_class("monospace")
     buttons = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
     refresh = Gtk.Button(label=_("Check again"))
-    install = Gtk.Button(label=_("Install in terminal"), sensitive=False)
+    install = Gtk.Button(label=_("Install"), tooltip_text=_("Install in terminal"), sensitive=False)
     install.add_css_class("suggested-action")
     copy = Gtk.Button(label=_("Copy command"), sensitive=False)
     for widget in (refresh, install, copy):
         buttons.append(widget)
     for widget in (status, details, command, buttons):
         box.append(widget)
-    box.append(Gtk.Label(xalign=0, wrap=True, selectable=True, label=_(
+    box.append(Gtk.Label(xalign=0, wrap=True, selectable=True,
+                         wrap_mode=Pango.WrapMode.WORD_CHAR, max_width_chars=52,
+                         label=_(
         "After the package transaction, check again here and run wayswitch doctor. "
         "To activate the service when ready: systemctl --user enable --now wayswitch. "
         "Installing a package does not confirm a running, correctly configured service.")))

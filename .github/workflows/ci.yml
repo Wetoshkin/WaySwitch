@@ -83,6 +83,9 @@ jobs:
         run: |
           sudo apt-get install -y xvfb
           PYTHONPATH=. dbus-run-session -- xvfb-run -a python3 tools/smoke_personal_dictionary.py
+      - name: "Настоящие GTK-виджеты: адаптивная геометрия"
+        run: |
+          PYTHONPATH=. dbus-run-session -- xvfb-run -a python3 tools/smoke_gui_geometry.py
       - uses: actions/upload-artifact@v4
         with:
           name: wayswitch-deb
