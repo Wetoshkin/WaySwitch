@@ -3,8 +3,8 @@
 # собрать локально: cd packaging/arch && makepkg -si
 pkgname=wayswitch
 epoch=1
-pkgver=1.2.1
-pkgrel=3
+pkgver=1.2.2
+pkgrel=1
 pkgdesc="Fixes words typed in the wrong keyboard layout on Wayland (ru/en)"
 arch=('any')
 url="https://github.com/Wetoshkin/WaySwitch"
