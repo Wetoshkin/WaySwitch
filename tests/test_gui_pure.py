@@ -48,6 +48,7 @@ def test_tray_autostart_migrates_legacy_name(tmp_path, monkeypatch):
 def test_menu_layout_reflects_status(ru_locale):
     items = {i.ident: i for i in menu_layout(None)}
     assert items["settings"].enabled and not items["pause"].enabled
+    assert items["preferences"].enabled and items["preferences"].label == "Параметры"
     assert "Не запущен" in items["summary"].label
     items = {i.ident: i for i in menu_layout({"paused": True, "auto_correct": True})}
     assert items["pause"].label == "Возобновить"

@@ -130,6 +130,7 @@ def main(argv: list[str] | None = None) -> int:
                 "fix_selection": self._fix_selection,
                 "update": self.run_update,
                 "settings": self.show_window,
+                "preferences": self.show_preferences,
                 "quit": self._ask_quit,
             })
 

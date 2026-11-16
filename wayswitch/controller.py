@@ -1147,6 +1147,7 @@ class Controller:
             return
         decision = self.detector.decide(
             keys, current, other, self._context_tuple(),
+            short_words=self.config.general.short_words_fix,
             two_capitals=self.config.general.two_capitals_fix and not self.buffer.caps)
         log.debug("решение: %s (%s)", decision.action, decision.reason)
         if decision.action == "fix":

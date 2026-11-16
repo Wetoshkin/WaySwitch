@@ -108,6 +108,47 @@ def test_short_word_needs_russian_context(det):
     assert det.decide(keys, US, RU, context=("en", "en")).action == "keep"
 
 
+@pytest.fixture(scope="module")
+def shipped_detector():
+    return Detector(make_keymap(), {lang: LanguageModel.load(lang) for lang in ("ru", "en")})
+
+
+@pytest.mark.parametrize("text,target", [("lf", "да"), ("b", "и"), ("d", "в"), ("yf", "на")])
+@pytest.mark.parametrize("context", [(None, None), ("en", "ru")])
+def test_opt_in_short_words_use_shipped_frequencies(shipped_detector, text, target, context):
+    decision = shipped_detector.decide(typed(text, US), US, RU, context,
+                                       short_words=True)
+    assert (decision.action, decision.target_text) == ("fix", target)
+
+
+@pytest.mark.parametrize("text", ["lf", "b", "d"])
+def test_short_word_dictionary_collisions_stay_opt_in(shipped_detector, text):
+    assert shipped_detector.decide(typed(text, US), US, RU).action == "keep"
+    assert shipped_detector.decide(typed(text, US), US, RU, ("ru", "en"),
+                                   short_words=True).action == "keep"
+
+
+@pytest.mark.parametrize("text,group", [("да", RU), ("и", RU), ("в", RU), ("на", RU),
+                                       ("in", US), ("to", US), ("a", US), ("I", US),
+                                       ("LF", US), ("b2", US), ("a/b", US)])
+def test_opt_in_short_words_keep_common_words_and_protections(shipped_detector, text, group):
+    other = US if group == RU else RU
+    assert shipped_detector.decide(typed(text, group), group, other,
+                                   short_words=True).action == "keep"
+
+
+def test_opt_in_short_words_respect_exceptions():
+    detector = Detector(make_keymap(), {lang: LanguageModel.load(lang) for lang in ("ru", "en")},
+                        exceptions={"lf"})
+    assert detector.decide(typed("lf", US), US, RU, short_words=True).reason == "exception"
+
+
+def test_opt_in_short_words_keep_personal_source_word():
+    detector = Detector(make_keymap(), {lang: LanguageModel.load(lang) for lang in ("ru", "en")})
+    detector.set_personal_words({("en", "lf")})
+    assert detector.decide(typed("lf", US), US, RU, short_words=True).action == "keep"
+
+
 def test_early_url_trigger(det):
     assert det.early_url_target(typed("реезыЖ..", RU), RU, US) == "https://"
     assert det.early_url_target(typed("реезыЖ.", RU), RU, US) is None

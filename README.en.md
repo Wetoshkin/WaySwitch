@@ -283,6 +283,16 @@ is rejected. The typing delay is read when the service starts: restart the
 service after changing it (`systemctl --user restart wayswitch` for a system
 install); other settings reload immediately.
 
+**Settings → Correction → What to correct → Short words (1–2 letters)**
+enables corrections such as `lf` → `да`, `b` → `и`, `d` → `в`.
+The option (`general.short_words_fix = true`) is off by default because it can
+replace abbreviations. It prefers a top-300 word over a non-top-300 spelling
+when the previous word has the target language or the context is empty.
+Common source words, personal source words, exceptions and technical-token
+protections keep their priority. Without this option the existing short-word
+rules still apply. The tray menu includes a direct **Settings** entry alongside
+**Open WaySwitch**.
+
 ## Updating
 
 Use **Preferences → System → Updates…** or `wayswitch update`;
