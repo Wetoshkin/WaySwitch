@@ -322,7 +322,7 @@ class Preferences:
     def _page_dictionary(self):
         from gi.repository import Adw, Gtk
 
-        page = Adw.PreferencesPage(title=_("Personal dictionary"),
+        page = Adw.PreferencesPage(title=_("Dictionary"),
                                    icon_name="accessories-dictionary-symbolic")
         group = Adw.PreferencesGroup(
             title=_("Your words"),
@@ -331,8 +331,7 @@ class Preferences:
         self.personal_store = LearnedWords()
         self.personal_box = boxed_list()
         group.add(self.personal_box)
-        add = Gtk.Button(label=_("Add a word"))
-        add.connect("clicked", lambda *_: self._edit_personal())
+        add = flat_icon_button("list-add-symbolic", _("Add a word"), self._edit_personal)
         group.set_header_suffix(add)
         page.add(group)
         refresh = Adw.ActionRow(title=_("Refresh dictionary"), activatable=True)
@@ -616,8 +615,8 @@ class Preferences:
         updates.add(self.sw_updates)
         self.row_check = Adw.ActionRow(title=_("Check now"),
                                        subtitle=self.app.update_text())
-        check = Gtk.Button(label=_("Check"), valign=Gtk.Align.CENTER)
-        check.connect("clicked", lambda b: self._check_updates(b))
+        check = flat_icon_button("view-refresh-symbolic", _("Check now"),
+                                 lambda: self._check_updates(check))
         self.row_check.add_suffix(check)
         self.btn_update = Gtk.Button(label=_("Updates…"), valign=Gtk.Align.CENTER)
         self.btn_update.add_css_class("suggested-action")

@@ -12,7 +12,14 @@ from collections.abc import Callable
 from wayswitch import __version__
 from wayswitch import config as cfgmod
 from wayswitch.gui import gesture_keys, texts
-from wayswitch.gui.widgets import boxed_list, clear_list, keycap, keycaps, run_in_thread
+from wayswitch.gui.widgets import (
+    adapt_header,
+    boxed_list,
+    clear_list,
+    keycap,
+    keycaps,
+    run_in_thread,
+)
 from wayswitch.i18n import gettext as _
 
 REPO_URL = "https://github.com/Wetoshkin/WaySwitch"
@@ -94,13 +101,24 @@ def key_capture_dialog(parent, current: str, on_done: Callable[[str | None], Non
 # --- добавить приложение -----------------------------------------------------------
 
 def personal_word_dialog(parent, entry, on_save):
-    from gi.repository import Adw, Gtk
+    from gi.repository import Adw, Gtk, Pango
 
     from wayswitch.learning import normalize_word
 
-    dialog = Adw.Dialog(title=_("Edit word") if entry else _("Add a word"), content_width=420)
+    dialog = Adw.Dialog(title=_("Edit word") if entry else _("Add a word"),
+                        content_width=420, content_height=360)
     toolbar = Adw.ToolbarView()
-    toolbar.add_top_bar(Adw.HeaderBar())
+    # Основное действие — в заголовке, как у выбора клавиши: при нехватке
+    # высоты подпись «Сохранить» не уезжает за нижний край.
+    header = Adw.HeaderBar(show_end_title_buttons=False, show_start_title_buttons=False)
+    adapt_header(dialog, header)
+    cancel = Gtk.Button(label=_("Cancel"))
+    cancel.connect("clicked", lambda *_: dialog.close())
+    save = Gtk.Button(label=_("Save"))
+    save.add_css_class("suggested-action")
+    header.pack_start(cancel)
+    header.pack_end(save)
+    toolbar.add_top_bar(header)
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16,
                   margin_top=12, margin_bottom=24, margin_start=20, margin_end=20)
     group = Adw.PreferencesGroup(description=_(
@@ -114,11 +132,9 @@ def personal_word_dialog(parent, entry, on_save):
     group.add(language)
     group.add(word)
     box.append(group)
-    error = Gtk.Label(wrap=True, xalign=0)
+    error = Gtk.Label(wrap=True, xalign=0, wrap_mode=Pango.WrapMode.WORD_CHAR)
     error.add_css_class("error")
     box.append(error)
-    save = Gtk.Button(label=_("Save"))
-    save.add_css_class("suggested-action")
 
     def apply(*_args):
         lang = ("en", "ru")[language.get_selected()]
@@ -134,8 +150,9 @@ def personal_word_dialog(parent, entry, on_save):
 
     save.connect("clicked", apply)
     word.connect("apply", apply)
-    box.append(save)
-    toolbar.set_content(box)
+    scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
+    scroll.set_child(box)
+    toolbar.set_content(scroll)
     dialog.set_child(toolbar)
     dialog.present(parent)
     return dialog
