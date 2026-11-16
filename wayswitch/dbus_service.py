@@ -20,6 +20,11 @@ INTROSPECTION_XML = f"""
     <method name="FixSelection"><arg type="b" name="ok" direction="out"/></method>
     <method name="TranslitSelection"><arg type="b" name="ok" direction="out"/></method>
     <method name="NumberWordsSelection"><arg type="b" name="ok" direction="out"/></method>
+    <method name="ChangeCaseSelection"><arg type="b" name="ok" direction="out"/></method>
+    <method name="MixedLayoutSelection">
+      <arg type="s" name="target" direction="in"/>
+      <arg type="b" name="ok" direction="out"/>
+    </method>
     <method name="Reload"/>
     <method name="GetStatus"><arg type="a{{sv}}" name="status" direction="out"/></method>
     <signal name="StatusChanged"><arg type="a{{sv}}" name="status"/></signal>
@@ -100,6 +105,12 @@ class DaemonService:
             invocation.return_value(GLib.Variant("(b)", (c.transform_selection("translit"),)))
         elif method == "NumberWordsSelection":
             invocation.return_value(GLib.Variant("(b)", (c.transform_selection("numbers"),)))
+        elif method == "ChangeCaseSelection":
+            invocation.return_value(GLib.Variant("(b)", (c.transform_selection("case"),)))
+        elif method == "MixedLayoutSelection":
+            target, = params.unpack()
+            invocation.return_value(GLib.Variant(
+                "(b)", (c.transform_selection("mixed", target=target),)))
         elif method == "Reload":
             self.on_reload()
             invocation.return_value(None)

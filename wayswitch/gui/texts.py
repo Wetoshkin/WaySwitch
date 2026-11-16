@@ -169,6 +169,10 @@ def status_view(status: dict | None) -> StatusView:
 # Клавиши действий над выделенным: (поле конфига, заголовок, подпись,
 # подсказка в диалоге выбора клавиши). Значения — английские msgid.
 SELECTION_KEY_ROWS = (
+    ("case_key", "Change case", "lower → UPPER → Word Capitals for selected text",
+     "Press a key to change the case of selected text"),
+    ("mixed_key", "Target layout", "Convert selected words to the chosen layout",
+     "Press a key to convert selected words"),
     ("selection_key", "Fix selection",
      "One press converts the selected text to the other layout",
      "Press the key you will use to fix the selected text"),

@@ -6,6 +6,36 @@
 
 from __future__ import annotations
 
+import unicodedata
+
+
+def cycle_case(text: str) -> str | None:
+    """Unicode lower → upper → word capitals → lower; no locale-specific rules."""
+    cased = [c for c in text if c.lower() != c.upper()]
+    if not cased or len(text) > MAX_TEXT:
+        return None
+    if all(c.islower() for c in cased):
+        result = text.upper()
+    elif all(c.isupper() for c in cased):
+        low, out, first = text.lower(), [], True
+        for i, ch in enumerate(low):
+            if ch.lower() != ch.upper():
+                out.append(ch.upper() if first else ch)
+                first = False
+                continue
+            out.append(ch)
+            if ch.isalpha() or unicodedata.category(ch).startswith('M'):
+                continue
+            if ch in ("'", '’') and not first and i+1 < len(low) and low[i+1].isalpha():
+                continue
+            first = True
+        result = ''.join(out)
+        if result == text:
+            result = low
+    else:
+        result = text.lower()
+    return result if result != text else None
+
 # --- транслитерация -----------------------------------------------------------
 # Читаемая латиница, как пишут в адресах и никах: «Щукин» → «Shchukin»,
 # «Юля» → «Yulya». Ъ и Ь пропадают — обратно они не восстанавливаются.

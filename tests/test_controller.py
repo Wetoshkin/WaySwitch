@@ -135,6 +135,18 @@ def test_dictionary_word_kept(env):
     assert env["typist"].events == [] and env["backend"].set_calls == []
 
 
+@pytest.mark.parametrize("enabled", [False, True])
+def test_short_words_option_applies_after_reload(env, enabled):
+    ctrl = env["ctrl"]
+    ctrl.detector.models = {lang: LanguageModel.load(lang) for lang in ("ru", "en")}
+    cfg = Config()
+    cfg.general.short_words_fix = enabled
+    ctrl.reload_config(cfg)
+    type_text(env, "lf ")
+    assert env["corrected"] == ([("lf", "да", False)] if enabled else [])
+    assert typed_text(env) == ("\b" * 3 + "да " if enabled else "")
+
+
 def test_fix_skipped_when_backend_layout_is_untrusted(env):
     # IBus на GNOME 46+ меняет свой движок, а раскладка компоузитора остаётся
     # прежней: перепечатка легла бы в старую раскладку, поэтому не трогаем текст.

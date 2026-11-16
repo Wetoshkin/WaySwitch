@@ -275,13 +275,23 @@ For `C`/`POSIX`, `LANGUAGE` does not enable the Russian catalog. The Plasma
 widget uses KDE's system language. JSON,
 reason values, the version line and exit codes retain their previous contract.
 
-The `[meta]` section with `schema = 1` identifies the `config.toml` format. Files without the marker are treated as legacy: their
+The `[meta]` section with `schema = 3` identifies the `config.toml` format. Files without the marker are treated as legacy: their
 `settle_ms = 30` is migrated to 120. An explicit 30 saved by this version stays
 30. An older WaySwitch version ignores the marker and replaces 30 with 120 again
 when it saves the file. Saving over a file with an unsupported format marker
 is rejected. The typing delay is read when the service starts: restart the
 service after changing it (`systemctl --user restart wayswitch` for a system
 install); other settings reload immediately.
+
+**Settings → Correction → What to correct → Short words (1–2 letters)**
+enables corrections such as `lf` → `да`, `b` → `и`, `d` → `в`.
+The option (`general.short_words_fix = true`) is off by default because it can
+replace abbreviations. It prefers a top-300 word over a non-top-300 spelling
+when the previous word has the target language or the context is empty.
+Common source words, personal source words, exceptions and technical-token
+protections keep their priority. Without this option the existing short-word
+rules still apply. The tray menu includes a direct **Settings** entry alongside
+**Open WaySwitch**.
 
 ## Updating
 
@@ -343,6 +353,28 @@ be reached. The report omits the field contents and window title.
 If your installed version reports that `--delay` is unknown, run
 `sleep 5; wayswitch doctor; wayswitch status --json` and switch back to the
 field within five seconds. Older versions print daemon status separately.
+
+**keyd is installed.** keyd 2.6.0 and newer skips the WaySwitch virtual
+keyboard because it is created with vendor `0x0FAC`, which keyd treats as its
+own device. This is a keyd implementation detail, not a general virtual-keyboard
+standard. keyd 2.4.3–2.5.0 excludes only the exact name
+`keyd virtual keyboard` and may grab WaySwitch; the daemon's Backspace and
+letters then return through keyd and correction stops after the first Backspace
+(`dict-b: failed` in the log). On those versions, find the actual
+`WaySwitch Virtual Keyboard` ID in `sudo keyd monitor`, add it as an exclusion
+under `[ids]` in every `/etc/keyd/*.conf` file that matches the device
+(for example, `default.conf`), and run `sudo keyd reload`:
+
+```
+[ids]
+*
+-0fac:0001
+```
+
+On keyd 2.5.0, the full ID including its hash from `keyd monitor` narrows the
+exclusion to this device; the prefix `-0fac:0001` also works.
+WaySwitch never edits `/etc/keyd` automatically. Other local rules keyed to
+vendor `0x0FAC` may also treat it as keyd.
 
 A word was fixed by mistake — press <kbd>Shift</kbd> <kbd>Shift</kbd> right
 away. Still stuck — [open an issue](https://github.com/Wetoshkin/WaySwitch/issues/new)
@@ -468,6 +500,43 @@ requires explicit `backend.track_hotkey`; mouse layout switches are invisible
 to the shortcut counter. LibreOffice and some Flatpak applications still have
 known limitations: [LibreOffice and selection](https://github.com/Wetoshkin/WaySwitch/issues/18),
 [Firefox, Telegram and ONLYOFFICE on Bazzite](https://github.com/Wetoshkin/WaySwitch/issues/19).
+
+## Prepared selection actions (not released)
+
+`wayswitch change-case` cycles a confirmed selection through lower case, upper
+case and word capitals. It uses default Unicode casing, preserves combining
+marks and treats an apostrophe between letters as part of the word. Case changes
+can change length (`ß` → `SS`) and are not reversible after three steps.
+An unchanged step is skipped: `A` → `a`, `Я` → `я`, `A B` → `a b`.
+The command preserves the active layout. Both source and result must be
+representable in that layout, including GNOME text transport; otherwise the
+command refuses before writing. Select the appropriate layout first.
+
+`wayswitch mixed-layout --to ru` (or `--to en`) requires an explicit target.
+For example, RU converts `привет vbh` to `привет мир`. Existing target-language
+words and separators remain; converted words must exist in the target model.
+Mixed tokens, technical text, unknown words, ambiguous punctuation and unsupported
+characters refuse the entire command before typing. Technical-prefix conversion
+such as `proxy-ghbkj;tybt` is not implemented. Mixed-script compounds and
+foreign tokens with several potentially ambiguous punctuation characters refuse.
+
+Preferences provides `case_key`, `mixed_key` and `mixed_target` (`current`, `ru`,
+`en`). The current-layout goal is captured when the key tap is recognized. CLI always
+requires `--to`. Both commands retain AT-SPI selection, password, terminal and
+focus checks and verify the same selection again before writing. They do not use
+the clipboard or change automatic correction. Unsupported output characters
+refuse before the selection is replaced.
+
+`pause_hotkey` accepts only `pause`, `scrolllock` or its `scroll_lock` alias;
+an empty value disables it. It cannot share Pause with `manual = "pause_key"`.
+Invalid old values produce a configuration error and are not silently changed.
+evdev observes keys passively: the original event still goes to the desktop/app.
+External Pause/ScrollLock shortcuts cannot be detected; Ctrl+P is a GUI shortcut.
+
+Saving an older config uses schema 3 and preserves its exact contents in
+`config.toml.before-schema-3`. Existing legacy `.before-schema-2` backups remain.
+To return to 1.2.1, restore the schema-2 backup. New installations have no earlier
+config to back up. The installed release is unchanged until a separate release.
 
 ## Development
 

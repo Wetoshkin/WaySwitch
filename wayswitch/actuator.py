@@ -602,7 +602,9 @@ class UInputTypist:
 
         self._ecodes = ecodes
         try:
-            self._ui = UInput({ecodes.EV_KEY: list(range(1, 128))}, name=self.NAME)
+            # keyd >=2.6 skips its own virtual-device vendor before wildcard match.
+            self._ui = UInput({ecodes.EV_KEY: list(range(1, 128))}, name=self.NAME,
+                              vendor=0x0FAC, product=0x1)
         except UInputError as exc:
             # Проверка доступа evdev выбрасывает Exception, а не OSError.
             raise OSError(str(exc)) from exc
