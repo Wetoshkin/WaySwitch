@@ -127,8 +127,15 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     if set(models) != {"ru", "en"}:
         log.warning("не найдена пара русской и английской раскладок; исправления недоступны")
         backend.supports_auto = False
+    try:
+        masks = cfgmod.load_exception_masks()
+    except cfgmod.ConfigError as exc:
+        log.warning("маски исключений не загружены: %s", exc)
+        masks = cfgmod.ExceptionRules()
     detector = Detector(keymap, models, cfgmod.load_exceptions(),
                         SENSITIVITY[config.general.sensitivity])
+    if hasattr(detector, "masks"):
+        detector.masks = masks
 
     ctx = GLib.MainContext.default()
 
@@ -244,6 +251,10 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
             controller.reload_config(new_config)
             detector.exceptions.clear()
             detector.exceptions.update(cfgmod.load_exceptions())
+            try:
+                detector.masks = cfgmod.load_exception_masks()
+            except cfgmod.ConfigError as exc:
+                log.warning("маски исключений не перечитаны: %s", exc)
             log.info("конфиг перечитан")
             if new_config.typing.settle_ms != previous_settle:
                 # Бэкенд получает задержку в конструкторе; остальные настройки
