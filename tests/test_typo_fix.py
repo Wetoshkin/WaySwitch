@@ -1,5 +1,7 @@
 """Тесты опционального исправления опечаток (#67)."""
 
+import pytest
+
 from tests.fakes import (
     RU,
     US,
@@ -78,6 +80,28 @@ def test_typo_index_and_detector_rules():
     # Небоскрёб / небоскреб в словаре сохраняются как есть.
     assert det.decide(keys_for_text(km, "небоскрёб", RU), RU, US, typo_fix=True).action == "keep"
     assert det.decide(keys_for_text(km, "небоскреб", RU), RU, US, typo_fix=True).action == "keep"
+
+
+@pytest.mark.parametrize("other_score, expected", [(-5.0, "keep"), (-8.0, "fix")])
+def test_typo_fallback_does_not_override_valid_ngram_candidate(monkeypatch, other_score, expected):
+    km = make_keymap()
+    models = _models()
+    monkeypatch.setattr(models["ru"], "score", lambda _text: -5.0)
+    monkeypatch.setattr(models["en"], "score", lambda _text: other_score)
+    det = Detector(km, models)
+    keys = keys_for_text(km, "нромально", RU)
+    baseline = det.decide(keys, RU, US)
+    assert baseline.action == "keep"
+    decision = det.decide(keys, RU, US, typo_fix=True)
+    assert decision.action == expected
+    if expected == "keep":
+        assert decision.reason == baseline.reason
+        assert decision.target_text == baseline.target_text
+        assert det._typo_indices == {}
+    else:
+        assert decision.reason == "typo"
+        assert decision.target_text == "нормально"
+        assert decision.same_layout is True
 
 
 def test_typo_respects_layout_priority_masks_personal_and_tech():
