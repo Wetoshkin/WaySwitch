@@ -77,7 +77,8 @@ def test_typo_index_and_detector_rules(monkeypatch):
     # Замена 1 символа в v1 запрещена.
     assert det.decide(keys_for_text(km, "превет", RU), RU, US, typo_fix=True).action == "keep"
     # Слово короче 5 символов не трогается.
-    assert det.decide(keys_for_text(km, "wrod", US), US, RU, typo_fix=True).action == "keep"
+    short_det = Detector(km, _models())
+    assert short_det.decide(keys_for_text(km, "wrod", US), US, RU, typo_fix=True).action == "keep"
     # Неоднозначность (карта / парта / марта) -> keep.
     assert det.decide(keys_for_text(km, "аарта", RU), RU, US, typo_fix=True).action == "keep"
     # Небоскрёб / небоскреб в словаре сохраняются как есть.
