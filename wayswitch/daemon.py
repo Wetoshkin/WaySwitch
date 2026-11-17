@@ -173,7 +173,7 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     probe.poke()
     from wayswitch.atspi_worker import AtspiWorker
 
-    worker = AtspiWorker()
+    worker = AtspiWorker(main_pump=pump)
 
     last_beep = [0.0]
 
