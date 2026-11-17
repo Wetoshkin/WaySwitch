@@ -775,4 +775,4 @@ class Detector:
         delta = b.score - a.score
         if delta >= margin:
             return fix(f"ngram Δ={delta:.2f}", min(1.0, delta / (2 * margin)))
-        return keep_or_typo(f"ngram Δ={delta:.2f} < {margin:.2f}")
+        return keep(f"ngram Δ={delta:.2f} < {margin:.2f}")
