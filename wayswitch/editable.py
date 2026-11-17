@@ -1,8 +1,9 @@
 """Bounded native word replacement for LibreOffice Writer and Calc."""
 
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
-from typing import NamedTuple
+from typing import NamedTuple, Protocol
 
 from wayswitch import a11y
 
@@ -17,6 +18,19 @@ class SpanResult(NamedTuple):
     committed: bool = False
     source_text: str | None = None
     target_text: str | None = None
+
+
+class NativeReplacer(Protocol):
+    """Явный обработчик нативной замены слова в подтверждённом поле."""
+
+    def __call__(
+        self,
+        focus,
+        source: str,
+        target: str,
+        commit: Callable[[], bool | None],
+        stopped: Callable[[], bool],
+    ) -> SpanResult | None: ...
 
 
 def _writer(focus):
@@ -65,7 +79,7 @@ def try_replace(focus, source, target, commit, stopped) -> SpanResult | None:
 
 
 def _normal(focus):
-    return ((_writer(focus) or _calc(focus) and _libreoffice_component(focus) == "calc")
+    return ((_writer(focus) or _calc(focus) and libreoffice_component(focus) == "calc")
             and focus.field is not None
             and focus.app is not None and focus.app.casefold() in {"soffice", "libreoffice"}
             and focus.protection(time.monotonic()) is False)
@@ -294,7 +308,7 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
             # не соответствует набранному и не вправе начинать замену.
             return SpanResult("aborted")
 
-        eventless = _libreoffice_component(focus) == "calc"
+        eventless = libreoffice_component(focus) == "calc"
 
         def confirmed(first, before, after, kind, size, initial_count):
             if not safe():
@@ -394,7 +408,7 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
 _COMPONENTS = frozenset({"writer", "calc", "impress", "draw", "base", "math"})
 
 
-def _libreoffice_component(focus) -> str | None:
+def libreoffice_component(focus) -> str | None:
     """Финальный суффикс отделяет компонент от произвольного имени документа."""
     window = getattr(focus, "window", None)
     if not isinstance(window, str):
@@ -409,13 +423,13 @@ def _libreoffice_component(focus) -> str | None:
 
 
 def _writer_window(focus) -> bool:
-    return _libreoffice_component(focus) == "writer"
+    return libreoffice_component(focus) == "writer"
 
 
 def _kde_identity(focus) -> bool:
     return (isinstance(focus, a11y.FocusSnapshot) and type(focus.app) is str
             and focus.app.casefold() in KDE_APPS
-            and _libreoffice_component(focus) in {"writer", "calc"})
+            and libreoffice_component(focus) in {"writer", "calc"})
 
 
 def _kde_field(field) -> bool:
@@ -547,6 +561,15 @@ def try_replace_kde(focus, source, target, commit, stopped) -> SpanResult | None
                 connection.close_sync(None)
             except Exception:  # noqa: BLE001 — never turn teardown into a keyboard fallback
                 pass
+
+
+def try_replace_auto(focus, source, target, commit, stopped) -> SpanResult | None:
+    """Выбрать нативный обработчик LibreOffice по источнику контекста фокуса."""
+    if not isinstance(focus, a11y.FocusSnapshot):
+        return SpanResult("aborted")
+    if focus.app_ids:
+        return try_replace(focus, source, target, commit, stopped)
+    return try_replace_kde(focus, source, target, commit, stopped)
 
 
 @contextmanager

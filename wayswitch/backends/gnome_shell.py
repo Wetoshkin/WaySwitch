@@ -177,11 +177,6 @@ class ShellTypist:
     def backspace(self, count: int) -> None:
         self._backend.backspace(count)
 
-    def replace_span(self, focus, source: str, target: str, commit, stopped):
-        from wayswitch.editable import try_replace
-
-        return try_replace(focus, source, target, commit, stopped)
-
     def type_text(self, text: str) -> None:
         self._backend.type_text(text)
 
@@ -189,7 +184,4 @@ class ShellTypist:
 def make_typist(backend, keys, mode):
     if mode == "extension" and (extension_version() or 0) >= TYPING_PROTOCOL_VERSION:
         return ShellTypist(backend, keys=keys)
-    from wayswitch.editable import try_replace
-
-    keys.replace_span = try_replace
     return keys
