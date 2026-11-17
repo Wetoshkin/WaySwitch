@@ -87,11 +87,6 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         # Расширения нет: печатаем сканкодами через uinput. Раскладку
         # переключает композитор, паузу после переключения ждёт wait_applied.
         log.info("печать символов: uinput (бэкенд %s)", backend.name)
-        if backend.name == "kde":
-            from wayswitch.editable import try_replace_kde
-
-            # Только KDE: нативный span-протокол для Writer через AT-SPI.
-            typist.replace_span = try_replace_kde
         typist_for_controller = typist
     elif backend.name == "shell":
         from wayswitch.backends.gnome_shell import make_typist
@@ -189,6 +184,11 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
                 target=ensure_and_play, args=(cfgmod.config_dir(),), daemon=True).start()
     cosmic_session = detect_desktop() == COSMIC or backend.name == COSMIC
     native_input_guard = backend.input_locked if backend.name == "umbriel" else None
+    native_replacer = None
+    if backend.name in ("kde", "shell"):
+        from wayswitch.editable import try_replace_auto
+
+        native_replacer = try_replace_auto
     controller = Controller(
         config, keymap, detector, backend, typist_for_controller, pump=pump, dry_run=dry_run,
         screen_locked=lambda: guard.input_locked()
@@ -207,6 +207,7 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         # пока его колбэк не вернулся, события той же клавиатуры (отпускание
         # клавиш, прерывающее нажатие) не доставляются. См. Controller.__init__.
         schedule=lambda fn: GLib.idle_add(lambda: (fn(), False)[1]),
+        native_replacer=native_replacer,
     )
     backend.on_change(controller.on_layout_changed)
 

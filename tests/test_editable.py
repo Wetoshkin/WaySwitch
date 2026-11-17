@@ -1293,7 +1293,7 @@ def test_kde_calc_external_change_without_events_is_refused(kde_native):
     ("LibreOffice Writer.xlsx", None),
 ])
 def test_libreoffice_component_uses_only_the_final_component_suffix(window, expected):
-    assert editable._libreoffice_component(SimpleNamespace(window=window)) == expected
+    assert editable.libreoffice_component(SimpleNamespace(window=window)) == expected
 
 
 def test_kde_calc_final_suffix_with_writer_document_name_uses_readback(kde_native):
@@ -1439,3 +1439,25 @@ def test_kde_rejects_snapshot_with_conflicting_shell_identity(kde_native):
     kde_native.focus = kde_native.focus._replace(app_ids=("libreoffice-writer",))
     assert kde_replace(kde_native) == editable.SpanResult("aborted")
     assert kde_native.tree.reads == kde_native.tree.writes == kde_native.committed == []
+
+
+def test_try_replace_auto_dispatches_by_shell_app_ids(monkeypatch):
+    gnome_calls, kde_calls = [], []
+    gnome_focus = a11y.FocusSnapshot("soffice", False, 100.0, ("libreoffice-writer",), FIELD)
+    kde_focus = a11y.FocusSnapshot("soffice.bin", False, 100.0, (), FIELD,
+                                  window="doc — LibreOffice Writer")
+    commit, stopped = (lambda: True), (lambda: False)
+
+    monkeypatch.setattr(editable, "try_replace",
+                        lambda *args: gnome_calls.append(args) or editable.SpanResult("done", True))
+    monkeypatch.setattr(editable, "try_replace_kde",
+                        lambda *args: kde_calls.append(args) or editable.SpanResult("done", True))
+
+    assert editable.try_replace_auto(
+        gnome_focus, SOURCE, TARGET, commit, stopped) == editable.SpanResult("done", True)
+    assert editable.try_replace_auto(
+        kde_focus, SOURCE, TARGET, commit, stopped) == editable.SpanResult("done", True)
+    assert gnome_calls == [(gnome_focus, SOURCE, TARGET, commit, stopped)]
+    assert kde_calls == [(kde_focus, SOURCE, TARGET, commit, stopped)]
+    assert editable.try_replace_auto(
+        None, SOURCE, TARGET, commit, stopped) == editable.SpanResult("aborted")

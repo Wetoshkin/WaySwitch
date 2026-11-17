@@ -30,7 +30,7 @@ from wayswitch.actuator import (
 from wayswitch.buffer import InputBuffer, KeyPress
 from wayswitch.config import Config, apps_path
 from wayswitch.detector import SENSITIVITY, Detector
-from wayswitch.editable import _libreoffice_component
+from wayswitch.editable import libreoffice_component
 from wayswitch.gesture import ShiftGesture, TapKeyGesture
 from wayswitch.learning import (
     COUNT_LIMIT,
@@ -134,7 +134,8 @@ class Controller:
                  apps_provider: Callable[[], list[str]] = lambda: [],
                  sleep: Callable[[float], None] = time.sleep,
                  schedule_later: Callable[[float, Callable[[], None]], None] | None = None,
-                 schedule: Callable[[Callable[[], None]], None] = lambda fn: fn()):
+                 schedule: Callable[[Callable[[], None]], None] = lambda fn: fn(),
+                 native_replacer=None):
         """`schedule(fn)` — отложить исполнение вне диспатча источника событий;
         в демоне — GLib.idle_add. Источник evdev в GLib не реентрантен: пока
         выполняется его колбэк, события той же клавиатуры не доставляются,
@@ -148,6 +149,7 @@ class Controller:
         self.detector = detector
         self.backend = backend
         self.typist = typist
+        self.native_replacer = native_replacer
         self.clock = clock
         self.pump = pump  # прокрутить очередь событий главного цикла (для отмены)
         self.screen_locked = screen_locked
@@ -902,7 +904,7 @@ class Controller:
                                 or not guarded and old_field is not None) and same_window)
         same_app = old_app in (None, app) or not guarded and not owner_changed
         calc_rebind = (old_probe is self.probe and old_app == app and same_window
-                       and _libreoffice_component(snap) == "calc")
+                       and libreoffice_component(snap) == "calc")
         carry = (old_probe is self.probe and partial_word and app is not None
                  and protection is False and old_protection is not True
                  and same_app and (not owner_changed or calc_rebind)
@@ -1727,7 +1729,8 @@ class Controller:
                              hold=self._wait_shift_released,
                              stop=lambda: self._stop() or not self._selection_valid(
                                  expected, probe, epoch)(),
-                             before_write=before_write)
+                             before_write=before_write,
+                             native_replacer=self.native_replacer)
         except Exception as exc:  # noqa: BLE001 — не выпускать payload провайдера
             result = FAILED
             log.warning("исправить выделенное: ошибка (%s)", type(exc).__name__)
@@ -2161,7 +2164,8 @@ class Controller:
                                  hold=self._wait_shift_released, outcome=outcome, stop=self._stop,
                                  native_append=self._native_append_count,
                                  native_focus=self._native_focus_snapshot,
-                                 before_write=before_write if whole_phrase else None)
+                                 before_write=before_write if whole_phrase else None,
+                                 native_replacer=self.native_replacer)
         except Exception as exc:  # noqa: BLE001 — execute сам ловит, это страховка
             log.error("исправление %s: ошибка %s", reason, type(exc).__name__)
             result = "failed"

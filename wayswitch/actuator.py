@@ -312,7 +312,7 @@ def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: Fal
             hold: Callable[[], bool] | None = None,
             outcome: dict | None = None, stop: Callable[[], bool] = lambda: False,
             before_write: Callable[[], bool] | None = None, native_append=None,
-            native_focus=None) -> str:
+            native_focus=None, native_replacer=None) -> str:
     """before_write проверяется один раз перед первой записью, после ожиданий.
 
     outcome (если передан) получает caps_off: Caps Lock в итоге выключен нами.
@@ -320,9 +320,11 @@ def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: Fal
     run = _Run(backend, abort, restore_group, hold, stop, before_write, native_append,
                native_focus)
     if isinstance(typist, TextTypist):
-        result = _execute_text(plan, typist, run, switch_timeout)
+        result = _execute_text(plan, typist, run, switch_timeout,
+                               native_replacer=native_replacer)
     else:
-        result = _execute_keys(plan, typist, run, key_delay, sleep, switch_timeout)
+        result = _execute_keys(plan, typist, run, key_delay, sleep, switch_timeout,
+                               native_replacer=native_replacer)
     if result != DONE and not stop():
         run.rollback()
     if outcome is not None:
@@ -351,8 +353,8 @@ def _native_shape(plan: Plan):
     return plan.steps[:-2], plan.steps[-2], plan.steps[-1]
 
 
-def _attempt_native(plan: Plan, typist, run: _Run, setup,
-                    precheck_hold: bool = True):
+def _attempt_native(plan: Plan, run: _Run, setup,
+                    precheck_hold: bool = True, native_replacer=None):
     """Один общий native-протокол для текстовой и клавиатурной печати.
 
     Возвращает статус попытки или _NATIVE_FALLBACK, если native-обработчик
@@ -360,7 +362,7 @@ def _attempt_native(plan: Plan, typist, run: _Run, setup,
     транспорта precheck_hold=False: физический Shift проверяет обычный путь,
     если native-возможность не подтвердилась.
     """
-    replace = getattr(typist, "replace_span", None)
+    replace = native_replacer
     shape = _native_shape(plan)
     if replace is None or shape is None:
         return _NATIVE_FALLBACK
@@ -438,7 +440,7 @@ def _attempt_native(plan: Plan, typist, run: _Run, setup,
 
 
 def _execute_keys(plan: Plan, typist, run: _Run, key_delay: float, sleep,
-                  switch_timeout: float) -> str:
+                  switch_timeout: float, native_replacer=None) -> str:
     session = _Session(typist, key_delay, sleep)
 
     def interruption(check_hold: bool = False) -> str | None:
@@ -448,9 +450,9 @@ def _execute_keys(plan: Plan, typist, run: _Run, key_delay: float, sleep,
 
     try:
         native_result = _attempt_native(
-            plan, typist, run,
+            plan, run,
             lambda step: _key_setup(step, typist, session, run, switch_timeout),
-            precheck_hold=False)
+            precheck_hold=False, native_replacer=native_replacer)
         if native_result is not _NATIVE_FALLBACK:
             return native_result
         if plan.require_verified:
@@ -550,13 +552,15 @@ def _key_setup(step, typist, session: _Session, run: _Run,
     return True
 
 
-def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: float) -> str:
+def _execute_text(plan: Plan, typist: TextTypist, run: _Run, switch_timeout: float,
+                  native_replacer=None) -> str:
     step = None
     try:
         # Диапазон фиксируется до смены раскладки, допечатывание не сдвигает его.
         native_result = _attempt_native(
-            plan, typist, run,
-            lambda step: _text_setup(step, typist, run, switch_timeout))
+            plan, run,
+            lambda step: _text_setup(step, typist, run, switch_timeout),
+            native_replacer=native_replacer)
         if native_result is not _NATIVE_FALLBACK:
             return native_result
         if plan.require_verified:
