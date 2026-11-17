@@ -236,6 +236,7 @@ export default class WaySwitchExtension extends Extension {
     GetSelectionAsync(_params, invocation) {
         if (!this._allowed(invocation))
             return;
+        // Устарело (используется AT-SPI): сохранено в окне 1.x для старых демонов до 2.0.
         // PRIMARY — то, что сейчас выделено (без Ctrl+C), во всех тулкитах
         // на Wayland. Буфер обмена человека не трогаем.
         St.Clipboard.get_default().get_text(St.ClipboardType.PRIMARY, (_clip, text) => {

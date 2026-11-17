@@ -43,6 +43,7 @@ def extension_version() -> int | None:
 class GnomeShellBackend(LayoutBackend):
     name = "shell"
     supports_auto = True
+    # Устарело: для выделения используется AT-SPI; будет удалено в 2.0; не добавлять новых вызовов.
     supports_selection = True
 
     def __init__(self, settle_ms: int = 30):
@@ -136,7 +137,7 @@ class GnomeShellBackend(LayoutBackend):
         self._callbacks.append(cb)
 
     def get_selection(self) -> str | None:
-        """Выделенный текст (PRIMARY) — через расширение, буфер обмена не трогаем."""
+        """Устарело: для выделения используется AT-SPI; удаление в 2.0."""
         try:
             (text,) = self._proxy.call_sync("GetSelection", None, 0, 1000, None).unpack()
         except self._GLib.Error as exc:

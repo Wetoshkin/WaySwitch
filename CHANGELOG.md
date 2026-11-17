@@ -7,6 +7,14 @@
 
 ## [Не опубликовано]
 
+- Нативная замена для LibreOffice переведена на явную передачу `native_replacer`
+  в `Controller` и `execute()` без monkey-patching `typist.replace_span` и без
+  приватного импорта `_libreoffice_component` в контроллере. (#59)
+- `LayoutBackend.get_selection`/`supports_selection` и `GetSelection` расширения
+  GNOME Shell помечены устаревшими: используется AT-SPI, окно поддержки — весь
+  `1.x` и минимум один минорный релиз после deprecation; удаление запланировано
+  на `2.0`. (#61)
+
 ## [1.2.2] - 2026-11-16
 
 - Ручная смена регистра выделенного текста и перевод слов в явно выбранную
