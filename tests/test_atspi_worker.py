@@ -389,3 +389,35 @@ def test_controller_uses_injected_selection_reader_and_blocks_uncertain_generati
     )
     assert ctrl.fix_selection() is True
     assert len(reads) == 2
+
+
+def test_worker_main_pump_prevents_deadlock_and_insert_failure_returns_uncertain():
+    events = []
+    tree = WorkerTree(events)
+    tree.on_insert = lambda *_a: False
+    pending_main = []
+
+    @contextmanager
+    def changes(_conn, _field):
+        yield events
+
+    def pump():
+        while pending_main:
+            pending_main.pop(0)()
+
+    worker = AtspiWorker(
+        connection_factory=_fake_conn,
+        tree_factory=lambda _c: tree,
+        changes_factory=changes,
+        context_provider=lambda: a11y.ShellContext(
+            ("libreoffice-writer",), ime_focus=True, pid=123),
+        main_invoke=pending_main.append,
+        main_pump=pump,
+    )
+    try:
+        res = worker.replace_span(
+            make_focus(generation=9), "ghbdtn", "привет", lambda: True, lambda: False)
+        assert res == editable.SpanResult(UNCERTAIN, True)
+        assert worker.uncertain_active is True
+    finally:
+        worker.close(timeout=1.0)

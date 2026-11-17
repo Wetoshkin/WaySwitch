@@ -152,6 +152,7 @@ class AtspiWorker:
                  changes_factory=None,
                  context_provider: Callable[[], a11y.ShellContext | None] | None = None,
                  main_invoke: Callable[[Callable[[], None]], None] | None = None,
+                 main_pump: Callable[[], None] | None = None,
                  clock: Callable[[], float] = time.monotonic,
                  sleep: Callable[[float], None] = time.sleep,
                  max_queue: int = MAX_QUEUE,
@@ -161,6 +162,7 @@ class AtspiWorker:
         self._changes_factory = changes_factory or editable._text_changes
         self._context_provider = context_provider or a11y.query_shell_context
         self._main_invoke = main_invoke or _default_main_invoke
+        self._main_pump = main_pump
         self._clock = clock
         self._sleep = sleep
         self._max_queue = max(1, max_queue)
@@ -214,6 +216,19 @@ class AtspiWorker:
                 self._active_item.token.cancel("cancelled")
             self._cond.notify_all()
 
+    def _wait_item(self, item: _QueuedItem, deadline: float) -> bool:
+        """Ждать завершения запроса, прокручивая main context при необходимости."""
+        while True:
+            remaining = deadline - self._clock()
+            if remaining <= 0:
+                return item.done.is_set()
+            if self._main_pump is None:
+                return item.done.wait(timeout=remaining)
+            if item.done.wait(timeout=min(0.005, remaining)):
+                return True
+            if self._main_pump is not None:
+                self._main_pump()
+
     def close(self, timeout: float = SHUTDOWN_JOIN_SEC) -> None:
         """Остановить приём, отменить ожидающие запросы и дождаться завершения."""
         with self._cond:
@@ -261,8 +276,7 @@ class AtspiWorker:
             self._queue.append(item)
             self._cond.notify_all()
 
-        remaining = max(0.0, deadline - self._clock())
-        if not item.done.wait(timeout=remaining):
+        if not self._wait_item(item, deadline):
             token.cancel("timeout")
             self.cancel(op_id)
             return None
@@ -315,8 +329,7 @@ class AtspiWorker:
             self._queue.append(item)
             self._cond.notify_all()
 
-        remaining = max(0.0, deadline - self._clock())
-        if not item.done.wait(timeout=remaining):
+        if not self._wait_item(item, deadline):
             was_before_write = token.cancel("timeout")
             if not was_before_write:
                 with self._cond:
@@ -486,7 +499,7 @@ class AtspiWorker:
                 if not callable(attr):
                     return attr
                 return lambda *args, **kw: self._call_main(
-                    token, lambda: attr(*args, **kw), False)
+                    token, lambda: attr(*args, **kw), None)
 
         stopped_proxy = _StoppedProxy()
 
@@ -523,6 +536,12 @@ class AtspiWorker:
                     if self._uncertain_generation == req.generation:
                         self._uncertain_active = False
                         self._uncertain_generation = None
+            elif (result is not None and result.status == editable.FAILED
+                  and (result.committed or attempted or token.in_write)):
+                with self._cond:
+                    self._uncertain_active = True
+                    self._uncertain_generation = req.generation
+                return editable.SpanResult(editable.UNCERTAIN, True)
             return result
         except Exception as exc:  # noqa: BLE001
             closed = is_bus_closed_error(exc, conn)
