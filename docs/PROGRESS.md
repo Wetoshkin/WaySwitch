@@ -9,6 +9,20 @@
 12 ноября отдельно проверена установка AppImage и deb из CI. Это не означает
 установку каждого формата пакета и проверку всех рабочих окружений.
 
+## Постоянный AT-SPI worker (#58)
+
+- Реализован `wayswitch/atspi_worker.py` (`AtspiWorker`, `AtspiRequest`, `CancelToken`)
+  с выделенным потоком-владельцем, одним соединением к `org.a11y.Bus`, различением
+  ошибок провайдера и разрыва шины, ограниченной очередью и отменой по `op_id`.
+- В `a11y._read_selection(..., direct=True)` добавлена прямая по-узловая проверка
+  известного поля (`_verify_direct_field`) без повторного полного обхода `find_focus`.
+- В `editable.py`, `actuator.py`, `controller.py` и `daemon.py` подключён worker,
+  добавлен статус `UNCERTAIN` с запретом клавиатурного fallback и блокировкой
+  конфликтующих операций в том же поколении до смены фокуса/quiescence.
+- Полный Windows pytest после всех изменений: **2753 passed, 33 skipped**;
+  Ruff без ошибок. Живая проверка Writer/Calc/браузера и перезапуска `at-spi`
+  на Linux на этом шаге не выполнялась.
+
 ## Адаптер нативной замены LibreOffice и устаревание legacy selection (#59, #61)
 
 - Переименована публичная функция `editable.libreoffice_component()`, добавлены

@@ -27,7 +27,7 @@ from wayswitch.keymap import Keymap
 if TYPE_CHECKING:
     from wayswitch.a11y import FocusSnapshot
 
-DONE, ABORTED, FAILED = "done", "aborted", "failed"
+DONE, ABORTED, FAILED, UNCERTAIN = "done", "aborted", "failed", "uncertain"
 ALL_MODIFIERS = (kc.KEY_LEFTSHIFT, kc.KEY_RIGHTSHIFT, kc.KEY_LEFTCTRL, kc.KEY_RIGHTCTRL,
                  kc.KEY_LEFTALT, kc.KEY_RIGHTALT, kc.KEY_LEFTMETA, kc.KEY_RIGHTMETA)
 
@@ -325,7 +325,7 @@ def execute(plan: Plan, typist, backend, abort: Callable[[], bool] = lambda: Fal
     else:
         result = _execute_keys(plan, typist, run, key_delay, sleep, switch_timeout,
                                native_replacer=native_replacer)
-    if result != DONE and not stop():
+    if result not in (DONE, UNCERTAIN) and not stop():
         run.rollback()
     if outcome is not None:
         outcome["caps_off"] = run.caps_toggle is not None
@@ -422,7 +422,7 @@ def _attempt_native(plan: Plan, run: _Run, setup,
         if (precheck_hold and run.blocked()) or run.aborted():
             return ABORTED
         return _NATIVE_FALLBACK
-    run.committed |= result.committed
+    run.committed |= result.committed or result.status == UNCERTAIN
     if result.status == DONE and not prepared:
         return FAILED
     if result.status == DONE:

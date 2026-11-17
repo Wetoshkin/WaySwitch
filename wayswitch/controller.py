@@ -135,7 +135,8 @@ class Controller:
                  sleep: Callable[[float], None] = time.sleep,
                  schedule_later: Callable[[float, Callable[[], None]], None] | None = None,
                  schedule: Callable[[Callable[[], None]], None] = lambda fn: fn(),
-                 native_replacer=None):
+                 native_replacer=None,
+                 selection_reader=None):
         """`schedule(fn)` — отложить исполнение вне диспатча источника событий;
         в демоне — GLib.idle_add. Источник evdev в GLib не реентрантен: пока
         выполняется его колбэк, события той же клавиатуры не доставляются,
@@ -150,6 +151,8 @@ class Controller:
         self.backend = backend
         self.typist = typist
         self.native_replacer = native_replacer
+        self.selection_reader = selection_reader
+        self._uncertain_generation: int | None = None
         self.clock = clock
         self.pump = pump  # прокрутить очередь событий главного цикла (для отмены)
         self.screen_locked = screen_locked
@@ -1542,11 +1545,16 @@ class Controller:
 
     def _read_bound_selection(self, expected, probe, epoch: int):
         """Ровно одно чтение текущего выделения и проверка его формы."""
+        if self._uncertain_generation is not None:
+            if expected.generation == self._uncertain_generation:
+                return None
+            self._uncertain_generation = None
         valid = self._selection_valid(expected, probe, epoch)
         if not valid():
             return None
         try:
-            selection = focus.read_selection(expected, valid, SELECTION_MAX)
+            reader = self.selection_reader or focus.read_selection
+            selection = reader(expected, valid, SELECTION_MAX)
         except Exception as exc:  # noqa: BLE001 — не показывать текст в журнале
             log.warning("исправить выделенное: чтение не удалось (%s)", type(exc).__name__)
             return None
@@ -2109,6 +2117,11 @@ class Controller:
             return False
         plan.source_text = original + " " * tail
         plan.focus = self._live_snapshot() if self.probe is not None else None
+        if self._uncertain_generation is not None:
+            snap_gen = getattr(plan.focus, "generation", None)
+            if snap_gen == self._uncertain_generation:
+                return False
+            self._uncertain_generation = None
         secret = secret or self._secret_focus()
         outcome = {} if outcome is None else outcome
         outcome["secret"] = secret
@@ -2224,6 +2237,8 @@ class Controller:
                 # буфере — нет. Хвост этого слова не трогаем до пробела.
                 self._skip_word = True
         if result != DONE:
+            if result == "uncertain":
+                self._uncertain_generation = getattr(plan.focus, "generation", None)
             log.info("исправление %s: %s", reason, result)
             self.buffer.reset()
             self._clear_context()
