@@ -139,6 +139,10 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
                         SENSITIVITY[config.general.sensitivity])
     if hasattr(detector, "masks"):
         detector.masks = masks
+    if hasattr(detector, "_defer_typo_build"):
+        detector._defer_typo_build = True
+    if config.general.typo_fix:
+        threading.Thread(target=detector.ensure_typo_index, daemon=True).start()
 
     ctx = GLib.MainContext.default()
 
@@ -265,6 +269,8 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
                 detector.masks = cfgmod.load_exception_masks()
             except cfgmod.ConfigError as exc:
                 log.warning("маски исключений не перечитаны: %s", exc)
+            if new_config.general.typo_fix and not detector.typo_ready():
+                threading.Thread(target=detector.ensure_typo_index, daemon=True).start()
             log.info("конфиг перечитан")
             if new_config.typing.settle_ms != previous_settle:
                 # Бэкенд получает задержку в конструкторе; остальные настройки

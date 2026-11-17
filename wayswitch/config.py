@@ -40,6 +40,7 @@ class General:
     auto_correct: bool = True
     sensitivity: str = "normal"
     short_words_fix: bool = False
+    typo_fix: bool = False
     phrase_timeout_sec: float = 8.0
     undo_window_sec: float = 5.0
     # Пауза автоисправления после Backspace/стрелок/Delete и после ручной смены
@@ -100,7 +101,7 @@ class Gesture:
 
 OLD_SETTLE_MS = 30  # умолчание до 2.0.0a2
 # Маркер позволяет старым читателям отклонить будущий формат без перезаписи файла.
-CONFIG_SCHEMA = 3
+CONFIG_SCHEMA = 4
 _SCHEMA_SECTION = "meta"
 _SCHEMA_KEY = "schema"
 

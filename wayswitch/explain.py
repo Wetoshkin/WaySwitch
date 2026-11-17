@@ -56,6 +56,7 @@ class Settings:
     personal_words: frozenset[tuple[str, str]] = frozenset()
     short_words_fix: bool = False
     masks: cfgmod.ExceptionRules = field(default_factory=cfgmod.ExceptionRules)
+    typo_fix: bool = False
 
 
 def load_settings() -> Settings:
@@ -69,6 +70,7 @@ def load_settings() -> Settings:
     return Settings(
         config.general.sensitivity, frozenset(exceptions), config.general.two_capitals_fix,
         LearnedWords().words, config.general.short_words_fix, masks,
+        config.general.typo_fix,
     )
 
 
@@ -182,7 +184,7 @@ def build_report(
         detector.set_personal_words(settings.personal_words)
     decision = detector.decide(
         keys, source_group, target_group, (None, None), two_capitals=settings.two_capitals_fix,
-        short_words=settings.short_words_fix,
+        short_words=settings.short_words_fix, typo_fix=settings.typo_fix,
     )
     mask_reason = settings.masks.reason(decision.a.core)
     excluded = decision.a.core.lower() in settings.exceptions or mask_reason is not None
@@ -204,6 +206,7 @@ def build_report(
             },
             "two_capitals_fix": settings.two_capitals_fix,
             "short_words_fix": settings.short_words_fix,
+            "typo_fix": settings.typo_fix,
         },
         "a": _hypothesis(decision.a),
         "b": _hypothesis(decision.b),

@@ -225,6 +225,9 @@ class Preferences:
         for key, title, subtitle in (
                 ("short_words_fix", _("Short words (1–2 letters)"),
                  _("May replace abbreviations. Off by default.")),
+                ("typo_fix", _("Fix typos (experimental)"),
+                 _("Fixes missing, extra or swapped letters in words of 5+ characters; "
+                   "false replacements are possible.")),
                 ("punct_fix", _("Punctuation"), "пирогб → пирог,   домю → дом."),
                 ("particles_fix", _("Joined particles"),
                  "чтото → что-то,   кембы → кем бы"),
