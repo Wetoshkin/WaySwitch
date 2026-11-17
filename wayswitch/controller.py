@@ -1157,12 +1157,15 @@ class Controller:
         decision = self.detector.decide(
             keys, current, other, self._context_tuple(),
             short_words=self.config.general.short_words_fix,
-            two_capitals=self.config.general.two_capitals_fix and not self.buffer.caps)
+            two_capitals=self.config.general.two_capitals_fix and not self.buffer.caps,
+            typo_fix=self.config.general.typo_fix and not self._secret_focus())
         log.debug("решение: %s (%s)", decision.action, decision.reason)
         if decision.action == "fix":
-            self._schedule_fix(keys, 1, other, decision.target_text + " ", manual=False,
+            target_group = current if decision.same_layout else other
+            self._schedule_fix(keys, 1, target_group, decision.target_text + " ", manual=False,
                                reason=decision.reason, group_before=current,
-                               trigger=(device_id, code), done=self._context_done(other))
+                               switch=not decision.same_layout,
+                               trigger=(device_id, code), done=self._context_done(target_group))
             return
         self.context.append(decision.a.lang if decision.a.in_dict else None)
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import gzip
 import math
+import threading
 from bisect import bisect_left
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -255,6 +256,84 @@ class Decision:
     reason: str
     a: Hypothesis
     b: Hypothesis
+    same_layout: bool = False
+
+
+MAX_TYPO_KEYS = 2_000_000
+
+
+def _is_one_deletion(shorter: str, longer: str) -> bool:
+    if len(shorter) + 1 != len(longer):
+        return False
+    i = 0
+    while i < len(shorter) and shorter[i] == longer[i]:
+        i += 1
+    return shorter[i:] == longer[i + 1:]
+
+
+def allowed_edit(a: str, b: str) -> bool:
+    """Допустимая правка v1: 1 вставка, 1 удаление или 1 соседняя перестановка (без замен)."""
+    la, lb = len(a), len(b)
+    if la + 1 == lb:
+        return _is_one_deletion(a, b)
+    if la == lb + 1:
+        return _is_one_deletion(b, a)
+    if la == lb and la >= 2:
+        for i in range(la - 1):
+            if a[i] != b[i]:
+                return (a[i] == b[i + 1] and a[i + 1] == b[i]
+                        and a[i + 2:] == b[i + 2:])
+    return False
+
+
+class TypoIndex:
+    """Локальный индекс одного удаления для слов длиной >= 5."""
+
+    def __init__(self, words: Iterable[str]):
+        base_words = frozenset(
+            w for w in words if len(w) >= 5 and w.isalpha() and w.islower()
+        )
+        self.words = base_words
+        buckets: dict[str, list[str]] = {}
+        for word in base_words:
+            for i in range(len(word)):
+                key = word[:i] + word[i + 1:]
+                bucket = buckets.get(key)
+                if bucket is None:
+                    if len(buckets) >= MAX_TYPO_KEYS:
+                        raise MemoryError("typo index key limit exceeded")
+                    buckets[key] = [word]
+                else:
+                    bucket.append(word)
+        self._deletions: dict[str, tuple[str, ...]] = {
+            k: tuple(v) for k, v in buckets.items()
+        }
+
+    def lookup(self, word: str) -> str | None:
+        if not word or len(word) < 5 or not word.isalpha():
+            return None
+        low = word.lower()
+        if low in self.words:
+            return None
+        candidates: set[str] = set()
+        for cand in self._deletions.get(low, ()):
+            if allowed_edit(low, cand):
+                candidates.add(cand)
+        for i in range(len(low)):
+            key = low[:i] + low[i + 1:]
+            if key in self.words and allowed_edit(low, key):
+                candidates.add(key)
+            for cand in self._deletions.get(key, ()):
+                if allowed_edit(low, cand):
+                    candidates.add(cand)
+        if len(candidates) != 1:
+            return None
+        cand = next(iter(candidates))
+        if word.isupper():
+            return cand.upper()
+        if word[0].isupper() and word[1:].islower():
+            return cand[0].upper() + cand[1:]
+        return cand
 
 
 def _split_tail(text: str, letters: set[str]) -> tuple[str, str]:
@@ -286,7 +365,8 @@ class Detector:
     def __init__(self, keymap: Keymap, models: dict[str, LanguageModel],
                  exceptions: set[str] | None = None,
                  sensitivity: Sensitivity = SENSITIVITY["normal"],
-                 exception_masks: ExceptionRules | None = None):
+                 exception_masks: ExceptionRules | None = None,
+                 defer_typo_build: bool = False):
         self.keymap = keymap
         self.models = models
         self.exceptions = exceptions if exceptions is not None else set()
@@ -294,6 +374,39 @@ class Detector:
         self.sensitivity = sensitivity
         self.personal_words: frozenset[tuple[str, str]] = frozenset()
         self._base_models: dict[str, LanguageModel] | None = None
+        self._typo_indices: dict[str, TypoIndex] = {}
+        self._typo_lock = threading.Lock()
+        self._typo_failed = False
+        self._defer_typo_build = defer_typo_build
+
+    def ensure_typo_index(self) -> bool:
+        """Построить индекс опечаток по базовым словарям (вне hot path)."""
+        if self._typo_failed:
+            return False
+        with self._typo_lock:
+            if self._typo_failed:
+                return False
+            base = self._base_models if self._base_models is not None else self.models
+            if set(self._typo_indices) == set(base):
+                return True
+            try:
+                built = {lang: TypoIndex(model.words) for lang, model in base.items()}
+            except MemoryError:
+                self._typo_failed = True
+                self._typo_indices = {}
+                return False
+            self._typo_indices = built
+            return True
+
+    def typo_ready(self) -> bool:
+        base = self._base_models if self._base_models is not None else self.models
+        return bool(self._typo_indices) and set(self._typo_indices) == set(base)
+
+    def typo_candidate(self, core: str, lang: str) -> str | None:
+        idx = self._typo_indices.get(lang)
+        if idx is None:
+            return None
+        return idx.lookup(core)
 
     def is_excluded(self, word: str) -> bool:
         """Слово запрещено точным исключением или маской."""
@@ -548,7 +661,8 @@ class Detector:
 
     def decide(self, keys, current_group: int, other_group: int,
                context: tuple[str | None, str | None] = (None, None), *,
-               two_capitals: bool = False, short_words: bool = False) -> Decision:
+               two_capitals: bool = False, short_words: bool = False,
+               typo_fix: bool = False) -> Decision:
         a = self.hypothesis(keys, current_group)
         b = self.hypothesis(keys, other_group)
         sens = self.sensitivity
@@ -624,21 +738,35 @@ class Detector:
                 return fix("dict-short", 0.8)
             return keep("short")
 
+        def keep_or_typo(reason: str, conf: float = 0.0) -> Decision:
+            if not typo_fix:
+                return keep(reason, conf)
+            ready = (self.typo_ready() if self._defer_typo_build
+                     else self.ensure_typo_index())
+            if (ready and a.valid and not a.in_dict and len(a.core) >= 5
+                    and (a.lang, a.core.lower()) not in self.personal_words
+                    and not self.is_excluded(a.core)):
+                fixed = self.typo_candidate(a.core, a.lang)
+                if fixed is not None and fixed != a.core:
+                    return Decision("fix", fixed + a.tail, 0.75, "typo",
+                                    a, b, same_layout=True)
+            return keep(reason, conf)
+
         # 6–7. N-граммы.
         if not b.valid:
-            return keep("b-invalid")
+            return keep_or_typo("b-invalid")
         if len(b.core) <= 3:
             # Три буквы триграммам не по силам: «cfg», «wtf», «xkb» выглядели
             # бы русскими словами. Короткое слово — только по словарю (выше).
-            return keep("short-ngram")
+            return keep_or_typo("short-ngram")
         b.score = self.models[b.lang].score(b.core)
         a.score = self.models[a.lang].score(a.core) if a.valid else None
         margin = sens.margin * (2.0 if context == (a.lang, a.lang) else 1.0)
         if b.score < sens.floor:
-            return keep(f"ngram-floor {b.score:.2f}")
+            return keep_or_typo(f"ngram-floor {b.score:.2f}")
         if a.score is None:
             return fix(f"ngram-only {b.score:.2f}", 0.7)
         delta = b.score - a.score
         if delta >= margin:
             return fix(f"ngram Δ={delta:.2f}", min(1.0, delta / (2 * margin)))
-        return keep(f"ngram Δ={delta:.2f} < {margin:.2f}")
+        return keep_or_typo(f"ngram Δ={delta:.2f} < {margin:.2f}")

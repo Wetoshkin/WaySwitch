@@ -2369,3 +2369,13 @@ msgstr "Это слово уже есть в точных исключениях
 
 msgid "Short mask may disable many corrections"
 msgstr "Короткая маска может отключить много исправлений"
+
+msgid "Fix typos (experimental)"
+msgstr "Исправлять опечатки (экспериментально)"
+
+msgid ""
+"Fixes missing, extra or swapped letters in words of 5+ characters; false "
+"replacements are possible."
+msgstr ""
+"Исправляет пропущенные, лишние или переставленные буквы в словах от 5 символов; "
+"возможны ложные замены."
