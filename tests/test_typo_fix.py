@@ -47,9 +47,12 @@ def test_allowed_edit_accepts_insert_delete_swap_and_rejects_substitution():
     assert allowed_edit("превет", "привет") is False
 
 
-def test_typo_index_and_detector_rules():
+def test_typo_index_and_detector_rules(monkeypatch):
     km = make_keymap()
-    det = Detector(km, _models())
+    models = _models()
+    # Положительная опечатка допустима только при отклонённом кандидате раскладки.
+    monkeypatch.setattr(models["en"], "score", lambda _text: -8.0)
+    det = Detector(km, models)
     assert det._typo_indices == {}
 
     # При выключенном typo_fix индекс не строится.
@@ -133,12 +136,14 @@ def test_typo_respects_layout_priority_masks_personal_and_tech():
         assert dec.action == "keep"
 
 
-def test_controller_typo_fix_keeps_layout_and_blocks_secret_focus():
+def test_controller_typo_fix_keeps_layout_and_blocks_secret_focus(monkeypatch):
     km = make_keymap()
     cfg = Config()
     cfg.general.typo_fix = True
     cfg.general.skip_password_fields = False
-    det = Detector(km, _models())
+    models = _models()
+    monkeypatch.setattr(models["en"], "score", lambda _text: -8.0)
+    det = Detector(km, models)
     backend = FakeBackend(current=RU)
     typist = RecordingTypist()
     snap = [a11y.FocusSnapshot("editor", False, 100.0, field=(":1.2", "/field"))]
