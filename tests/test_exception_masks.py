@@ -156,9 +156,9 @@ def test_url_masks_block_early_and_word_boundary(scheme, kind):
     assert det.early_url_target(keys, RU, US) == scheme
     assert det.decide(keys, RU, US).reason == "url"
     if kind == "legacy":
-        det.exceptions.add(pattern)
+        det.exceptions.add(pattern.lower())
     else:
-        det.masks = ExceptionRules([ExceptionMask(kind, pattern)])
+        det.masks = ExceptionRules([validate_exception_mask(kind, pattern)])
     assert det.early_url_target(keys, RU, US) is None
     assert det.decide(keys, RU, US).reason == "exception"
 
