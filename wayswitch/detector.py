@@ -16,6 +16,7 @@ from importlib import resources
 from pathlib import Path
 
 from wayswitch import ngram
+from wayswitch.config import ExceptionRules
 from wayswitch.keymap import CYRILLIC, LATIN, Keymap
 
 LANG_OF_ALPHABET = {"ru": "ru", "latin": "en"}
@@ -284,13 +285,28 @@ def _mixed_alphabets(core: str) -> bool:
 class Detector:
     def __init__(self, keymap: Keymap, models: dict[str, LanguageModel],
                  exceptions: set[str] | None = None,
-                 sensitivity: Sensitivity = SENSITIVITY["normal"]):
+                 sensitivity: Sensitivity = SENSITIVITY["normal"],
+                 exception_masks: ExceptionRules | None = None):
         self.keymap = keymap
         self.models = models
         self.exceptions = exceptions if exceptions is not None else set()
+        self.masks = exception_masks if exception_masks is not None else ExceptionRules()
         self.sensitivity = sensitivity
         self.personal_words: frozenset[tuple[str, str]] = frozenset()
         self._base_models: dict[str, LanguageModel] | None = None
+
+    def is_excluded(self, word: str) -> bool:
+        """Слово запрещено точным исключением или маской."""
+        if not word:
+            return False
+        return word.lower() in self.exceptions or self.masks.matches(word)
+
+    def exclusion_reason(self, word: str) -> str | None:
+        if not word:
+            return None
+        if word.lower() in self.exceptions:
+            return "exact"
+        return self.masks.reason(word)
 
     def set_personal_words(self, words) -> None:
         if self._base_models is None:
@@ -430,9 +446,9 @@ class Detector:
             if any(c.lower() not in LETTERS[lang] for c in text) or not text[1:].islower():
                 return None  # знаки, цифры, «ПРив», аббревиатуры — не трогаем
         start = a.lower()
-        if any(e.startswith(start) for e in self.exceptions):
-            return None  # «ghbdtn» в исключениях — не трогать и его начало
-        if any(lang == oth and word.startswith(b.lower()) and word in self.exceptions
+        if any(e.startswith(start) for e in self.exceptions) or self.masks.matches_prefix(a):
+            return None  # «ghbdtn» в исключениях/масках — не трогать и его начало
+        if any(lang == oth and word.startswith(b.lower()) and self.is_excluded(word)
                for lang, word in self.personal_words):
             return None
         if self.models[cur].has_prefix(start):
@@ -571,7 +587,7 @@ class Detector:
             return keep("tech")
         if 2 <= len(a.core) < 5 and a.core.isupper():
             return keep("abbrev")
-        if a.core.lower() in self.exceptions:
+        if self.is_excluded(a.core):
             return keep("exception")
         if _is_camel(b.core) and capitals is None:
             return keep("camel")
@@ -583,7 +599,7 @@ class Detector:
         if ":" in a.tail:
             return keep("punctuation")
         if b.valid and (b.lang, b.core.lower()) in self.personal_words:
-            if b.core.lower() in self.exceptions:
+            if self.is_excluded(b.core):
                 return keep("exception")
             return fix("personal", 1.0)
 

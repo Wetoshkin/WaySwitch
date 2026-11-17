@@ -1105,9 +1105,9 @@ class Controller:
             log.debug("слово пропущено: %s", blocked)
             self.context.append(None)
             return
-        word = "".join(c for c in self.detector.decode(keys, current).lower()
-                       if c.isalpha() or c in "-'")
-        if word and word in self.detector.exceptions:
+        raw_word = "".join(c for c in self.detector.decode(keys, current)
+                           if c.isalpha() or c in "-'")
+        if raw_word and self.detector.is_excluded(raw_word):
             # Исключение действует на все правила, а не только на смену
             # раскладки: откат «расклад-ка» добавил «раскладка» в исключения.
             self.context.append(None)
@@ -1115,7 +1115,7 @@ class Controller:
         if self.detector.personal_words:
             target = self.detector.hypothesis(keys, other)
             if ((target.lang, target.core.lower()) in self.detector.personal_words
-                    and target.core.lower() in self.detector.exceptions):
+                    and self.detector.is_excluded(target.core)):
                 self.context.append(None)
                 return
         punct = self.detector.punct_fix(keys, current, other) \
@@ -1396,9 +1396,9 @@ class Controller:
         except ValueError:
             return
         key = lang, word
-        source_key = "".join(c for c in source.lower() if c.isalpha() or c in "-'")
-        if (source.lower() in self.detector.exceptions or source_key in self.detector.exceptions
-                or word in self.detector.exceptions
+        source_key = "".join(c for c in source if c.isalpha() or c in "-'")
+        if (self.detector.is_excluded(source) or self.detector.is_excluded(source_key)
+                or self.detector.is_excluded(word)
                 or self.detector.models[lang].is_word(word)):
             self._manual_learning = ManualLearningEvent(source, target, scope, end, now, key, None)
             return

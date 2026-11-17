@@ -2306,3 +2306,66 @@ msgstr "Словарь"
 
 msgid "Install"
 msgstr "Установить"
+
+msgid "Unknown exception mask type"
+msgstr "Неизвестный тип маски исключений"
+
+msgid "Mask pattern must not be empty or have leading/trailing spaces"
+msgstr "Шаблон маски не должен быть пустым или с пробелами по краям"
+
+msgid "Invalid exception mask length"
+msgstr "Недопустимая длина шаблона маски"
+
+msgid "Mask pattern contains invalid or regex characters"
+msgstr "Шаблон маски содержит недопустимые или regex-символы"
+
+msgid "Could not read exception masks file"
+msgstr "Не удалось прочитать файл масок исключений"
+
+msgid "Exception masks file exceeds size limit"
+msgstr "Файл масок исключений превышает допустимый размер"
+
+msgid "Exception masks file must be valid UTF-8"
+msgstr "Файл масок исключений должен быть в UTF-8"
+
+msgid "Invalid line format in exception masks file"
+msgstr "Неверный формат строки в файле масок исключений"
+
+msgid "Invalid case flag in exception masks file"
+msgstr "Неверный флаг регистра в файле масок исключений"
+
+msgid "Too many exception mask rules"
+msgstr "Превышено максимальное число масок исключений"
+
+msgid "Exception masks"
+msgstr "Маски исключений"
+
+msgid "Rules by exact match, prefix or substring (without regex)."
+msgstr "Правила по точному совпадению, префиксу или подстроке (без regex)."
+
+msgid "Mask type"
+msgstr "Тип маски"
+
+msgid "Exact"
+msgstr "Точное совпадение"
+
+msgid "Prefix"
+msgstr "Префикс"
+
+msgid "Contains"
+msgstr "Содержит"
+
+msgid "Case-sensitive"
+msgstr "Учитывать регистр"
+
+msgid "Add a mask"
+msgstr "Добавить маску"
+
+msgid "Remove mask"
+msgstr "Удалить маску"
+
+msgid "This word is already in exact exceptions"
+msgstr "Это слово уже есть в точных исключениях"
+
+msgid "Short mask may disable many corrections"
+msgstr "Короткая маска может отключить много исправлений"

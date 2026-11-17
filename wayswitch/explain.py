@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from functools import lru_cache
 
 from wayswitch import config as cfgmod
@@ -55,6 +55,7 @@ class Settings:
     two_capitals_fix: bool
     personal_words: frozenset[tuple[str, str]] = frozenset()
     short_words_fix: bool = False
+    masks: cfgmod.ExceptionRules = field(default_factory=cfgmod.ExceptionRules)
 
 
 def load_settings() -> Settings:
@@ -62,11 +63,12 @@ def load_settings() -> Settings:
     try:
         config = cfgmod.load()
         exceptions = cfgmod.load_exceptions()
+        masks = cfgmod.load_exception_masks()
     except (cfgmod.ConfigError, OSError, UnicodeError) as exc:
         raise ExplainError(_("could not read configuration: {exc}").format(exc=exc)) from exc
     return Settings(
         config.general.sensitivity, frozenset(exceptions), config.general.two_capitals_fix,
-        LearnedWords().words, config.general.short_words_fix,
+        LearnedWords().words, config.general.short_words_fix, masks,
     )
 
 
@@ -174,13 +176,16 @@ def build_report(
             )
         )
 
-    detector = Detector(keymap, models, set(settings.exceptions), sensitivity)
+    detector = Detector(keymap, models, set(settings.exceptions), sensitivity,
+                        exception_masks=settings.masks)
     if settings.personal_words:
         detector.set_personal_words(settings.personal_words)
     decision = detector.decide(
         keys, source_group, target_group, (None, None), two_capitals=settings.two_capitals_fix,
         short_words=settings.short_words_fix,
     )
+    mask_reason = settings.masks.reason(decision.a.core)
+    excluded = decision.a.core.lower() in settings.exceptions or mask_reason is not None
     return {
         "word": word,
         "from": from_lang,
@@ -188,7 +193,8 @@ def build_report(
         "default_from": DEFAULT_FROM,
         "layouts": {"source": source_layout, "target": target_layout},
         "context": [],
-        "exception": decision.a.core.lower() in settings.exceptions,
+        "exception": excluded,
+        "exception_mask": mask_reason,
         "settings": {
             "sensitivity": {
                 "name": settings.sensitivity,
