@@ -189,10 +189,16 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
                 target=ensure_and_play, args=(cfgmod.config_dir(),), daemon=True).start()
     cosmic_session = detect_desktop() == COSMIC or backend.name == COSMIC
     native_input_guard = backend.input_locked if backend.name == "umbriel" else None
+    shell_input = None
+
+    def input_locked():
+        return ((guard.input_locked()
+                 if cosmic_session or native_input_guard is not None else False)
+                or shell_input is not None and shell_input.stream.input_locked)
+
     controller = Controller(
         config, keymap, detector, backend, typist_for_controller, pump=pump, dry_run=dry_run,
-        screen_locked=lambda: guard.input_locked()
-        if cosmic_session or native_input_guard is not None else False,
+        screen_locked=input_locked,
         require_lock_confirmation=cosmic_session,
         on_corrected=lambda o, f, m: _corrected(o, f, m),
         on_fixed=_fixed,
@@ -220,13 +226,6 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
                             controller.on_device_gone, controller.set_caps,
                             on_scroll=controller.on_scroll)
     watcher.start()
-    if not any(kind == "keyboard" for _, _, kind in watcher.devices()):
-        log.error("ни одной клавиатуры не открыто (права на /dev/input?)")
-        watcher.stop()
-        _close_probe(probe)
-        backend.close()
-        typist.close()
-        return 1
 
     def on_sleep(entering: bool) -> None:
         controller.buffer.reset()
@@ -242,6 +241,10 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         try:
             new_config = cfgmod.load(config_path)
             controller.reload_config(new_config)
+            if (new_config.backend.compositor_input != config.backend.compositor_input
+                    or new_config.backend.shell_typing != config.backend.shell_typing):
+                restart("изменён источник клавиатуры или способ печати")
+                return
             detector.exceptions.clear()
             detector.exceptions.update(cfgmod.load_exceptions())
             log.info("конфиг перечитан")
@@ -255,6 +258,46 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
 
     service = DaemonService(controller, reload, on_fatal)
     service.start()
+
+    if config.backend.compositor_input:
+        own_node = typist.device_node() if backend.name == "shell" else None
+        if own_node:
+            from wayswitch.compositor_input import CompositorStream, ShellInput
+
+            stream = CompositorStream(
+                on_key, controller.on_resync, controller.on_device_gone, controller.set_caps,
+                controller.on_click, controller.on_scroll,
+                lambda fn: GLib.idle_add(lambda: (fn(), False)[1]))
+            shell_input = ShellInput(stream, watcher, own_node)
+            try:
+                if not shell_input.start():
+                    raise RuntimeError("unsupported")
+            except Exception as exc:  # noqa: BLE001 — не выводить содержимое D-Bus
+                log.warning("ввод GNOME недоступен (%s); переподключение RDP не подтверждено",
+                            type(exc).__name__)
+                shell_input.close()
+                shell_input = None
+            else:
+                log.info("экспериментальный ввод GNOME включён; "
+                         "переподключите удалённую клавиатуру")
+
+                def watched_changed():
+                    try:
+                        shell_input.watched_changed()
+                    except Exception:  # noqa: BLE001 — потеря синхронизации запрещает поток
+                        shell_input.close()
+
+                watcher.on_changed = watched_changed
+        else:
+            log.warning("ввод GNOME требует shell-бэкенд и точный узел собственной клавиатуры")
+    if (not any(kind == "keyboard" for _, _, kind in watcher.devices())
+            and not (shell_input is not None and shell_input.active)):
+        log.error("ни одной клавиатуры не открыто (права на /dev/input?)")
+        watcher.stop()
+        _close_probe(probe)
+        backend.close()
+        typist.close()
+        return 1
 
     from gi.repository import Gio
 
@@ -280,6 +323,9 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     finally:
         # close() не ждёт поток: главный цикл не должен блокироваться на опросе.
         _close_probe(probe)
+        watcher.on_changed = None
+        if shell_input is not None:
+            shell_input.close()
         watcher.stop()
         backend.close()
         typist.close()

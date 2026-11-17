@@ -108,3 +108,18 @@ def test_run_waits_before_initializing_backend(evdev, monkeypatch):
     monkeypatch.setattr(daemon, "choose_backend", backend)
     with pytest.raises(BackendReached):
         daemon.run(None, False, False)
+
+
+def test_own_node_is_bound_to_kernel_fd_not_a_name_based_guess(evdev, monkeypatch, tmp_path):
+    typist = UInputTypist.__new__(UInputTypist)
+    typist._ui = SimpleNamespace(fd=42, device=SimpleNamespace(path="/dev/input/event999"))
+    calls = []
+    monkeypatch.setattr(evdev, "_uinput", SimpleNamespace(
+        get_sysname=lambda fd: calls.append(fd) or "input8"), raising=False)
+    (tmp_path / "input8" / "event17").mkdir(parents=True)
+    assert typist.device_node(tmp_path) == "/dev/input/event17"
+    assert calls == [42]
+    (tmp_path / "input8" / "event18").mkdir()
+    assert typist.device_node(tmp_path) is None
+    evdev._uinput.get_sysname = lambda _fd: "../input8"
+    assert typist.device_node(tmp_path) is None

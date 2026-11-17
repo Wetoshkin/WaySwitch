@@ -224,7 +224,35 @@ Additional layouts need ordinary cyclic XKB shortcuts such as
 
 ### Remote desktop (RDP)
 
-WaySwitch reads keyboard devices belonging to the local session. Separate RDP
+The source tree includes an **unreleased experimental** GNOME virtual-keyboard
+input source (#45). Live RDP validation has not been performed; compatibility
+with a particular server/client is unconfirmed. The default mode is unchanged.
+For later validation, set these values in `~/.config/wayswitch/config.toml`:
+
+```toml
+[backend]
+shell_typing = "uinput"
+compositor_input = true
+```
+
+This opt-in mode requires GNOME Wayland, the updated extension and access to
+`/dev/uinput`. If the extension has already typed through its own virtual device,
+sign out of GNOME and back in first. Reconnect RDP after the service starts:
+devices that predate the filter have unknown pressed state and are refused.
+Only a verified class of newly created internal Mutter virtual keyboards is
+accepted. Support for all RDP, VNC, VM or on-screen keyboard sources is not
+claimed; X11/xrdp is outside this mode.
+
+Watched evdev keyboards are not duplicated. The output device is excluded by
+its exact device node, without a name-based search. Sequence
+gaps, ambiguous repeats and queue overflow reset the buffer and block correction
+until complete key release; the remaining word is discarded until Space, Tab
+or Enter. Unknown identity/seat/API requires a service restart
+and reconnect; restart the service after the extension restarts as well. To opt
+out, set `compositor_input = false` and restart the service. This uses config
+schema 4; restore `config.toml.before-schema-4` before downgrading.
+
+The released version reads keyboard devices belonging to the local session. Separate RDP
 sessions are unsupported: their input may bypass these devices, and `uaccess`
 grants device access to the active local session. If `/dev/uinput` is unavailable,
 the service waits for access and continues startup automatically when it returns.

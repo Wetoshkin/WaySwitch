@@ -33,11 +33,13 @@ class DeviceWatcher:
     def __init__(self, on_key: Callable[[int, int, int], None], on_click: Callable[[], None],
                  on_resync: Callable[[int, list[int]], None], on_gone: Callable[[int], None],
                  on_caps: Callable[[bool], None],
-                 on_scroll: Callable[[], None] | None = None):
+                 on_scroll: Callable[[], None] | None = None,
+                 on_changed: Callable[[], None] | None = None):
         self.on_key, self.on_click = on_key, on_click
         # Колесо мыши: само слово не трогает, но разрывает тап-жест (Ctrl+колесо
         # — это масштаб, а не «перевернуть слово»).
         self.on_scroll = on_scroll
+        self.on_changed = on_changed
         self.on_resync, self.on_gone, self.on_caps = on_resync, on_gone, on_caps
         self._devices: dict[str, tuple] = {}  # путь → (dev, device_id, kind, source_id)
         self._next_id = 1
@@ -128,6 +130,8 @@ class DeviceWatcher:
         source = GLib.io_add_watch(dev.fd, GLib.PRIORITY_DEFAULT, condition,
                                    self._on_readable, path)
         self._devices[path] = (dev, device_id, kind, source)
+        if self.on_changed is not None:
+            self.on_changed()
         log.info("слушаю %s: %s (%s)", kind, dev.name, path)
 
     def _close(self, path: str) -> None:
@@ -144,6 +148,8 @@ class DeviceWatcher:
             pass
         if kind == "keyboard":
             self.on_gone(device_id)
+        if self.on_changed is not None:
+            self.on_changed()
         log.info("устройство отключено: %s", path)
 
     def _on_readable(self, _fd, condition, path: str) -> bool:

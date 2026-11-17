@@ -15,6 +15,7 @@ import St from 'gi://St';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Keyboard from 'resource:///org/gnome/shell/ui/status/keyboard.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import {CompositorInput} from './compositorInput.js';
 
 const BUS_NAME = 'io.github.Wetoshkin.WaySwitch.Shell';
 const OBJECT_PATH = '/io/github/Wetoshkin/WaySwitch/Shell';
@@ -23,6 +24,7 @@ const DAEMON_NAME = 'io.github.Wetoshkin.WaySwitch';
 // фрагмент — до нескольких тысяч.
 const MAX_TEXT = 4000;
 const MAX_BACKSPACE = 512;
+let virtualOutputUsed = false;
 const IFACE_XML = `
 <node>
   <interface name="io.github.Wetoshkin.WaySwitch.Shell">
@@ -44,13 +46,31 @@ const IFACE_XML = `
     <method name="Backspace"><arg type="u" name="count" direction="in"/></method>
     <method name="GetSelection"><arg type="s" name="text" direction="out"/></method>
     <method name="GetVersion"><arg type="u" name="version" direction="out"/></method>
+    <method name="GetInputCapabilities"><arg type="as" direction="out"/></method>
+    <method name="SetWatchedDevices"><arg type="as" direction="in"/></method>
+    <method name="EnableCompositorInput">
+      <arg type="s" name="own_node" direction="in"/>
+      <arg type="u" name="generation" direction="out"/>
+    </method>
+    <method name="DisableCompositorInput"/>
+    <signal name="CompositorKey">
+      <arg type="u"/><arg type="u"/><arg type="i"/><arg type="u"/>
+      <arg type="u"/><arg type="u"/><arg type="b"/>
+    </signal>
+    <signal name="CompositorResync">
+      <arg type="i"/><arg type="u"/><arg type="u"/><arg type="u"/>
+      <arg type="au"/><arg type="b"/>
+    </signal>
+    <signal name="CompositorDeviceGone"><arg type="i"/><arg type="u"/><arg type="u"/></signal>
+    <signal name="CompositorBoundary"><arg type="u"/><arg type="u"/></signal>
+    <signal name="CompositorFault"><arg type="u"/></signal>
     <signal name="LayoutChanged"><arg type="u" name="index"/></signal>
     <signal name="FocusedContextChanged"/>
   </interface>
 </node>`;
 // Версия протокола: демон сверяет её и просит перелогиниться, если Shell
 // держит старую копию расширения (на Wayland оно перезагружается только так).
-const PROTOCOL_VERSION = 4;
+const PROTOCOL_VERSION = 5;
 
 // GNOME 51 убрал Clutter.get_default_backend() — берём бэкенд у контекста
 // сцены (get_backend() есть с GNOME 48), а старый путь оставляем для 46–47.
@@ -64,15 +84,20 @@ function defaultBackend() {
 export default class WaySwitchExtension extends Extension {
     enable() {
         this._ism = Keyboard.getInputSourceManager();
-        const seat = defaultBackend().get_default_seat();
-        this._vdev = seat.create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
+        this._vdev = null;
+        this._input = null;
+        this._inputGeneration = 0;
+        this._watchedDevices = new Set();
         this._daemon = null;
         this._watchId = Gio.DBus.session.watch_name(DAEMON_NAME,
             Gio.BusNameWatcherFlags.NONE,
             (_conn, _name, owner) => {
+                if (this._daemon !== owner)
+                    this._stopCompositorInput();
                 this._daemon = owner;
             },
             () => {
+                this._stopCompositorInput();
                 this._daemon = null;
             });
         this._dbus = Gio.DBusExportedObject.wrapJSObject(IFACE_XML, this);
@@ -88,6 +113,7 @@ export default class WaySwitchExtension extends Extension {
     }
 
     disable() {
+        this._stopCompositorInput();
         for (const [object, id] of this._focusSignals ?? [])
             object.disconnect(id);
         this._focusSignals = [];
@@ -154,6 +180,73 @@ export default class WaySwitchExtension extends Extension {
         return PROTOCOL_VERSION;
     }
 
+    GetInputCapabilities() {
+        return CompositorInput.capabilities(defaultBackend().get_default_seat());
+    }
+
+    SetWatchedDevicesAsync([paths], invocation) {
+        if (!this._allowed(invocation))
+            return;
+        if (paths.length > 256 || paths.some(path => !/^\/dev\/input\/event[0-9]+$/.test(path))) {
+            invocation.return_dbus_error('org.freedesktop.DBus.Error.InvalidArgs',
+                'Invalid watched device paths');
+            return;
+        }
+        this._watchedDevices.clear();
+        for (const path of paths)
+            this._watchedDevices.add(path);
+        invocation.return_value(null);
+    }
+
+    EnableCompositorInputAsync([ownNode], invocation) {
+        if (!this._allowed(invocation))
+            return;
+        // У ClutterVirtualInputDevice нет публичной связи с source-device событий.
+        if (virtualOutputUsed || this._vdev || this._inputGeneration >= 0xFFFFFFFF) {
+            invocation.return_dbus_error('org.freedesktop.DBus.Error.NotSupported',
+                'Restart GNOME Shell before enabling compositor input');
+            return;
+        }
+        this._stopCompositorInput();
+        try {
+            const owner = this._daemon;
+            this._inputGeneration++;
+            this._input = new CompositorInput(defaultBackend().get_default_seat(), ownNode,
+                this._watchedDevices, this._inputGeneration, (name, params) => {
+                    if (owner === this._daemon)
+                        Gio.DBus.session.emit_signal(owner, OBJECT_PATH, BUS_NAME, name, params);
+                });
+            invocation.return_value(new GLib.Variant('(u)', [this._inputGeneration]));
+        } catch (_) {
+            invocation.return_dbus_error('org.freedesktop.DBus.Error.NotSupported',
+                'Compositor input is unavailable');
+        }
+    }
+
+    DisableCompositorInputAsync(_params, invocation) {
+        if (!this._allowed(invocation))
+            return;
+        this._stopCompositorInput();
+        invocation.return_value(null);
+    }
+
+    _stopCompositorInput() {
+        if (this._input)
+            this._inputGeneration = Math.max(this._inputGeneration, this._input.generation);
+        this._input?.close();
+        this._input = null;
+    }
+
+    _allowTyping(invocation) {
+        if (!this._allowed(invocation))
+            return false;
+        if (!this._input)
+            return true;
+        invocation.return_dbus_error('org.freedesktop.DBus.Error.NotSupported',
+            'Compositor input requires uinput typing');
+        return false;
+    }
+
     GetFocusedApp() {
         const window = global.display.focus_window;
         if (!window)
@@ -205,7 +298,7 @@ export default class WaySwitchExtension extends Extension {
     }
 
     TypeTextAsync([text], invocation) {
-        if (!this._allowed(invocation))
+        if (!this._allowTyping(invocation))
             return;
         if (text.length > MAX_TEXT) {
             invocation.return_dbus_error('org.freedesktop.DBus.Error.LimitsExceeded',
@@ -225,7 +318,7 @@ export default class WaySwitchExtension extends Extension {
     }
 
     BackspaceAsync([count], invocation) {
-        if (!this._allowed(invocation))
+        if (!this._allowTyping(invocation))
             return;
         const n = Math.min(count, MAX_BACKSPACE);
         for (let i = 0; i < n; i++)
@@ -244,6 +337,13 @@ export default class WaySwitchExtension extends Extension {
     }
 
     _tap(keyval) {
+        if (this._input)
+            throw Error('Compositor input requires uinput typing');
+        if (!this._vdev) {
+            virtualOutputUsed = true;
+            this._vdev = defaultBackend().get_default_seat()
+                .create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
+        }
         // Время для виртуального устройства — микросекунды монотонных часов.
         // press и release обязаны иметь РАЗНОЕ время: с одинаковой меткой
         // последнее нажатие в серии (чаще всего это пробел в конце

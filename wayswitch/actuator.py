@@ -615,5 +615,22 @@ class UInputTypist:
     def syn(self) -> None:
         self._ui.syn()
 
+    def device_node(self, sys_root="/sys/class/input") -> str | None:
+        import re
+        from pathlib import Path
+
+        try:
+            from evdev import _uinput
+
+            # UI_GET_SYSNAME связывает узел с нашим fd; поиск только по имени неоднозначен.
+            sysname = _uinput.get_sysname(self._ui.fd)
+            if not isinstance(sysname, str) or not re.fullmatch(r"input[0-9]+", sysname):
+                return None
+            nodes = [path.name for path in (Path(sys_root) / sysname).glob("event*")
+                     if re.fullmatch(r"event[0-9]+", path.name)]
+            return "/dev/input/" + nodes[0] if len(nodes) == 1 else None
+        except (ImportError, AttributeError, OSError):
+            return None
+
     def close(self) -> None:
         self._ui.close()

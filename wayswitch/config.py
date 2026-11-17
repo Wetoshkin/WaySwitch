@@ -98,7 +98,7 @@ class Gesture:
 
 OLD_SETTLE_MS = 30  # умолчание до 2.0.0a2
 # Маркер позволяет старым читателям отклонить будущий формат без перезаписи файла.
-CONFIG_SCHEMA = 3
+CONFIG_SCHEMA = 4
 _SCHEMA_SECTION = "meta"
 _SCHEMA_KEY = "schema"
 
@@ -121,6 +121,7 @@ class Backend:
     # счётчиком нажатий сочетания. Он ошибается при смене раскладки мышью,
     # поэтому автоисправление там включается только по желанию.
     track_hotkey: bool = False
+    compositor_input: bool = False
 
 
 @dataclass
@@ -267,6 +268,8 @@ def _validate(cfg: Config) -> None:
         raise ConfigError(f"prefer: допустимо {BACKEND_PREFS}")
     if b.shell_typing not in SHELL_TYPING:
         raise ConfigError(f"shell_typing: допустимо {SHELL_TYPING}")
+    if b.compositor_input and b.shell_typing != "uinput":
+        raise ConfigError("compositor_input: требуется shell_typing = uinput")
 
 
 # Клавиши действий над выделенным текстом и что они делают (для сообщений).

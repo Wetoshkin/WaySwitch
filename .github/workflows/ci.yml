@@ -34,8 +34,10 @@ jobs:
       - name: Синтаксис расширения
         run: |
           node --input-type=module --check < extension/wayswitch@wetoshkin.github.io/extension.js
+          node --input-type=module --check < extension/wayswitch@wetoshkin.github.io/compositorInput.js
           node tests/test_extension_focus.cjs
           node tests/test_extension_typing.cjs
+          node tests/test_extension_input.cjs
 
   nix:
     needs: test
