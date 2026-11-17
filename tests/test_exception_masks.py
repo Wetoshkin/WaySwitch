@@ -143,3 +143,28 @@ def test_explain_reports_mask_exclusion(tmp_path, monkeypatch):
                          cfgmod.exceptions_masks_path())
     settings = explain.load_settings()
     assert settings.masks.reason("ghbdtn") == "prefix"
+
+
+@pytest.mark.parametrize("scheme", ["http://", "https://", "ftp://"])
+@pytest.mark.parametrize("kind", ["exact", "prefix", "contains", "legacy"])
+def test_url_masks_block_early_and_word_boundary(scheme, kind):
+    km = make_keymap()
+    keys = keys_for_text(km, scheme, US)
+    source = km.decode(keys, RU)
+    pattern = source if kind in {"exact", "legacy"} else source[:2]
+    det = Detector(km, _models())
+    assert det.early_url_target(keys, RU, US) == scheme
+    assert det.decide(keys, RU, US).reason == "url"
+    if kind == "legacy":
+        det.exceptions.add(pattern)
+    else:
+        det.masks = ExceptionRules([ExceptionMask(kind, pattern)])
+    assert det.early_url_target(keys, RU, US) is None
+    assert det.decide(keys, RU, US).reason == "exception"
+
+    ctrl = Controller(Config(), km, det, FakeBackend(current=RU), RecordingTypist(),
+                      clock=lambda: 100.0, probe=FakeProbe(lambda: 100.0, app="editor"))
+    scheduled = []
+    ctrl._schedule_fix = lambda *args, **kwargs: scheduled.append((args, kwargs))
+    ctrl._on_letter(keys, 1, keys[-1].code)
+    assert scheduled == []

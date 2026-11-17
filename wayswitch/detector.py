@@ -351,6 +351,10 @@ class Detector:
         """Слово в другой раскладке — ровно схема URL: исправлять, не дожидаясь пробела."""
         if self.lang_of_group(other_group) != "en":
             return None
+        source = self.decode(keys, current_group)
+        if (any(e.startswith(source.lower()) for e in self.exceptions)
+                or self.masks.matches_prefix(source)):
+            return None
         b = self.decode(keys, other_group)
         return b if b.lower() in URL_SCHEMES else None
 
@@ -568,6 +572,8 @@ class Detector:
         bl = b.text.lower()
         if (bl.startswith(TECH_PREFIXES) or "://" in bl) and not a.in_dict \
                 and b.lang == "en":
+            if self.is_excluded(a.text) or self.is_excluded(a.core):
+                return keep("exception")
             return Decision("fix", b.text, 1.0, "url", a, b)
 
         # 3. Стоп-правила по тому, что на экране.
