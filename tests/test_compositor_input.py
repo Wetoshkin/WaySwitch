@@ -185,6 +185,7 @@ def test_remote_word_uses_same_controller_correction_and_protection(mode):
     pending, corrected = [], []
     probe = SafeProbe(lambda: 100.0)
     if mode == "password":
+        cfg.general.skip_password_fields = True
         probe.snapshot = lambda: FocusSnapshot("editor", True, 100.0)
     typist = RecordingTypist()
     controller = Controller(
