@@ -9,6 +9,19 @@
 12 ноября отдельно проверена установка AppImage и deb из CI. Это не означает
 установку каждого формата пакета и проверку всех рабочих окружений.
 
+## Адаптер нативной замены LibreOffice и устаревание legacy selection (#59, #61)
+
+- Переименована публичная функция `editable.libreoffice_component()`, добавлены
+  протокол `NativeReplacer` и диспетчер `try_replace_auto()`. В `Controller` и
+  `actuator.execute()` добавлена явная передача `native_replacer` без
+  monkey-patching `typist.replace_span` и без приватного импорта в контроллере.
+- `LayoutBackend.get_selection`/`supports_selection`, `GnomeShellBackend.get_selection`
+  и `GetSelection` расширения GNOME Shell помечены устаревшими на окно поддержки
+  `1.x` (удаление запланировано на `2.0`); AT-SPI-чтение выделения не менялось.
+- Полный Windows pytest после всех изменений: **2745 passed, 33 skipped**;
+  Ruff без ошибок. Живая проверка LibreOffice Writer/Calc на GNOME и KDE
+  на этом шаге не выполнялась.
+
 ## Подготовка 1.2.2: объединение проверенных изменений
 
 - Объединены адаптивные диалоги, ручные команды и ограничения клавиши паузы,

@@ -15,6 +15,7 @@ class BackendError(RuntimeError):
 class LayoutBackend(ABC):
     name = "abstract"
     supports_auto = False  # можно ли доверять current() для автоисправления
+    # Устарело: для выделения используется AT-SPI; будет удалено в 2.0; не добавлять новых вызовов.
     supports_selection = False
     # Переключать раскладку перед каждой печатью, даже «на ту же»: в Sway и
     # Hyprland у каждого устройства своя группа, и наша виртуальная
@@ -57,7 +58,7 @@ class LayoutBackend(ABC):
         return True
 
     def get_selection(self) -> str | None:
-        """Выделенный сейчас текст (для «Исправить выделенное»); None — бэкенд не умеет."""
+        """Устарело: для выделения используется AT-SPI; удаление в 2.0."""
         return None
 
     def close(self) -> None:  # noqa: B027 — необязательный хук, не все бэкенды держат ресурсы
