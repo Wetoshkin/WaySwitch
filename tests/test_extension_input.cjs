@@ -34,6 +34,7 @@ InputDevice.$gtype = 'MetaInputDeviceNative';
 const Clutter = {Event, InputDevice, EventType, EVENT_PROPAGATE: false,
     EventFlags: {FLAG_REPEATED: 4, FLAG_SYNTHETIC: 1, FLAG_INPUT_METHOD: 2},
     ModifierType: {LOCK_MASK: 2}, InputMode: {PHYSICAL: 1},
+    KeyState: {PRESSED: 1, RELEASED: 0},
     InputDeviceType: {KEYBOARD_DEVICE: 1},
     get_default_backend: () => ({get_default_seat: () => seat})};
 const GLib = {get_monotonic_time: () => now, PRIORITY_DEFAULT: 0,
