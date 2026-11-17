@@ -1,20 +1,87 @@
 """Тесты постоянного AT-SPI worker (#58)."""
 
+import sys
 import threading
 import time
 from contextlib import contextmanager
 from types import SimpleNamespace
 
+import pytest
+
 from tests.fakes import RU, US, FakeBackend, RecordingTypist, make_keymap
 from tests.test_focus import DictTree
 from wayswitch import a11y, editable
 from wayswitch.actuator import ABORTED, UNCERTAIN, Backspace, Plan, SwitchLayout, Type, execute
-from wayswitch.atspi_worker import AtspiWorker, CancelToken, is_bus_closed_error
+from wayswitch.atspi_worker import (
+    AtspiWorker,
+    CancelToken,
+    _default_main_invoke,
+    is_bus_closed_error,
+)
 from wayswitch.config import Config
 from wayswitch.controller import Controller
 from wayswitch.detector import Detector, LanguageModel
 
 FIELD = (":1.9", "/field")
+
+
+def test_default_main_invoke_queues_callback_without_worker_thread_fallback(monkeypatch):
+    pending, calls = [], []
+    glib = SimpleNamespace(idle_add=pending.append)
+    repository = SimpleNamespace(GLib=glib)
+    monkeypatch.setitem(sys.modules, "gi", SimpleNamespace(repository=repository))
+    monkeypatch.setitem(sys.modules, "gi.repository", repository)
+    _default_main_invoke(lambda: calls.append(threading.get_ident()))
+    assert calls == []
+    assert len(pending) == 1
+    assert pending.pop()() is False
+    assert calls == [threading.get_ident()]
+
+
+@pytest.mark.parametrize("expired", [False, True])
+@pytest.mark.parametrize("phase", ["before-insert", "toolkit", "before-delete"])
+def test_dbus_tree_checks_token_at_each_write_after_insert_metadata(phase, expired):
+    now = [1.0]
+    token = CancelToken(1, 0, 2.0, clock=lambda: now[0])
+    writes = []
+
+    def cancel():
+        if expired:
+            now[0] = 2.0
+        else:
+            token.cancel()
+
+    def call_sync(_bus, _path, _iface, method, *_args):
+        if method == "GetApplication":
+            reply = (FIELD,)
+        elif method == "Get":
+            if phase == "toolkit":
+                cancel()
+            reply = ("gtk",)
+        else:
+            writes.append(method)
+            reply = (True,)
+        return SimpleNamespace(unpack=lambda: reply)
+
+    tree = a11y._DbusTree.__new__(a11y._DbusTree)
+    tree._conn = SimpleNamespace(call_sync=call_sync)
+    tree._Gio = SimpleNamespace(DBusCallFlags=SimpleNamespace(NONE=0))
+    tree._GLib = SimpleNamespace(
+        Variant=lambda _sig, value: value, VariantType=lambda sig: sig, Error=RuntimeError)
+    tree._before_write = token.begin_write
+    if phase == "before-insert":
+        cancel()
+    inserted = tree.insert_text(FIELD, 0, "привет")
+    if phase == "before-delete":
+        assert inserted is True
+        cancel()
+        assert tree.delete_text(FIELD, 6, 12) is None
+        assert writes == ["InsertText"]
+        assert token.in_write is True
+    else:
+        assert inserted is None
+        assert writes == []
+        assert token.in_write is False
 
 
 def _fake_conn():
@@ -69,6 +136,8 @@ class WorkerTree(DictTree):
         return self.text[start:end]
 
     def insert_text(self, node, start, value):
+        if not self._before_write():
+            return None
         self.threads.append(threading.get_ident())
         self.writes.append(("insert", start, value))
         if self.on_insert is not None:
@@ -79,6 +148,8 @@ class WorkerTree(DictTree):
         return True
 
     def delete_text(self, node, start, end):
+        if not self._before_write():
+            return None
         self.writes.append(("delete", start, end))
         if self.on_delete is not None:
             return self.on_delete(start, end)
@@ -93,6 +164,41 @@ def make_focus(generation=1, app="soffice", app_ids=("libreoffice-writer",)):
         app, False, time.monotonic(), app_ids, FIELD,
         window="doc — LibreOffice Writer", generation=generation,
     )
+
+
+def test_worker_cancel_during_final_context_query_cannot_start_insert():
+    events = []
+    tree = WorkerTree(events)
+    committed = [False]
+    final_queries = [0]
+    context = a11y.ShellContext(("libreoffice-writer",), ime_focus=True, pid=123)
+
+    def get_context():
+        if committed[0]:
+            final_queries[0] += 1
+            if final_queries[0] == 2:
+                worker.cancel(worker._active_item.request.op_id)
+        return context
+
+    def commit():
+        committed[0] = True
+        return True
+
+    @contextmanager
+    def changes(_conn, _field):
+        yield events
+
+    worker = AtspiWorker(
+        connection_factory=_fake_conn, tree_factory=lambda _conn: tree,
+        changes_factory=changes, context_provider=get_context, main_invoke=lambda fn: fn())
+    try:
+        result = worker.replace_span(make_focus(), "ghbdtn", "привет", commit, lambda: False)
+        assert result == editable.SpanResult(ABORTED)
+        assert final_queries[0] == 2
+        assert tree.writes == []
+        assert worker.uncertain_active is False
+    finally:
+        worker.close(timeout=1.0)
 
 
 def test_worker_reuses_single_connection_in_owner_thread_and_skips_bfs(monkeypatch):

@@ -131,16 +131,9 @@ class _QueuedItem:
 
 
 def _default_main_invoke(fn: Callable[[], None]) -> None:
-    try:
-        from gi.repository import GLib
-        ctx = GLib.MainContext.default()
-    except Exception:  # noqa: BLE001
-        fn()
-        return
-    if ctx is None or not hasattr(ctx, "is_owner") or ctx.is_owner():
-        fn()
-        return
-    ctx.invoke(lambda: (fn(), False)[1])
+    from gi.repository import GLib
+
+    GLib.idle_add(lambda: (fn(), False)[1])
 
 
 class AtspiWorker:
@@ -408,6 +401,7 @@ class AtspiWorker:
             if conn is None:
                 raise RuntimeError("empty connection")
             tree = self._tree_factory(conn)
+            tree._before_write = self._authorize_write
         except Exception:  # noqa: BLE001
             step = _BACKOFF_STEPS[min(self._reconnect_failures, len(_BACKOFF_STEPS) - 1)]
             self._reconnect_failures += 1
@@ -422,6 +416,11 @@ class AtspiWorker:
     def _close_connection(self) -> None:
         conn, self._conn, self._tree = self._conn, None, None
         a11y._close_private_connection(conn)
+
+    def _authorize_write(self) -> bool:
+        assert threading.get_ident() == self._owner_thread_id
+        item = self._active_item
+        return item is not None and item.token.begin_write()
 
     def _call_main(self, token: CancelToken, fn: Callable[[], object], default):
         if not token.is_active():
@@ -483,7 +482,6 @@ class AtspiWorker:
     def _run_replace(self, item: _QueuedItem, conn, tree, ctx) -> editable.SpanResult | None:
         req = item.request
         token = item.token
-        attempted = False
         stopped_obj = item.stopped
 
         class _StoppedProxy:
@@ -504,17 +502,13 @@ class AtspiWorker:
         stopped_proxy = _StoppedProxy()
 
         def commit_proxy():
-            nonlocal attempted
             if not token.is_active():
                 return False
             if item.commit is not None:
                 res = self._call_main(token, item.commit, False)
                 if res is False:
                     return False
-            if not token.begin_write():
-                return False
-            attempted = True
-            return True
+            return token.is_active()
 
         try:
             with self._changes_factory(conn, req.focus.field) as events:
@@ -537,17 +531,19 @@ class AtspiWorker:
                         self._uncertain_active = False
                         self._uncertain_generation = None
             elif (result is not None and result.status == editable.FAILED
-                  and (result.committed or attempted or token.in_write)):
+                  and token.in_write):
                 with self._cond:
                     self._uncertain_active = True
                     self._uncertain_generation = req.generation
                 return editable.SpanResult(editable.UNCERTAIN, True)
+            if not token.is_active() and not token.in_write:
+                return editable.SpanResult(editable.ABORTED)
             return result
         except Exception as exc:  # noqa: BLE001
             closed = is_bus_closed_error(exc, conn)
             if closed:
                 self._close_connection()
-            if attempted or token.in_write:
+            if token.in_write:
                 with self._cond:
                     self._uncertain_active = True
                     self._uncertain_generation = req.generation
