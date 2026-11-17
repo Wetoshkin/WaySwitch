@@ -626,12 +626,19 @@ class _DbusTree:
         from gi.repository import Gio, GLib
 
         self._conn, self._Gio, self._GLib = conn, Gio, GLib
+        self._before_write: Callable[[], bool] | None = None
 
     def _call(self, node, iface: str, method: str, arg, sig: str):
         GLib, Gio = self._GLib, self._Gio
         try:
+            reply_type = GLib.VariantType(sig)
+            if (iface == "org.a11y.atspi.EditableText"
+                    and method in {"InsertText", "DeleteText"}
+                    and self._before_write is not None and not self._before_write()):
+                return None
+            # После авторизации запрос считается in-flight; lock не держится во время D-Bus.
             return self._conn.call_sync(node[0], node[1], iface, method, arg,
-                                        GLib.VariantType(sig), Gio.DBusCallFlags.NONE, 400,
+                                        reply_type, Gio.DBusCallFlags.NONE, 400,
                                         None).unpack()
         except GLib.Error:
             return None
