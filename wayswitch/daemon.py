@@ -38,6 +38,14 @@ def _close_probe(probe) -> None:
         pass
 
 
+def _close_worker(worker) -> None:
+    """Ограниченно завершить постоянный AT-SPI worker при выходе."""
+    try:
+        worker.close()
+    except Exception:  # noqa: BLE001 — выход уже идёт, ошибку worker игнорируем
+        pass
+
+
 def _open_uinput() -> UInputTypist:
     waiting = False
     while True:
@@ -163,6 +171,9 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     # историю окна. Подписка нужна до запуска приложений, в том числе после простоя.
     probe = cfgmod_a11y.make_probe(enabled=True)
     probe.poke()
+    from wayswitch.atspi_worker import AtspiWorker
+
+    worker = AtspiWorker()
 
     last_beep = [0.0]
 
@@ -184,11 +195,7 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
                 target=ensure_and_play, args=(cfgmod.config_dir(),), daemon=True).start()
     cosmic_session = detect_desktop() == COSMIC or backend.name == COSMIC
     native_input_guard = backend.input_locked if backend.name == "umbriel" else None
-    native_replacer = None
-    if backend.name in ("kde", "shell"):
-        from wayswitch.editable import try_replace_auto
-
-        native_replacer = try_replace_auto
+    native_replacer = worker.replace_span if backend.name in ("kde", "shell") else None
     controller = Controller(
         config, keymap, detector, backend, typist_for_controller, pump=pump, dry_run=dry_run,
         screen_locked=lambda: guard.input_locked()
@@ -208,6 +215,7 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         # клавиш, прерывающее нажатие) не доставляются. См. Controller.__init__.
         schedule=lambda fn: GLib.idle_add(lambda: (fn(), False)[1]),
         native_replacer=native_replacer,
+        selection_reader=worker.read_selection,
     )
     backend.on_change(controller.on_layout_changed)
 
@@ -224,6 +232,7 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     if not any(kind == "keyboard" for _, _, kind in watcher.devices()):
         log.error("ни одной клавиатуры не открыто (права на /dev/input?)")
         watcher.stop()
+        _close_worker(worker)
         _close_probe(probe)
         backend.close()
         typist.close()
@@ -280,6 +289,7 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         loop.run()
     finally:
         # close() не ждёт поток: главный цикл не должен блокироваться на опросе.
+        _close_worker(worker)
         _close_probe(probe)
         watcher.stop()
         backend.close()

@@ -1,5 +1,6 @@
 """Bounded native word replacement for LibreOffice Writer and Calc."""
 
+import sys
 import time
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -10,7 +11,23 @@ from wayswitch import a11y
 EDITABLE = "org.a11y.atspi.EditableText"
 MAX_SPAN = 512
 KDE_APPS = frozenset({"soffice", "libreoffice", "soffice.bin"})
+DONE, ABORTED, FAILED, UNCERTAIN = "done", "aborted", "failed", "uncertain"
 _OK, _ABORT, _UNSUPPORTED = "ok", "abort", "unsupported"
+
+
+def _drain_thread_events() -> None:
+    """Доставить ожидающие сигналы DBus в thread-default MainContext (если он активен)."""
+    if "gi.repository" not in sys.modules:
+        return
+    try:
+        from gi.repository import GLib
+
+        ctx = GLib.MainContext.get_thread_default()
+        if ctx is not None:
+            while ctx.pending():
+                ctx.iteration(False)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 class SpanResult(NamedTuple):
@@ -208,12 +225,15 @@ def _append_edits(events, start, source_size, target_size, kind, appended,
     return observed_appends <= appended
 
 
-def _replace(tree, focus, source, target, commit, stopped, events) -> SpanResult:
+def _replace(tree, focus, source, target, commit, stopped, events,
+             *, context_provider=None) -> SpanResult:
     if not _normal(focus) or not _span(source) or not _span(target):
         return SpanResult("aborted")
     node = focus.field
+    get_context = (context_provider if context_provider is not None
+                   else lambda: a11y.query_shell_context())
     try:
-        context = a11y.query_shell_context()
+        context = get_context()
     except Exception:  # noqa: BLE001 — unknown context is a failed native attempt, not a retry
         return SpanResult("failed")
 
@@ -223,7 +243,7 @@ def _replace(tree, focus, source, target, commit, stopped, events) -> SpanResult
         if _calc(focus) and (_live_focus(stopped, focus, time.monotonic()) is None
                              or _physical_count(stopped) is None):
             return False
-        current = a11y.query_shell_context()
+        current = get_context()
         if (context is None or current != context or context.protected()
                 or not context.ime_focus or type(context.pid) is not int or context.pid <= 0
                 or not focus.app_ids or context.app_ids != focus.app_ids):
@@ -239,7 +259,7 @@ def _replace(tree, focus, source, target, commit, stopped, events) -> SpanResult
                 and tree.input_type(node) not in {None, "password"}
                 and tree.app_of(node) == focus.app and a11y._same_application(pid, context.pid)
                 and type(selections) is int and selections == 0
-                and not stopped() and a11y.query_shell_context() == context)
+                and not stopped() and get_context() == context)
 
     anchor = None
     if _calc(focus):
@@ -323,6 +343,7 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
                     break
             else:
                 return False
+            _drain_thread_events()
             changes = events[first:]
             if eventless:
                 # Редактор Calc не даёт достоверных object:text-changed: события
@@ -448,7 +469,7 @@ def _kde_focus(focus, now) -> bool:
             and focus.protection(now) is False)
 
 
-def _kde_guard(tree, focus, context, stopped):
+def _kde_guard(tree, focus, context, stopped, context_provider=None):
     """Live-проверка KDE-фокуса: снимок контроллера + метаданные узла.
 
     Полные обходы a11y.find_focus здесь не повторяются: они занимают ~0,1 с и
@@ -457,6 +478,8 @@ def _kde_guard(tree, focus, context, stopped):
     по-узловые проверки остаются прежними.
     """
     stable_pid = None
+    get_context = (context_provider if context_provider is not None
+                   else lambda: a11y.query_shell_context())
 
     def check():
         nonlocal stable_pid
@@ -466,7 +489,7 @@ def _kde_guard(tree, focus, context, stopped):
             started = time.monotonic()
             if _live_focus(stopped, focus, started) is None:
                 return _ABORT
-            current = a11y.query_shell_context()
+            current = get_context()
             if current is None or current != context or current.protected():
                 return _ABORT
             node = focus.field
@@ -495,7 +518,7 @@ def _kde_guard(tree, focus, context, stopped):
                 return _ABORT
             if type(role) is not int or role not in {61, 73, 79, 83}:
                 return _ABORT
-            if stopped() or a11y.query_shell_context() != context:
+            if stopped() or get_context() != context:
                 return _ABORT
             if not 0 <= time.monotonic() - started <= a11y.MAX_AGE_SEC:
                 return _ABORT
@@ -505,6 +528,31 @@ def _kde_guard(tree, focus, context, stopped):
             return _ABORT
 
     return check
+
+
+def _replace_kde_with_tree(tree, focus, source, target, commit, stopped, events,
+                           *, context_provider=None) -> SpanResult | None:
+    """KDE-замена поверх уже открытого соединения/дерева AT-SPI."""
+    get_context = (context_provider if context_provider is not None
+                   else lambda: a11y.query_shell_context())
+    try:
+        context = get_context()
+    except Exception:  # noqa: BLE001 — неизвестный контекст не разрешает попытку
+        return SpanResult("aborted")
+    if context != a11y.ShellContext():
+        return SpanResult("aborted")
+    check = _kde_guard(tree, focus, context, stopped, context_provider=get_context)
+    state = check()
+    if state == _UNSUPPORTED:
+        return None
+    if state != _OK:
+        return SpanResult("aborted")
+    anchor = _prepare_anchor(tree, focus, source, stopped)
+    if anchor is None:
+        return SpanResult("aborted")
+    return _replace_checked(
+        tree, focus, source, target, commit, stopped, events,
+        lambda: check() == _OK, anchor=anchor)
 
 
 def try_replace_kde(focus, source, target, commit, stopped) -> SpanResult | None:

@@ -868,22 +868,57 @@ def _selection_ready(expected, valid, limit):
             and expected.protection(now) is False and valid() is True)
 
 
-def _read_selection(tree, expected, valid, limit) -> TextSelection | None:
+def _verify_direct_field(tree, expected: FocusSnapshot, context: ShellContext) -> bool:
+    """Один проход проверки известного поля без повторного полного обхода."""
+    field = expected.field
+    if field is None:
+        return False
+    state = tree.state(field)
+    if (not state or _state_bit(state, DEFUNCT)
+            or not _state_bit(state, FOCUSED)
+            or not _state_bit(state, EDITABLE)):
+        return False
+    role = tree.role(field)
+    if type(role) is not int or role in PROTECTED_ROLES:
+        return False
+    if TEXT not in (tree.interfaces(field) or ()):
+        return False
+    input_type = tree.input_type(field)
+    if input_type is None or input_type == "password":
+        return False
+    if tree.app_of(field) != expected.app:
+        return False
+    if context.pid > 0:
+        pid = tree.pid(field)
+        if type(pid) is not int or not _same_application(pid, context.pid):
+            return False
+    caret = tree.caret(field)
+    return type(caret) is int and caret >= 0
+
+
+def _read_selection(tree, expected, valid, limit, *,
+                    direct: bool = False, context_provider=None) -> TextSelection | None:
     try:
         if not _selection_ready(expected, valid, limit):
             return None
-        context = query_shell_context()
+        get_context = (context_provider if context_provider is not None
+                       else lambda: query_shell_context())
+        context = get_context()
         if (context is None or context.protected()
                 or context.app_ids != expected.app_ids):
             return None
 
         def same_focus():
             if (not _selection_ready(expected, valid, limit)
-                    or query_shell_context() != context):
+                    or get_context() != context):
                 return False
+            if direct:
+                return (_verify_direct_field(tree, expected, context)
+                        and get_context() == context
+                        and _selection_ready(expected, valid, limit))
             snap = find_focus(tree, ROOT, context.pid)
             return (snap.app == expected.app and snap.field == expected.field
-                    and snap.password is False and query_shell_context() == context
+                    and snap.password is False and get_context() == context
                     and _selection_ready(expected, valid, limit))
 
         def metadata():
