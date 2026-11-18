@@ -886,7 +886,7 @@ class Controller:
         self._buffer_focus = scope
         old_window, self._buffer_window = self._buffer_window, snap.window
         same_window = old_window == snap.window
-        if (not guarded and old is not None and old[2] is not None
+        if (old is not None and old[2] is not None
                 and old[2] == snap.field and not owner_changed):
             same_window = True  # заголовок документа меняется при наборе
         if old is None or old == scope and same_window and not owner_changed:
