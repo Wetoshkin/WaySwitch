@@ -824,7 +824,8 @@ def event_connections(monkeypatch):
     registered = set()
 
     class Connection:
-        def __init__(self):
+        def __init__(self, *, enable=False):
+            self.enabled = enable
             self.callbacks = {}
             self.closed = False
             self.owner = ":1.42"
@@ -1026,8 +1027,8 @@ def test_focus_watch_activates_registry_without_existing_owner(monkeypatch, even
     connection_type = a11y._new_a11y_connection
     initialize = connection_type.__init__
 
-    def cold(self):
-        initialize(self)
+    def cold(self, **kwargs):
+        initialize(self, **kwargs)
         self.owner = None
 
     monkeypatch.setattr(connection_type, "__init__", cold)
@@ -1923,3 +1924,10 @@ def test_dbus_collection_parent_walk_is_bounded():
     nodes = [(":1.2", f"/node{i}") for i in range(a11y.MAX_DEPTH + 2)]
     tree, _calls = collection_bus([nodes[0]], dict(zip(nodes[:-1], nodes[1:], strict=True)))
     assert tree.focused_path(nodes[-1]) is None
+
+
+def test_focus_watcher_enables_runtime_accessibility(event_connections):
+    connections, _ = event_connections
+    watch = a11y._watch_focus_events(object(), lambda: None)
+    assert connections[0].enabled is True
+    watch.close()

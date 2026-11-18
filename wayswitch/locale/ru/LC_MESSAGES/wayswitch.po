@@ -2379,3 +2379,6 @@ msgid ""
 msgstr ""
 "Исправляет пропущенные, лишние или переставленные буквы в словах от 5 символов; "
 "возможны ложные замены."
+
+msgid "AT-SPI is disabled (IsEnabled=false); restart WaySwitch to enable application accessibility"
+msgstr "AT-SPI отключён (IsEnabled=false); перезапустите WaySwitch, чтобы включить доступность приложений"
