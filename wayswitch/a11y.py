@@ -24,6 +24,8 @@ import time
 from collections.abc import Callable
 from typing import NamedTuple, Protocol
 
+from wayswitch.i18n import gettext as _
+
 log = logging.getLogger("wayswitch")
 
 # Биты в маске состояний at-spi.
@@ -538,10 +540,17 @@ def _a11y_connection():
     return _CONN
 
 
-def _new_a11y_connection():
+def _new_a11y_connection(*, enable: bool = False):
     from gi.repository import Gio, GLib
 
     bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+    if enable:
+        # Qt не включает доступность только от подключения клиента к шине AT-SPI.
+        bus.call_sync("org.a11y.Bus", "/org/a11y/bus", "org.freedesktop.DBus.Properties",
+                      "Set", GLib.Variant("(ssv)",
+                                          ("org.a11y.Status", "IsEnabled",
+                                           GLib.Variant("b", True))),
+                      GLib.VariantType("()"), Gio.DBusCallFlags.NONE, 1500, None)
     res = bus.call_sync("org.a11y.Bus", "/org/a11y/bus", "org.a11y.Bus", "GetAddress",
                         None, GLib.VariantType("(s)"), Gio.DBusCallFlags.NONE, 1500, None)
     return Gio.DBusConnection.new_for_address_sync(
@@ -556,7 +565,7 @@ def _watch_focus_events(query_connection, invalidate) -> _FocusWatch:
     from wayswitch.backends.gnome_shell import BUS_NAME, INTERFACE, OBJECT_PATH
 
     # Отдельное имя клиента не даёт старому probe удалить подписку нового при Reload.
-    connection = _new_a11y_connection()
+    connection = _new_a11y_connection(enable=True)
     registry = "org.a11y.atspi.Registry"
     path = "/org/a11y/atspi/registry"
     event = "object:state-changed:focused"
@@ -955,6 +964,13 @@ def bridge_available() -> tuple[bool, str]:
         from gi.repository import Gio, GLib
 
         bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        enabled = bus.call_sync(
+            "org.a11y.Bus", "/org/a11y/bus", "org.freedesktop.DBus.Properties", "Get",
+            GLib.Variant("(ss)", ("org.a11y.Status", "IsEnabled")),
+            GLib.VariantType("(v)"), Gio.DBusCallFlags.NONE, 1500, None).unpack()[0]
+        if enabled is not True:
+            return False, _("AT-SPI is disabled (IsEnabled=false); restart WaySwitch "
+                            "to enable application accessibility")
         res = bus.call_sync("org.a11y.Bus", "/org/a11y/bus", "org.a11y.Bus", "GetAddress",
                             None, GLib.VariantType("(s)"), Gio.DBusCallFlags.NONE,
                             1500, None)

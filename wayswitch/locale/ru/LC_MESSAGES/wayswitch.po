@@ -2306,3 +2306,6 @@ msgstr "Словарь"
 
 msgid "Install"
 msgstr "Установить"
+
+msgid "AT-SPI is disabled (IsEnabled=false); restart WaySwitch to enable application accessibility"
+msgstr "AT-SPI отключён (IsEnabled=false); перезапустите WaySwitch, чтобы включить доступность приложений"
