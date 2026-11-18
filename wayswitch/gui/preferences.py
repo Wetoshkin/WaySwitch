@@ -235,10 +235,11 @@ class Preferences:
                 ("early_switch", _("Switch at the start of a word"),
                  _("ghbd → прив in Writer/Calc; when retyping with keys — after Space")),
                 ("skip_password_fields", _("Password and terminal protection"),
-                 _("When enabled, blocks auto-correction in all terminals and may block "
-                   "it in MAX and other apps whose input fields cannot be verified. "
-                   "The manual gesture remains available. Off by default for new "
-                   "installations."))):
+                 _("Important: protection depends on the information each app provides "
+                   "about its input fields. It may block auto-correction even in ordinary "
+                   "text fields; in terminals, auto-correction is always blocked. The "
+                   "manual gesture remains available. If an app does not identify a "
+                   "password field, protection may not recognize it. Off by default."))):
             row = Adw.SwitchRow(title=title, subtitle=subtitle)
             row.connect("notify::active", lambda r, _p, k=key: self._set(
                 "general", k, r.get_active()))
