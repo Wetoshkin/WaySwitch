@@ -713,6 +713,8 @@ def try_replace_auto(focus, source, target, commit, stopped) -> SpanResult | Non
 
 @contextmanager
 def _text_changes(connection, node):
+    if not _kde_field(node) or not node[0].startswith(":"):
+        raise ValueError("требуется уникальный провайдер поля AT-SPI")
     from gi.repository import Gio, GLib
 
     events = []
@@ -743,7 +745,7 @@ def _text_changes(connection, node):
             node[0], "org.a11y.atspi.Event.Object", "TextChanged", node[1], None,
             Gio.DBusSignalFlags.NONE, changed, None)
         connection.call_sync(registry, "/org/a11y/atspi/registry", registry, "RegisterEvent",
-                             GLib.Variant("(sass)", (event_name, [], "")),
+                             GLib.Variant("(sass)", (event_name, [], node[0])),
                              GLib.VariantType("()"), Gio.DBusCallFlags.NONE, 1500, None)
         registered = True
         yield events
@@ -753,7 +755,8 @@ def _text_changes(connection, node):
         if registered:
             try:
                 connection.call_sync(registry, "/org/a11y/atspi/registry", registry,
-                                     "DeregisterEvent", GLib.Variant("(s)", (event_name,)),
+                                     "DeregisterEvent",
+                                     GLib.Variant("(ss)", (event_name, node[0])),
                                      GLib.VariantType("()"), Gio.DBusCallFlags.NONE, 400, None)
             except Exception:  # noqa: BLE001 — connection ownership also clears registrations
                 pass

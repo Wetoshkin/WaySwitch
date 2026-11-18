@@ -1564,3 +1564,24 @@ def test_plain_field_without_editable_interface_keeps_original_transport(plain_n
     assert editable.try_replace_kde(native.focus, SOURCE, TARGET,
                                     native.commit, native.stopped) is None
     assert native.tree.reads == native.tree.writes == native.committed == []
+
+
+def test_text_event_registration_is_limited_to_the_field_provider(event_bus):
+    connection, _calls = event_bus
+    registrations = []
+    connection.call_sync = lambda *args: registrations.append((args[3], args[4]))
+    with editable._text_changes(connection, FIELD):
+        pass
+    assert registrations == [
+        ('RegisterEvent', ('(sass)', ('object:text-changed', [], FIELD[0]))),
+        ('DeregisterEvent', ('(ss)', ('object:text-changed', FIELD[0]))),
+    ]
+
+@pytest.mark.parametrize('node', [None, ('', '/field'), ('org.example.Editor', '/field'),
+                                  (':1.9', '/org/a11y/atspi/null')])
+def test_text_event_registration_cannot_fall_back_to_a_global_scope(event_bus, node):
+    connection, calls = event_bus
+    connection.signal_subscribe = lambda *_args: calls.append('subscribe') or 5
+    with pytest.raises(ValueError), editable._text_changes(connection, node):
+        pytest.fail('Invalid field must not register any events')
+    assert calls == []

@@ -694,7 +694,7 @@ def focus_bus(monkeypatch):
         live = threading.Event()
         live.set()
         return a11y._FocusWatch(connection, live,
-                                lambda: state["closed"].append(connection))
+                                lambda: state["closed"].append(connection), lambda _app: False)
 
     monkeypatch.setattr(a11y, "_a11y_connection", lambda: state["connection"])
     monkeypatch.setattr(a11y, "_watch_focus_events", watch, raising=False)
@@ -740,7 +740,7 @@ def test_registration_loss_before_query_generation_stays_blocked(monkeypatch, fo
 
     monkeypatch.setattr(live, "is_set", checked_then_lost)
     monkeypatch.setattr(a11y, "_watch_focus_events", lambda connection, _callback:
-                        a11y._FocusWatch(connection, live, lambda: None))
+                        a11y._FocusWatch(connection, live, lambda: None, lambda _app: False))
     probe._refresh()
     assert probe.snapshot().app is None
     assert a11y.skip_reason(probe, [], True, 100.0) is not None
@@ -787,7 +787,7 @@ def test_close_during_registration_cleans_late_subscription(monkeypatch, focus_b
         assert release.wait(2.0)
         live = threading.Event()
         live.set()
-        return a11y._FocusWatch(focus_bus["connection"], live, cleaned.set)
+        return a11y._FocusWatch(focus_bus["connection"], live, cleaned.set, lambda _app: False)
 
     monkeypatch.setattr(a11y, "_watch_focus_events", watch)
     monkeypatch.setattr(a11y, "query_focus", lambda: ("Editor", False))
@@ -829,6 +829,7 @@ def event_connections(monkeypatch):
             self.callbacks = {}
             self.closed = False
             self.owner = ":1.42"
+            self.toolkit = "Qt"
             connections.append(self)
 
         def signal_subscribe(self, _sender, _iface, member, _path, arg0, _flags, callback, _data):
@@ -849,6 +850,9 @@ def event_connections(monkeypatch):
             del self.callbacks[signal]
 
         def call_sync(self, _bus, _path, _iface, method, args, *_rest):
+            if method == "Get":
+                assert args == ("(ss)", ("org.a11y.atspi.Application", "ToolkitName"))
+                return SimpleNamespace(unpack=lambda: (self.toolkit,))
             if method == "StartServiceByName":
                 assert args == ("(su)", ("org.a11y.atspi.Registry", 0))
                 self.owner = self.owner or ":1.42"
@@ -857,8 +861,13 @@ def event_connections(monkeypatch):
                 if self.owner is None:
                     raise RuntimeError("NameHasNoOwner")
                 return SimpleNamespace(unpack=lambda: (self.owner,))
+            if method == "DeregisterEvent":
+                assert args[0] == "(ss)" and args[1][1].startswith(":")
+                registered.discard(self)
+                return None
             assert method == "RegisterEvent"
-            assert args == ("(sass)", ("object:state-changed:focused", [], ""))
+            assert args[0] == "(sass)" and args[1][0] == "object:state-changed:focused"
+            assert args[1][1] == [] and args[1][2].startswith(":")
             registered.add(self)
 
         def close_sync(self, _cancellable):
@@ -1015,6 +1024,8 @@ def test_overlapping_probe_cleanup_keeps_new_registration(event_connections):
     old = a11y._watch_focus_events(object(), lambda: None)
     new = a11y._watch_focus_events(object(), lambda: None)
     assert len(connections) == 2
+    old.set_scope(":1.9")
+    new.set_scope(":1.9")
     old.close()
     assert registered == {connections[1]}
     assert new.live.is_set()
@@ -1034,6 +1045,8 @@ def test_focus_watch_activates_registry_without_existing_owner(monkeypatch, even
     monkeypatch.setattr(connection_type, "__init__", cold)
     watch = a11y._watch_focus_events(object(), lambda: None)
     assert watch.live.is_set()
+    assert not registered
+    watch.set_scope(":1.9")
     assert registered == {connections[0]}
     watch.close()
 
@@ -1064,8 +1077,9 @@ def test_registry_restart_during_registration_does_not_restore_live_flag(
         return result
 
     monkeypatch.setattr(connection_type, "call_sync", restart)
+    watch = a11y._watch_focus_events(object(), lambda: None)
     with pytest.raises(RuntimeError):
-        a11y._watch_focus_events(object(), lambda: None)
+        watch.set_scope(":1.9")
     assert connections[0].closed
     assert not registered
     assert not connections.session.callbacks
@@ -1931,3 +1945,190 @@ def test_focus_watcher_enables_runtime_accessibility(event_connections):
     watch = a11y._watch_focus_events(object(), lambda: None)
     assert connections[0].enabled is True
     watch.close()
+
+
+def test_focus_watch_does_not_enable_keyboard_filters_in_unfocused_applications(event_connections):
+    _connections, registered = event_connections
+    watch = a11y._watch_focus_events(object(), lambda: None)
+    try:
+        assert not registered
+    finally:
+        watch.close()
+
+@pytest.mark.parametrize("next_bus", [":1.9", ":1.10"])
+def test_probe_requeries_after_scoping_before_publishing_focus(
+        monkeypatch, event_connections, next_bus):
+    _connections, registered = event_connections
+    fields = [FocusSnapshot("Editor", False, field=(":1.9", "/old")),
+              FocusSnapshot("Editor", False, field=(next_bus, "/new"))]
+    queries = []
+
+    def query():
+        queries.append(True)
+        return fields[len(queries) - 1]
+
+    monkeypatch.setattr(a11y, "_a11y_connection", lambda: object())
+    monkeypatch.setattr(a11y, "query_focus", query)
+    probe = a11y.AtspiProbe(clock=Clock())
+    try:
+        probe._refresh()
+        assert len(queries) == 2
+        assert registered
+        if next_bus == ":1.9":
+            assert probe.snapshot().field == (":1.9", "/new")
+        else:
+            assert probe.snapshot().field is None
+    finally:
+        probe.close()
+    assert not registered
+
+
+def test_focus_scope_changes_and_removal_invalidate_existing_proof(event_connections):
+    _connections, registered = event_connections
+    invalidated = []
+    watch = a11y._watch_focus_events(object(), lambda: invalidated.append(True))
+    try:
+        assert watch.set_scope(":1.9") is True
+        assert watch.set_scope(":1.9") is False
+        assert len(invalidated) == 1
+        assert watch.set_scope(":1.10") is True
+        assert len(invalidated) == 2 and registered
+        assert watch.set_scope(None) is True
+        assert len(invalidated) == 3 and not registered
+    finally:
+        watch.close()
+        watch.close()
+
+
+@pytest.mark.parametrize("app", ["", "org.example.Editor", 42])
+def test_focus_scope_cannot_silently_become_global(event_connections, app):
+    _connections, registered = event_connections
+    watch = a11y._watch_focus_events(object(), lambda: None)
+    try:
+        with pytest.raises(ValueError):
+            watch.set_scope(app)
+        assert not registered
+    finally:
+        watch.close()
+
+
+def test_focus_event_immediately_drops_application_registration_without_reading_payload(
+        event_connections):
+    connections, registered = event_connections
+    invalidated = []
+    watch = a11y._watch_focus_events(object(), lambda: invalidated.append(True))
+    try:
+        watch.set_scope(":1.9")
+        assert registered
+
+        class PrivatePayload:
+            def unpack(self):
+                pytest.fail("focus event contents must not be read")
+
+        connections[0].callbacks['StateChanged'](
+            None, ':1.9', '/field', 'org.a11y.atspi.Event.Object',
+            'StateChanged', PrivatePayload(), None)
+        assert not registered
+        assert len(invalidated) >= 2
+        assert watch.live.is_set()
+    finally:
+        watch.close()
+
+@pytest.mark.parametrize("toolkit", ["gtk", "Chrome", None])
+def test_non_qt_focus_events_keep_provider_registration(event_connections, toolkit):
+    connections, registered = event_connections
+    invalidated = []
+    watch = a11y._watch_focus_events(object(), lambda: invalidated.append(True))
+    connections[0].toolkit = toolkit
+    try:
+        watch.set_scope(":1.9")
+        connections[0].callbacks['StateChanged'](
+            None, ':1.9', '/field', 'org.a11y.atspi.Event.Object', 'StateChanged', object(), None)
+        assert registered and len(invalidated) == 2
+    finally:
+        watch.close()
+
+
+def test_other_application_focus_event_cannot_remove_qt_registration(event_connections):
+    connections, registered = event_connections
+    watch = a11y._watch_focus_events(object(), lambda: None)
+    try:
+        watch.set_scope(":1.9")
+        connections[0].callbacks['StateChanged'](
+            None, ':1.10', '/other', 'org.a11y.atspi.Event.Object', 'StateChanged', object(), None)
+        assert registered
+    finally:
+        watch.close()
+
+
+def test_focus_event_during_registration_cannot_leave_qt_keyboard_filter_enabled(
+        monkeypatch, event_connections):
+    connections, registered = event_connections
+    watch = a11y._watch_focus_events(object(), lambda: None)
+    call = type(connections[0]).call_sync
+    entered, release, event_done = threading.Event(), threading.Event(), threading.Event()
+    errors = []
+
+    def delayed(self, bus, path, iface, method, args, *rest):
+        result = call(self, bus, path, iface, method, args, *rest)
+        if method == 'Get':
+            entered.set()
+            assert release.wait(2)
+        return result
+
+    monkeypatch.setattr(type(connections[0]), 'call_sync', delayed)
+
+    def register():
+        try:
+            watch.set_scope(':1.9')
+        except Exception as error:
+            errors.append(error)
+
+    def changed():
+        try:
+            connections[0].callbacks['StateChanged'](
+                None, ':1.9', '/field', 'org.a11y.atspi.Event.Object',
+                'StateChanged', object(), None)
+        finally:
+            event_done.set()
+
+    thread = threading.Thread(target=register)
+    event = threading.Thread(target=changed)
+    try:
+        thread.start()
+        assert entered.wait(1)
+        event.start()
+        event_done.wait(.1)
+        release.set()
+        thread.join(1)
+        event.join(1)
+        assert not thread.is_alive() and not event.is_alive()
+        assert not errors and not registered
+    finally:
+        release.set()
+        thread.join(2)
+        if event.ident is not None:
+            event.join(2)
+        watch.close()
+
+
+def test_focus_event_restarts_idle_probe_before_next_key(monkeypatch, focus_bus):
+    current = [FocusSnapshot('OldEditor', False, field=(':1.9', '/old'))]
+    monkeypatch.setattr(a11y, 'IDLE_STOP_SEC', .01)
+    monkeypatch.setattr(a11y, 'query_focus', lambda: current[0])
+    probe = a11y.AtspiProbe(poll_sec=.01)
+    try:
+        probe.poke()
+        thread = probe._thread
+        thread.join(1)
+        assert probe._thread is None
+        monkeypatch.setattr(a11y, 'IDLE_STOP_SEC', 10)
+        current[0] = FocusSnapshot('NewEditor', False, field=(':1.10', '/new'))
+        probe._last_activity = 0.0
+        focus_bus['callbacks'][-1]()
+        deadline = time.monotonic() + .5
+        while probe.snapshot().app != 'NewEditor' and time.monotonic() < deadline:
+            time.sleep(.005)
+        assert probe.snapshot().app == 'NewEditor'
+    finally:
+        probe.close(wait=True)
