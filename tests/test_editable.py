@@ -1128,7 +1128,7 @@ def test_kde_slow_live_proof_cannot_renew_trust(kde_native, monkeypatch):
         return input_type(node)
 
     kde_native.tree.input_type = delayed_type
-    check = editable._kde_guard(kde_native.tree, kde_native.focus, kde_native.context,
+    check = editable._field_guard(kde_native.tree, kde_native.focus, kde_native.context,
                                 kde_native.stopped)
     assert check() == "abort"
     assert kde_native.tree.reads == kde_native.tree.writes == []
@@ -1461,3 +1461,106 @@ def test_try_replace_auto_dispatches_by_shell_app_ids(monkeypatch):
     assert kde_calls == [(kde_focus, SOURCE, TARGET, commit, stopped)]
     assert editable.try_replace_auto(
         None, SOURCE, TARGET, commit, stopped) == editable.SpanResult("aborted")
+
+@pytest.fixture
+def plain_native(kde_native):
+    native = kde_native
+    native.tree.app = "ordinary-editor"
+    native.tree.field_role = 79
+    native.focus = native.focus._replace(app=native.tree.app, window="Document")
+    native.physical = [0]
+    native.stopped.append = lambda: native.physical[0]
+    return native
+
+
+@pytest.mark.parametrize("entry", ["try_replace", "try_replace_kde"])
+def test_plain_field_native_replacement_preserves_append_before_first_insert(plain_native, entry):
+    native = plain_native
+    read = native.tree.text_range
+    appended = []
+
+    def type_after_anchor(node, start, end):
+        text = read(node, start, end)
+        if not native.tree.writes and not appended:
+            assert native.stopped.anchor
+            native.tree.append("X")
+            native.physical[0] += 1
+            native.stopped.aborted = True
+            appended.append(True)
+        return text
+
+    native.tree.text_range = type_after_anchor
+    result = getattr(editable, entry)(native.focus, SOURCE, TARGET,
+                                      native.commit, native.stopped)
+    assert result == editable.SpanResult("done", True)
+    assert native.tree.text == "Test " + TARGET + "X"
+    assert native.tree.position == len(native.tree.text)
+    assert native.stopped.fast_switch
+
+
+def test_plain_field_refuses_unexplained_text_append(plain_native):
+    native = plain_native
+    read = native.tree.text_range
+    appended = []
+
+    def foreign_append(node, start, end):
+        text = read(node, start, end)
+        if not native.tree.writes and not appended:
+            native.tree.append("X")
+            appended.append(True)
+        return text
+
+    native.tree.text_range = foreign_append
+    result = editable.try_replace_kde(native.focus, SOURCE, TARGET,
+                                      native.commit, native.stopped)
+    assert result == editable.SpanResult("aborted")
+    assert native.tree.writes == []
+
+
+@pytest.mark.parametrize("change", [
+    lambda n: setattr(n.tree, "kind", "password"),
+    lambda n: setattr(n.tree, "focused", False),
+    lambda n: setattr(n, "frozen", n.focus._replace(password=True)),
+    lambda n: setattr(n, "frozen", n.focus._replace(generation=1)),
+])
+def test_plain_field_invalid_metadata_never_reads_or_writes(plain_native, change):
+    native = plain_native
+    change(native)
+    result = editable.try_replace_kde(native.focus, SOURCE, TARGET,
+                                      native.commit, native.stopped)
+    assert result is None or result == editable.SpanResult("aborted")
+    assert native.tree.reads == native.tree.writes == []
+
+
+def test_plain_field_input_before_anchor_still_aborts(plain_native):
+    native = plain_native
+
+    def press_before_reservation():
+        native.tree.append("X")
+        native.physical[0] += 1
+        native.stopped.aborted = True
+
+    native.stopped.on_prepare = press_before_reservation
+    result = editable.try_replace_kde(native.focus, SOURCE, TARGET,
+                                      native.commit, native.stopped)
+    assert result == editable.SpanResult("aborted")
+    assert native.tree.reads == native.tree.writes == []
+
+
+def test_plain_field_shell_owner_must_match(plain_native, monkeypatch):
+    native = plain_native
+    context = a11y.ShellContext(("ordinary-editor",), False, True, 0, 0, 9999)
+    native.focus = native.focus._replace(app_ids=context.app_ids)
+    monkeypatch.setattr(a11y, "query_shell_context", lambda: context)
+    monkeypatch.setattr(a11y, "_same_application", lambda first, second: first == second)
+    assert editable.try_replace(native.focus, SOURCE, TARGET,
+                                native.commit, native.stopped) == editable.SpanResult("aborted")
+    assert native.tree.reads == native.tree.writes == []
+
+
+def test_plain_field_without_editable_interface_keeps_original_transport(plain_native):
+    native = plain_native
+    native.tree.interfaces = lambda node: [a11y.TEXT]
+    assert editable.try_replace_kde(native.focus, SOURCE, TARGET,
+                                    native.commit, native.stopped) is None
+    assert native.tree.reads == native.tree.writes == native.committed == []
