@@ -59,7 +59,8 @@ locale; correction supports the Russian ↔ English pair.
 - **By the start of a word.** If the first four letters clearly belong to
   the other layout (`ghbd` starts no English word but does start «прив…»),
   the prefix can be corrected before Space using native range replacement
-  in Writer/Calc. Keyboard retyping waits for Space so continued typing
+  in Writer/Calc and ordinary AT-SPI EditableText fields (tested in GTK4).
+  Keyboard retyping waits for Space so continued typing
   cannot mix with a prefix replacement. The same restriction applies to URLs.
 - **Transliteration and numbers in words** for the selected text, on keys of
   your choice, in supported AT-SPI fields.

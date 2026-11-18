@@ -1,4 +1,4 @@
-"""Bounded native word replacement for LibreOffice Writer and Calc."""
+"""Bounded native replacement in verified editable fields."""
 
 import time
 from contextlib import contextmanager
@@ -35,7 +35,7 @@ def try_replace(focus, source, target, commit, stopped) -> SpanResult | None:
     if (focus is not None and focus.app
             and (focus.app.casefold() not in {"soffice", "libreoffice"}
                  or not (_writer(focus) or _calc(focus)))):
-        return None
+        return _try_replace_field(focus, source, target, commit, stopped)
     if not _normal(focus):
         return SpanResult("aborted")
     connection = None
@@ -251,16 +251,18 @@ def _prepare_anchor(tree, focus, source, stopped):
     prepare = getattr(stopped, "prepare", None)
     if callable(prepare) and prepare() is not True:
         return None
+    if physical_base is not None and (stopped() or _physical_count(stopped) != physical_base):
+        return None
     reserve = getattr(stopped, "reserve_anchor", None)
     if callable(reserve) and reserve() is False:
         return None
-    if physical_base is not None and (stopped() or _physical_count(stopped) != physical_base):
+    if stopped():
         return None
     return caret - len(source), caret, count, physical_base
 
 
 def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
-                     anchor=None) -> SpanResult:
+                     anchor=None, allow_append=False) -> SpanResult:
     attempted = False
     try:
         node = focus.field
@@ -289,9 +291,26 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
                     or start < 0 or start + len(source) != caret or count < caret):
                 return SpanResult("aborted")
         anchor_count, anchor_caret = count, caret
-        if physical_base is not None and _physical_count(stopped) != physical_base:
-            # Печать до первой записи относится к прежней раскладке: span уже
-            # не соответствует набранному и не вправе начинать замену.
+
+        def append_only():
+            if physical_base is None:
+                return True
+            if not allow_append:
+                return _physical_count(stopped) == physical_base
+            for _ in range(3):
+                first = _physical_count(stopped)
+                current_count, current_caret = tree.character_count(node), tree.caret(node)
+                if stopped():
+                    return False
+                last = _physical_count(stopped)
+                if first == last and first is not None:
+                    appended = first - physical_base
+                    return (0 <= appended <= 1024
+                            and current_count == anchor_count + appended
+                            and current_caret == anchor_caret + appended)
+            return False
+
+        if not append_only():
             return SpanResult("aborted")
 
         eventless = _libreoffice_component(focus) == "calc"
@@ -356,14 +375,14 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
             if type(count) is not int or count < caret:
                 return SpanResult("aborted")
             first = len(events)
-        if physical_base is not None and _physical_count(stopped) != physical_base:
+        if not append_only():
             return SpanResult("aborted")
         if commit() is False:
             return SpanResult("aborted")
         attempted = True
         if not safe():
             return SpanResult("failed", True)
-        if physical_base is not None and _physical_count(stopped) != physical_base:
+        if not append_only():
             return SpanResult("aborted")
         if tree.insert_text(node, start, target) is not True:
             return SpanResult("failed", True)
@@ -434,8 +453,8 @@ def _kde_focus(focus, now) -> bool:
             and focus.protection(now) is False)
 
 
-def _kde_guard(tree, focus, context, stopped):
-    """Live-проверка KDE-фокуса: снимок контроллера + метаданные узла.
+def _field_guard(tree, focus, context, stopped, roles=(73, 83)):
+    """Живая проверка фокуса: снимок контроллера + метаданные узла.
 
     Полные обходы a11y.find_focus здесь не повторяются: они занимают ~0,1 с и
     физический ввод успевает отменить операцию до записи. Доказательство того
@@ -485,21 +504,72 @@ def _kde_guard(tree, focus, context, stopped):
                 return _ABORT
             if not 0 <= time.monotonic() - started <= a11y.MAX_AGE_SEC:
                 return _ABORT
+            if context.app_ids and (focus.app_ids != context.app_ids
+                                    or not a11y._same_application(pid, context.pid)):
+                return _ABORT
             # Доверие продлевает только свежий снимок в начале следующей проверки.
-            return _UNSUPPORTED if role in {61, 79} else _OK
+            return _OK if role in roles else _UNSUPPORTED
         except Exception:  # noqa: BLE001 — unknown metadata cannot authorize a read
             return _ABORT
 
     return check
 
 
+def _try_replace_field(focus, source, target, commit, stopped):
+    now = time.monotonic()
+    if (not isinstance(focus, a11y.FocusSnapshot) or not focus.app
+            or focus.app.casefold() in KDE_APPS or not _kde_field(focus.field)
+            or focus.protection(now) is not False or not _span(source) or not _span(target)
+            or _live_focus(stopped, focus, now) is None or _physical_count(stopped) is None):
+        return None
+    connection = None
+    attempted = False
+
+    def begin():
+        nonlocal attempted
+        result = commit()
+        if result is not False:
+            attempted = True
+        return result
+
+    try:
+        context = a11y.query_shell_context()
+        if context is None or context.protected():
+            return SpanResult("aborted")
+        connection = a11y._new_a11y_connection()
+        tree = a11y._DbusTree(connection)
+        interfaces = tree.interfaces(focus.field)
+        if not interfaces or a11y.TEXT not in interfaces or EDITABLE not in interfaces:
+            return None
+        check = _field_guard(tree, focus, context, stopped, roles=(61, 79))
+        state = check()
+        if state == _UNSUPPORTED:
+            return None
+        if state != _OK:
+            return SpanResult("aborted")
+        with _text_changes(connection, focus.field) as events:
+            anchor = _prepare_anchor(tree, focus, source, stopped)
+            if anchor is None:
+                return SpanResult("aborted")
+            return _replace_checked(tree, focus, source, target, begin, stopped, events,
+                                    lambda: check() == _OK, anchor=anchor, allow_append=True)
+    except Exception:  # noqa: BLE001 — provider errors can contain private field contents
+        return SpanResult("failed", attempted)
+    finally:
+        if connection is not None:
+            try:
+                connection.close_sync(None)
+            except Exception:  # noqa: BLE001 — cleanup never authorizes keyboard fallback
+                pass
+
+
 def try_replace_kde(focus, source, target, commit, stopped) -> SpanResult | None:
-    """KDE-вход: нативный span для подтверждённого редактора Writer или Calc."""
+    """KDE-вход: нативный span для подтверждённого редактируемого поля."""
     if not isinstance(focus, a11y.FocusSnapshot):
         return SpanResult("aborted")
     if not _kde_identity(focus):
-        # Не LibreOffice: обычный транспорт должен работать как раньше.
-        return None if focus.app else SpanResult("aborted")
+        return (_try_replace_field(focus, source, target, commit, stopped)
+                if focus.app else SpanResult("aborted"))
     if not _kde_focus(focus, time.monotonic()):
         return SpanResult("aborted")
     try:
@@ -524,7 +594,7 @@ def try_replace_kde(focus, source, target, commit, stopped) -> SpanResult | None
         if connection is None:
             return SpanResult("failed")
         tree = a11y._DbusTree(connection)
-        check = _kde_guard(tree, focus, context, stopped)
+        check = _field_guard(tree, focus, context, stopped)
         state = check()
         if state == _UNSUPPORTED:
             # Роль/компонент не поддерживается, но живой фокус уже доказан:
