@@ -65,9 +65,10 @@ def test_confirmed_protected_field_change_still_cancels_when_protection_off(env)
     assert env["typist"].taps() == []
 
 
-def test_title_change_of_same_confirmed_field_keeps_word(env):
+@pytest.mark.parametrize("guarded", [False, True])
+def test_title_change_of_same_confirmed_field_keeps_word(env, guarded):
     ctrl = env["ctrl"]
-    ctrl.config.general.skip_password_fields = False
+    ctrl.config.general.skip_password_fields = guarded
     probe = ChangingProbe(env["clock"], app="editor", app_ids=("editor",),
                           field=(":1.1", "/field"), window="Document")
     ctrl.set_probe(probe)
@@ -77,6 +78,24 @@ def test_title_change_of_same_confirmed_field_keeps_word(env):
     type_text(env, "hbdtn ")
 
     assert ctrl.stats["corrections"] == 1
+
+
+@pytest.mark.parametrize("change", [
+    {"field": (":1.1", "/second")},
+    {"password": True},
+    {"app_ids": ("other.app",)},
+])
+def test_changed_title_cannot_hide_a_field_or_protection_change(env, change):
+    ctrl = env["ctrl"]
+    ctrl.config.general.skip_password_fields = True
+    probe = ChangingProbe(env["clock"], app="editor", app_ids=("editor",),
+                          field=(":1.1", "/field"), window="Document")
+    ctrl.set_probe(probe)
+    type_text(env, "g")
+    probe.values.update(window="*Document", **change)
+    type_text(env, "hbdtn ")
+    assert ctrl.stats["corrections"] == 0
+    assert env["typist"].taps() == []
 
 
 def test_first_word_after_click_survives_pre_click_cached_field(env):
