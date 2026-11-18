@@ -110,9 +110,13 @@ def main_keyboard(inputs: list[dict], identifier: str | None = None) -> dict | N
             continue
         if identifier is not None and dev.get("identifier") != identifier:
             continue
-        if len(dev.get("xkb_layout_names") or []) >= 2:
+        names = dev.get("xkb_layout_names")
+        if not isinstance(names, list) or not names or any(
+                not isinstance(name, str) or not name.strip() for name in names):
+            continue
+        if len(names) >= 2:
             return dev
-        if dev.get("xkb_layout_names") and fallback is None:
+        if fallback is None:
             fallback = dev
     return fallback
 
