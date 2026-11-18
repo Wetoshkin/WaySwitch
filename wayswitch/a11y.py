@@ -96,6 +96,7 @@ class _FocusWatch(NamedTuple):
     query_connection: object
     live: threading.Event
     close: Callable[[], None]
+    set_scope: Callable[[str | None], bool]
 
 
 class Probe(Protocol):
@@ -173,7 +174,7 @@ class AtspiProbe:
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._ok = True
-        self._last_activity = 0.0
+        self._last_activity: float | None = None
 
     # --- публичное ----------------------------------------------------------
 
@@ -223,6 +224,8 @@ class AtspiProbe:
             self._generation += 1
             self._snap = FocusSnapshot(generation=self._generation)
         self._wake.set()
+        if self._watch_real_focus and self._last_activity is not None:
+            self._ensure_thread()
 
     def _drop_watcher(self) -> None:
         watcher, self._watcher = self._watcher, None
@@ -266,6 +269,18 @@ class AtspiProbe:
             with self._lock:
                 generation = self._generation
             result = self._query()
+            if self._watch_real_focus:
+                field = getattr(result, "field", None)
+                scope = field[0] if field is not None else None
+                if self._watcher.set_scope(scope):
+                    with self._lock:
+                        generation = self._generation
+                    started = self._clock()
+                    result = self._query()
+                    field = getattr(result, "field", None)
+                    if (field[0] if field is not None else None) != scope:
+                        self._invalidate()
+                        return
         except Exception:  # noqa: BLE001 — at-spi может отсутствовать целиком
             if self._ok:
                 # Первый сбой после успеха — в журнал с трассировкой, дальше
@@ -564,27 +579,79 @@ def _watch_focus_events(query_connection, invalidate) -> _FocusWatch:
     live.set()
     subscriptions = []
     closed_handlers = []
+    scope = None
+    qt_scope = False
+    closed = False
+    scope_lock = threading.RLock()
 
-    def changed(*_args):
-        invalidate()
+    def changed(_connection, sender, _path, interface, _member, *_args):
+        with scope_lock:
+            if not (qt_scope and sender == scope
+                    and interface == "org.a11y.atspi.Event.Object"):
+                invalidate()
+                return
+            try:
+                # Qt включает перехват клавиш: снимаем его до следующего обхода.
+                if not set_scope(None):
+                    invalidate()
+            except Exception:  # noqa: BLE001 — a lost subscription cannot retain focus proof
+                lost()
 
     def lost(*_args):
         live.clear()
         invalidate()
 
     def close():
-        live.clear()
-        for bus, subscription in subscriptions:
-            bus.signal_unsubscribe(subscription)
-        for bus, handler in closed_handlers:
-            bus.disconnect(handler)
-        _close_private_connection(connection)
+        nonlocal closed
+        with scope_lock:
+            if closed:
+                return
+            closed = True
+            live.clear()
+            for bus, subscription in subscriptions:
+                bus.signal_unsubscribe(subscription)
+            for bus, handler in closed_handlers:
+                bus.disconnect(handler)
+            _close_private_connection(connection)
 
     def owner():
         return connection.call_sync(
             "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
             "GetNameOwner", GLib.Variant("(s)", (registry,)), GLib.VariantType("(s)"),
             Gio.DBusCallFlags.NONE, 1500, None).unpack()[0]
+
+    def set_scope(app):
+        nonlocal scope, qt_scope
+        with scope_lock:
+            if closed or not live.is_set():
+                raise RuntimeError("подписка at-spi закрыта")
+            if app == scope:
+                return False
+            if app is not None and (type(app) is not str or not app.startswith(":")):
+                raise ValueError("требуется уникальное имя приложения AT-SPI")
+            invalidate()
+            try:
+                if scope is not None:
+                    connection.call_sync(
+                        registered_owner, path, registry, "DeregisterEvent",
+                        GLib.Variant("(ss)", (event, scope)), GLib.VariantType("()"),
+                        Gio.DBusCallFlags.NONE, 1500, None)
+                if app is not None:
+                    connection.call_sync(
+                        registered_owner, path, registry, "RegisterEvent",
+                        GLib.Variant("(sass)", (event, [], app)), GLib.VariantType("()"),
+                        Gio.DBusCallFlags.NONE, 1500, None)
+                if owner() != registered_owner or not live.is_set():
+                    raise RuntimeError("реестр at-spi сменился во время подписки")
+                toolkit = (_DbusTree(connection)._property(
+                    (app, "/org/a11y/atspi/accessible/root"),
+                    "org.a11y.atspi.Application", "ToolkitName") if app else None)
+                scope = app
+                qt_scope = isinstance(toolkit, str) and toolkit.casefold() == "qt"
+                return True
+            except Exception:
+                close()
+                raise
 
     try:
         closed_handlers.append((connection, connection.connect("closed", lost)))
@@ -607,16 +674,13 @@ def _watch_focus_events(query_connection, invalidate) -> _FocusWatch:
             "StartServiceByName", GLib.Variant("(su)", (registry, 0)), GLib.VariantType("(u)"),
             Gio.DBusCallFlags.NONE, 1500, None)
         registered_owner = owner()
-        connection.call_sync(registered_owner, path, registry, "RegisterEvent",
-                             GLib.Variant("(sass)", (event, [], "")), GLib.VariantType("()"),
-                             Gio.DBusCallFlags.NONE, 1500, None)
         if owner() != registered_owner or not live.is_set():
             raise RuntimeError("реестр at-spi сменился во время подписки")
     except Exception:
         close()
         raise
 
-    return _FocusWatch(query_connection, live, close)
+    return _FocusWatch(query_connection, live, close, set_scope)
 
 
 class _DbusTree:

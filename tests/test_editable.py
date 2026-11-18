@@ -1439,3 +1439,24 @@ def test_kde_rejects_snapshot_with_conflicting_shell_identity(kde_native):
     kde_native.focus = kde_native.focus._replace(app_ids=("libreoffice-writer",))
     assert kde_replace(kde_native) == editable.SpanResult("aborted")
     assert kde_native.tree.reads == kde_native.tree.writes == kde_native.committed == []
+
+
+def test_text_event_registration_is_limited_to_the_field_provider(event_bus):
+    connection, _calls = event_bus
+    registrations = []
+    connection.call_sync = lambda *args: registrations.append((args[3], args[4]))
+    with editable._text_changes(connection, FIELD):
+        pass
+    assert registrations == [
+        ('RegisterEvent', ('(sass)', ('object:text-changed', [], FIELD[0]))),
+        ('DeregisterEvent', ('(ss)', ('object:text-changed', FIELD[0]))),
+    ]
+
+@pytest.mark.parametrize('node', [None, ('', '/field'), ('org.example.Editor', '/field'),
+                                  (':1.9', '/org/a11y/atspi/null')])
+def test_text_event_registration_cannot_fall_back_to_a_global_scope(event_bus, node):
+    connection, calls = event_bus
+    connection.signal_subscribe = lambda *_args: calls.append('subscribe') or 5
+    with pytest.raises(ValueError), editable._text_changes(connection, node):
+        pytest.fail('Invalid field must not register any events')
+    assert calls == []
