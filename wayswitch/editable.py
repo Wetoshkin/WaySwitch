@@ -577,12 +577,43 @@ def _replace_kde_with_tree(tree, focus, source, target, commit, stopped, events,
         lambda: check() == _OK, anchor=anchor)
 
 
-def _try_replace_field(focus, source, target, commit, stopped):
+def _plain_field_ready(focus, source, target, stopped):
     now = time.monotonic()
     if (not isinstance(focus, a11y.FocusSnapshot) or not focus.app
             or focus.app.casefold() in KDE_APPS or not _kde_field(focus.field)
             or focus.protection(now) is not False or not _span(source) or not _span(target)
             or _live_focus(stopped, focus, now) is None or _physical_count(stopped) is None):
+        return False
+    return True
+
+
+def _replace_field_with_tree(tree, focus, source, target, commit, stopped, events,
+                             *, context_provider=None):
+    if not _plain_field_ready(focus, source, target, stopped):
+        return None
+    interfaces = tree.interfaces(focus.field)
+    if not interfaces or a11y.TEXT not in interfaces or EDITABLE not in interfaces:
+        return None
+    get_context = context_provider or a11y.query_shell_context
+    context = get_context()
+    if context is None or context.protected():
+        return SpanResult("aborted")
+    check = _field_guard(tree, focus, context, stopped, context_provider=get_context,
+                         roles=(61, 79))
+    state = check()
+    if state == _UNSUPPORTED:
+        return None
+    if state != _OK:
+        return SpanResult("aborted")
+    anchor = _prepare_anchor(tree, focus, source, stopped)
+    if anchor is None:
+        return SpanResult("aborted")
+    return _replace_checked(tree, focus, source, target, commit, stopped, events,
+                            lambda: check() == _OK, anchor=anchor, allow_append=True)
+
+
+def _try_replace_field(focus, source, target, commit, stopped):
+    if not _plain_field_ready(focus, source, target, stopped):
         return None
     connection = None
     attempted = False
@@ -603,18 +634,8 @@ def _try_replace_field(focus, source, target, commit, stopped):
         interfaces = tree.interfaces(focus.field)
         if not interfaces or a11y.TEXT not in interfaces or EDITABLE not in interfaces:
             return None
-        check = _field_guard(tree, focus, context, stopped, roles=(61, 79))
-        state = check()
-        if state == _UNSUPPORTED:
-            return None
-        if state != _OK:
-            return SpanResult("aborted")
         with _text_changes(connection, focus.field) as events:
-            anchor = _prepare_anchor(tree, focus, source, stopped)
-            if anchor is None:
-                return SpanResult("aborted")
-            return _replace_checked(tree, focus, source, target, begin, stopped, events,
-                                    lambda: check() == _OK, anchor=anchor, allow_append=True)
+            return _replace_field_with_tree(tree, focus, source, target, begin, stopped, events)
     except Exception:  # noqa: BLE001 — provider errors can contain private field contents
         return SpanResult("failed", attempted)
     finally:

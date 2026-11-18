@@ -560,3 +560,78 @@ def test_repeated_main_checks_finish_within_request_deadline(monkeypatch):
         assert calls == [main_thread] * 501
     finally:
         worker.close(timeout=1.0)
+
+@pytest.mark.parametrize("app_ids", [(), ("ordinary-editor",)])
+@pytest.mark.parametrize("cancel", [False, True])
+def test_worker_plain_field_preserves_append_or_cancels_in_owner_thread(app_ids, cancel):
+    events = []
+    tree = WorkerTree(events)
+    tree.nodes[FIELD].update(role=79, app_name="ordinary-editor")
+    focus = make_focus(app="ordinary-editor", app_ids=app_ids)._replace(window="Document")
+    physical = [0]
+    appended = []
+    owner = []
+    read = tree.text_range
+
+    class Stopped:
+        reserved = False
+
+        def __call__(self):
+            return False
+
+        def append_count(self):
+            return physical[0]
+
+        def focus_snapshot(self):
+            return focus._replace(taken_at=time.monotonic())
+
+        def prepare(self, **_kwargs):
+            return True
+
+        def use_fast_switch(self):
+            pass
+
+        def reserve_anchor(self):
+            self.reserved = True
+            return True
+
+    stopped = Stopped()
+
+    def text_range(node, start, end):
+        text = read(node, start, end)
+        if stopped.reserved and not tree.writes and not appended:
+            if cancel:
+                worker.cancel(worker._active_item.request.op_id)
+            else:
+                tree.text += "X"
+                tree.position += 1
+                physical[0] += 1
+            appended.append(True)
+        return text
+
+    tree.text_range = text_range
+
+    @contextmanager
+    def changes(_conn, _field):
+        yield events
+
+    def connection():
+        owner.append(threading.get_ident())
+        return _fake_conn()
+
+    context = a11y.ShellContext(app_ids, ime_focus=bool(app_ids), pid=123 if app_ids else 0)
+    worker = AtspiWorker(connection_factory=connection, tree_factory=lambda _conn: tree,
+                         changes_factory=changes, context_provider=lambda: context,
+                         main_invoke=lambda fn: fn())
+    try:
+        result = worker.replace_span(focus, "ghbdtn", "привет", lambda: True, stopped)
+        if cancel:
+            assert result == editable.SpanResult("aborted")
+            assert tree.text == "Test ghbdtn" and tree.writes == []
+        else:
+            assert result == editable.SpanResult("done", True)
+            assert tree.text == "Test приветX"
+        assert len(owner) == 1 and owner[0] != threading.get_ident()
+        assert set(tree.threads) == set(owner)
+    finally:
+        worker.close(timeout=1)

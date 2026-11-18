@@ -285,10 +285,14 @@ class AtspiWorker:
                      commit: Callable[[], bool | None],
                      stopped: Callable[[], bool],
                      *, timeout: float = DEFAULT_TIMEOUT_SEC) -> editable.SpanResult | None:
-        """Выполнить нативную замену LibreOffice через постоянный AT-SPI worker."""
+        """Выполнить нативную замену через постоянный AT-SPI worker."""
         if not isinstance(focus, a11y.FocusSnapshot):
             return editable.SpanResult(editable.ABORTED)
-        if focus.app_ids:
+        plain = bool(focus.app and focus.app.casefold() not in editable.KDE_APPS)
+        if plain:
+            if not editable._plain_field_ready(focus, source, target, stopped):
+                return None
+        elif focus.app_ids:
             if (focus.app and (focus.app.casefold() not in {"soffice", "libreoffice"}
                                or not (editable._writer(focus) or editable._calc(focus)))):
                 return None
@@ -523,7 +527,12 @@ class AtspiWorker:
                 if ctx is not None:
                     while ctx.pending():
                         ctx.iteration(False)
-                if req.focus.app_ids:
+                if req.focus.app and req.focus.app.casefold() not in editable.KDE_APPS:
+                    result = editable._replace_field_with_tree(
+                        tree, req.focus, req.source, req.target,
+                        commit_proxy, stopped_proxy, events,
+                        context_provider=self._context_provider)
+                elif req.focus.app_ids:
                     result = editable._replace(
                         tree, req.focus, req.source, req.target,
                         commit_proxy, stopped_proxy, events,
