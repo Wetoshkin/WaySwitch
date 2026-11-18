@@ -527,3 +527,36 @@ def test_worker_main_pump_prevents_deadlock_and_insert_failure_returns_uncertain
         assert worker.uncertain_active is True
     finally:
         worker.close(timeout=1.0)
+
+
+def test_repeated_main_checks_finish_within_request_deadline(monkeypatch):
+    pending, calls = [], []
+    main_thread = threading.get_ident()
+
+    def read(_tree, _focus, valid, _limit, **_kwargs):
+        for _ in range(500):
+            if not valid():
+                return None
+        return a11y.TextSelection(0, 6, "ghbdtn")
+
+    def valid():
+        calls.append(threading.get_ident())
+        return True
+
+    def pump():
+        while pending:
+            pending.pop(0)()
+
+    monkeypatch.setattr(a11y, "_read_selection", read)
+    worker = AtspiWorker(
+        connection_factory=_fake_conn,
+        tree_factory=lambda _conn: SimpleNamespace(),
+        main_invoke=pending.append,
+        main_pump=pump,
+    )
+    try:
+        assert worker.read_selection(make_focus(), valid, 300) == a11y.TextSelection(
+            0, 6, "ghbdtn")
+        assert calls == [main_thread] * 501
+    finally:
+        worker.close(timeout=1.0)
