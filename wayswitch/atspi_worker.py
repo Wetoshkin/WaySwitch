@@ -161,6 +161,7 @@ class AtspiWorker:
         self._max_queue = max(1, max_queue)
 
         self._cond = threading.Condition()
+        self._main_wake = threading.Event()
         self._queue: deque[_QueuedItem] = deque()
         self._closing = False
         self._next_op_id = 0
@@ -208,6 +209,7 @@ class AtspiWorker:
             if self._active_item is not None and self._active_item.request.op_id == op_id:
                 self._active_item.token.cancel("cancelled")
             self._cond.notify_all()
+            self._main_wake.set()
 
     def _wait_item(self, item: _QueuedItem, deadline: float) -> bool:
         """Ждать завершения запроса, прокручивая main context при необходимости."""
@@ -217,10 +219,13 @@ class AtspiWorker:
                 return item.done.is_set()
             if self._main_pump is None:
                 return item.done.wait(timeout=remaining)
-            if item.done.wait(timeout=min(0.005, remaining)):
+            if item.done.is_set():
                 return True
-            if self._main_pump is not None:
-                self._main_pump()
+            self._main_wake.wait(timeout=min(0.005, remaining))
+            self._main_wake.clear()
+            if item.done.is_set():
+                return True
+            self._main_pump()
 
     def close(self, timeout: float = SHUTDOWN_JOIN_SEC) -> None:
         """Остановить приём, отменить ожидающие запросы и дождаться завершения."""
@@ -236,6 +241,7 @@ class AtspiWorker:
             if self._active_item is not None:
                 self._active_item.token.cancel("shutdown")
             self._cond.notify_all()
+            self._main_wake.set()
         if self._thread is not None and self._thread.is_alive():
             if threading.get_ident() != self._thread.ident:
                 self._thread.join(timeout=timeout)
@@ -363,6 +369,7 @@ class AtspiWorker:
                         self._active_item = None
                     item.token.finish()
                     item.done.set()
+                    self._main_wake.set()
         finally:
             self._close_connection()
             if ctx is not None:
@@ -439,6 +446,7 @@ class AtspiWorker:
 
         try:
             self._main_invoke(run)
+            self._main_wake.set()
         except Exception:  # noqa: BLE001
             return default
         wait_for = max(0.0, token.deadline - self._clock())
