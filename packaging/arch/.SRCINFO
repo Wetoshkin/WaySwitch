@@ -20,7 +20,7 @@ pkgbase = wayswitch
 	optdepends = ibus: запасной способ переключения раскладки в GNOME
 	optdepends = pipewire: звук при исправлении (pw-play)
 	backup = etc/xdg/autostart/wayswitch-session.desktop
-	source = wayswitch-1.2.2.tar.gz::https://github.com/Wetoshkin/WaySwitch/archive/556173ff2721a2ebc8555c84bac762eef8e7f44e.tar.gz
-	sha256sums = f8074a1e6d322a69ae017f83b295c861010ed4f513ee33634a30bf2256de9fa0
+	source = wayswitch-1.2.2.tar.gz::https://github.com/Wetoshkin/WaySwitch/archive/5fdc9c84c1c0e264c778628050cff5879d2c619a.tar.gz
+	sha256sums = 306ec6fd4f16f93d275dff2f05e259ff7663826a92ad63bcd3659986b8494fac
 
 pkgname = wayswitch
