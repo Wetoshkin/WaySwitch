@@ -135,7 +135,7 @@ class Controller:
                  sleep: Callable[[float], None] = time.sleep,
                  schedule_later: Callable[[float, Callable[[], None]], None] | None = None,
                  schedule: Callable[[Callable[[], None]], None] = lambda fn: fn(),
-                 native_replacer=None,
+                 native_replacer=None, deferred_native_replacer=None,
                  selection_reader=None):
         """`schedule(fn)` — отложить исполнение вне диспатча источника событий;
         в демоне — GLib.idle_add. Источник evdev в GLib не реентрантен: пока
@@ -151,6 +151,7 @@ class Controller:
         self.backend = backend
         self.typist = typist
         self.native_replacer = native_replacer
+        self.deferred_native_replacer = deferred_native_replacer
         self.selection_reader = selection_reader
         self._uncertain_generation: int | None = None
         self.clock = clock
@@ -233,6 +234,7 @@ class Controller:
         self._busy_held: frozenset = frozenset()
         self._busy_reset = False  # клик/пауза/блокировка посреди исправления
         self._pending = 0  # отложенных (запланированных, но ещё не исполненных) фиксов
+        self._deferred_word: tuple[int, Callable[[], None]] | None = None
         self._pending_gesture: str | None = None  # жест, пришедший во время фикса
         self._pending_after: str | None = None  # второй жест той же серии (слово → фраза)
         self._word_gesture: _WordGestureContext | None = None
@@ -243,6 +245,7 @@ class Controller:
         # Время последней правки текста руками и последней ручной смены
         # раскладки: в это окно автоисправление не вмешивается.
         self._last_edit_at: float | None = None
+        self._last_key_press = 0.0
         self._last_external_layout_at: float | None = None
         self._layout_shortcut_partial_at: float | None = None
         self.stats = {"corrections": 0, "manual": 0, "undo": 0}
@@ -520,6 +523,8 @@ class Controller:
                 self.buffer.note_press(code, device_id)
             return
         now = self.clock()
+        if value in (1, 2):
+            self._last_key_press = now
         if (value == 1 and code in kc.COMMAND_MODIFIERS and self.buffer.current_word()
                 and not (self.busy or self.paused or self.locked)):
             self._layout_shortcut_partial_at = now
@@ -1891,17 +1896,32 @@ class Controller:
         и что другой фикс не исполняется прямо сейчас — иначе отказываемся.
         """
         snapshot = list(keys)
+        capture_phrase = self.buffer.phrase()
+        capture_epoch, capture_edit = self._context_epoch, self._last_edit_at
         capture_focus = self._buffer_focus
         capture_owner = self._buffer_owner
         secret = secret or capture_focus is None or capture_focus[-1] is not False \
             or self._secret_focus()
         self._pending += 1
 
+        ordered = (self.deferred_native_replacer is not None
+                   and not (manual or whole_phrase or span or caps_off or secret)
+                   and tail > 0)
+        quiet_interval = 0.060
+        wait_until = (self.clock() + 0.45 if ordered and self.schedule_later is not None
+                      and (self._deferred_word is None
+                           or self._deferred_word[0] != capture_epoch) else None)
+
         def run() -> None:
+            rescheduled = False
             self._pending -= 1
             ok = False
             outcome: dict = {}
             try:
+                waiting = self._deferred_word
+                if (not manual and waiting is not None
+                        and waiting[0] == self._context_epoch and waiting[1] is not run):
+                    return
                 if self._focus_waiting:
                     self._focus_wait_boundary = True
                 if self.busy:
@@ -1913,6 +1933,17 @@ class Controller:
                 if not self._sync_focus() or not self._same_buffer_scope(
                         capture_focus, capture_owner):
                     return
+                if wait_until is not None and self.schedule_later is not None:
+                    now = self.clock()
+                    if now > wait_until or self._pending_gesture:
+                        return
+                    quiet_at = self._last_key_press + quiet_interval
+                    if quiet_at > now:
+                        if quiet_at <= wait_until:
+                            rescheduled = True
+                            self._pending += 1
+                            self.schedule_later(quiet_at - now, run)
+                        return
                 if whole_phrase:
                     unchanged = self.buffer.phrase() == snapshot
                 elif span:
@@ -1922,20 +1953,52 @@ class Controller:
                     unchanged = self.buffer.phrase()[-len(expected):] == expected
                 else:
                     unchanged = self.buffer.last_word_with_tail() == (snapshot, tail)
+                if ordered:
+                    if (self._context_epoch != capture_epoch
+                            or self._last_edit_at != capture_edit):
+                        return
+                    unchanged = self.buffer.phrase() == capture_phrase
+                fix_keys, fix_tail, fix_text = snapshot, tail, text
+                fix_span, fix_source, deferred_native = span, source_text, False
                 if not unchanged:
-                    log.info("исправление %s отменено: буфер изменился", reason)
-                    return
-                ok = self._apply_fix(snapshot, tail, target_group, text, manual=manual,
+                    phrase = self.buffer.phrase()
+                    expected = snapshot + [SPACE] * tail
+                    if (not ordered
+                            or capture_phrase[-len(expected):] != expected
+                            or phrase[:len(capture_phrase)] != capture_phrase
+                            or len(phrase) <= len(capture_phrase)):
+                        log.info("исправление %s отменено: буфер изменился", reason)
+                        return
+                    appended = phrase[len(capture_phrase):]
+                    fix_keys = expected + appended
+                    fix_text = text + self.keymap.decode(appended, target_group)
+                    fix_source = (source_text if source_text is not None
+                                  else self.keymap.decode(snapshot, group_before))
+                    fix_source += " " * tail + self.keymap.decode(appended, group_before)
+                    fix_tail = self.buffer.last_word_with_tail()[1]
+                    if fix_tail:
+                        fix_keys = fix_keys[:-fix_tail]
+                        fix_source = fix_source[:-fix_tail]
+                    fix_span, deferred_native = True, True
+                ok = self._apply_fix(fix_keys, fix_tail, target_group, fix_text, manual=manual,
                                      reason=reason, group_before=group_before,
                                      whole_phrase=whole_phrase, switch=switch, trigger=trigger,
-                                     span=span, caps_off=caps_off, secret=secret, outcome=outcome,
-                                     source_text=source_text)
+                                     span=fix_span, caps_off=caps_off, secret=secret,
+                                     outcome=outcome,
+                                     source_text=fix_source, deferred_native=deferred_native)
             finally:
-                if done is not None:
-                    done(ok, outcome.get("secret", secret))
-                self._run_pending_gesture()
+                if not rescheduled:
+                    if self._deferred_word == (capture_epoch, run):
+                        self._deferred_word = None
+                    if done is not None:
+                        done(ok, outcome.get("secret", secret))
+                    self._run_pending_gesture()
 
-        self.schedule(run)
+        if wait_until is not None and self.schedule_later is not None:
+            self._deferred_word = (capture_epoch, run)
+            self.schedule_later(quiet_interval, run)
+        else:
+            self.schedule(run)
 
     def _run_pending_gesture(self) -> None:
         """Жест, пришедший во время фикса (или пока фикс ждал idle), — на свежем буфере.
@@ -2095,7 +2158,8 @@ class Controller:
                    whole_phrase: bool = False, switch: bool = True,
                    trigger: tuple[int, int] | None = None, span: bool = False,
                    caps_off: bool = False, secret: bool = False,
-                   outcome: dict | None = None, source_text: str | None = None) -> bool:
+                   outcome: dict | None = None, source_text: str | None = None,
+                   deferred_native: bool = False) -> bool:
         # Бэкенд может ошибаться насчёт текущей раскладки (IBus на GNOME 46+).
         # Проверяем ДО плана: после Backspace-ов откатывать уже нечего.
         if self._groups() is None or self.backend.current() != group_before:
@@ -2112,7 +2176,8 @@ class Controller:
             log.warning("не могу набрать текст в группе %s", target_group)
             return False
         # До границы слова человек продолжает печатать: клавиатурная замена не атомарна.
-        plan.require_verified = self._provisional_binding or reason in {"early", "url-early"}
+        plan.require_verified = (deferred_native or self._provisional_binding
+                                 or reason in {"early", "url-early"})
         original = (source_text if source_text is not None
                     else self.keymap.decode(keys, group_before))
         if self.dry_run:
@@ -2181,7 +2246,8 @@ class Controller:
                                  native_append=self._native_append_count,
                                  native_focus=self._native_focus_snapshot,
                                  before_write=before_write if whole_phrase else None,
-                                 native_replacer=self.native_replacer)
+                                 native_replacer=(self.deferred_native_replacer if deferred_native
+                                                  else self.native_replacer))
         except Exception as exc:  # noqa: BLE001 — execute сам ловит, это страховка
             log.error("исправление %s: ошибка %s", reason, type(exc).__name__)
             result = "failed"

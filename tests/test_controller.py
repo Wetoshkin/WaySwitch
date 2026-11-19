@@ -2176,6 +2176,96 @@ def test_layout_switch_with_held_modifier_allows_fresh_word(env):
     assert env["corrected"] == [("ghbdtn", "привет", False)]
 
 
+@pytest.mark.parametrize(("suffix", "converted"), [
+    ("vb", "ми"), ("Vb", "Ми"), ("vbh ", "мир "), ("vbh  ", "мир  "), (" ", " "),
+    ("ghbdtn ", "привет "),
+])
+def test_ordered_native_keeps_first_decision_when_next_word_already_started(env, suffix, converted):
+    ctrl = env["ctrl"]
+    ctrl.set_probe(FieldProbe(env["clock"]))
+    native = RecordingReplacer()
+    ctrl.deferred_native_replacer = native
+    ctrl.native_replacer = native
+    queue = deferred(env)
+    source = "ghbdtn " + suffix
+    target = "привет " + converted
+    type_text(env, source)
+    drain(queue)
+    assert native.native == [(source, target)]
+    assert env["typist"].taps() == []
+    assert env["km"].decode(ctrl.buffer.phrase(), RU) == target
+    assert ctrl.stats["corrections"] == 1
+    assert ctrl.manual_word()
+    drain(queue)
+    assert native.native[-1] == (target, source)
+    assert ctrl.stats["undo"] == 1
+
+
+def test_deferred_first_word_precedes_later_word_decision(env):
+    ctrl = env["ctrl"]
+    ctrl.set_probe(FieldProbe(env["clock"]))
+    native = RecordingReplacer()
+    ctrl.deferred_native_replacer = native
+    queue = deferred(env)
+    timers = []
+    ctrl.schedule_later = lambda delay, run: timers.append((delay, run))
+
+    type_text(env, "ghbdtn ")
+    assert len(timers) == 1
+    type_text(env, "vbh ")
+    drain(queue)
+    assert native.native == []
+    delay, finish = timers.pop()
+    env["clock"].now += delay
+    finish()
+    assert native.native == [("ghbdtn vbh ", "привет мир ")]
+    assert env["typist"].taps() == []
+
+def test_focus_change_without_space_does_not_finish_word(env):
+    ctrl = env["ctrl"]
+    probe = FieldProbe(env["clock"])
+    ctrl.set_probe(probe)
+    native = RecordingReplacer()
+    ctrl.native_replacer = ctrl.deferred_native_replacer = native
+    queue = deferred(env)
+    type_text(env, "ghbdtn")
+    probe.field = (":1.1", "/other")
+    probe.bump()
+    tap(env, kc.KEY_TAB)
+    type_text(env, " ")
+    drain(queue)
+    assert native.native == []
+    assert env["typist"].events == []
+    assert ctrl.stats["corrections"] == 0
+
+@pytest.mark.parametrize("change", ["click", "backspace", "unsupported"])
+def test_ordered_native_never_falls_back_after_deferred_span_changes(env, change):
+    ctrl = env["ctrl"]
+    ctrl.set_probe(FieldProbe(env["clock"]))
+    native = RecordingReplacer()
+    ctrl.deferred_native_replacer = native
+    ctrl.native_replacer = native
+    queue = deferred(env)
+    type_text(env, "ghbdtn ")
+    if change == "click":
+        ctrl.on_click()
+        type_text(env, "ghbdtn v")
+    else:
+        type_text(env, "v")
+        if change == "backspace":
+            tap(env, kc.KEY_BACKSPACE)
+            type_text(env, "v")
+        else:
+            class Unsupported:
+                def __call__(self, *_args):
+                    return None
+
+            ctrl.deferred_native_replacer = Unsupported()
+    queue.pop(0)()
+    assert env["typist"].events == []
+    assert ctrl.stats["corrections"] == 0
+
+
 @pytest.mark.parametrize("modifier", [kc.KEY_LEFTMETA, kc.KEY_LEFTCTRL, kc.KEY_LEFTALT])
 @pytest.mark.parametrize("partial", [False, True])
 def test_layout_shortcut_preserves_interrupted_word_evidence(env, modifier, partial):

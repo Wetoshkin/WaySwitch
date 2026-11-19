@@ -281,6 +281,14 @@ class AtspiWorker:
             return None
         return item.result
 
+    def replace_deferred_field(self, focus, source: str, target: str,
+                               commit: Callable[[], bool | None],
+                               stopped: Callable[[], bool]) -> editable.SpanResult | None:
+        """Расширенный диапазон допустим у обычного поля с адресной заменой."""
+        if not editable._plain_field_ready(focus, source, target, stopped):
+            return None
+        return self.replace_span(focus, source, target, commit, stopped)
+
     def replace_span(self, focus, source: str, target: str,
                      commit: Callable[[], bool | None],
                      stopped: Callable[[], bool],

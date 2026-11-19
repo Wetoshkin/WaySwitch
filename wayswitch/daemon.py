@@ -226,6 +226,8 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         # клавиш, прерывающее нажатие) не доставляются. См. Controller.__init__.
         schedule=lambda fn: GLib.idle_add(lambda: (fn(), False)[1]),
         native_replacer=native_replacer,
+        deferred_native_replacer=(worker.replace_deferred_field if backend.name == "shell"
+                                  else None),
         selection_reader=worker.read_selection,
     )
     backend.on_change(controller.on_layout_changed)
