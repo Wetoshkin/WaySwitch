@@ -268,10 +268,17 @@ class _Run:
 class _NativeStop:
     """Стоп-проверка native-протокола; якорь разрешает только дописывание после него."""
 
-    def __init__(self, run: _Run, prepare=None):
+    def __init__(self, run: _Run, prepare=None, layout=None):
         self._run = run
         self._prepare = prepare
         self.anchor_reserved = False
+        self.external_layout = False
+        self._layout = layout
+
+    def defer_layout(self):
+        """Передать переключение транспорту, который применит его вместе с текстом."""
+        self.external_layout = True
+        return self._layout
 
     def __call__(self, *, before_write: bool = False) -> bool:
         return self._run.native_aborted(before_write=before_write,
@@ -381,6 +388,8 @@ def _attempt_native(plan: Plan, run: _Run, setup,
             return True
         started = True
         for step in prefix:
+            if isinstance(step, SwitchLayout) and stop.external_layout:
+                continue
             if run.blocked() or stop(before_write=strict):
                 return False
             try:
@@ -394,7 +403,8 @@ def _attempt_native(plan: Plan, run: _Run, setup,
         setup_done = True
         return True
 
-    stop = _NativeStop(run, prepare)
+    layout = next((step.group for step in prefix if isinstance(step, SwitchLayout)), None)
+    stop = _NativeStop(run, prepare, layout)
 
     def begin():
         nonlocal prepared, started

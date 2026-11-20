@@ -488,7 +488,8 @@ def _kde_focus(focus, now) -> bool:
             and focus.protection(now) is False)
 
 
-def _field_guard(tree, focus, context, stopped, context_provider=None, *, roles=(73, 83)):
+def _field_guard(tree, focus, context, stopped, context_provider=None, *, roles=(73, 83),
+                 require_editable=True):
     """Живая проверка фокуса: снимок контроллера + метаданные узла.
 
     Полные обходы a11y.find_focus здесь не повторяются: они занимают ~0,1 с и
@@ -523,7 +524,8 @@ def _field_guard(tree, focus, context, stopped, context_provider=None, *, roles=
             if not (bool(state) and a11y._state_bit(state, a11y.EDITABLE)
                     and a11y._state_bit(state, a11y.FOCUSED)):
                 return _ABORT
-            if interfaces is None or a11y.TEXT not in interfaces or EDITABLE not in interfaces:
+            if (interfaces is None or a11y.TEXT not in interfaces
+                    or require_editable and EDITABLE not in interfaces):
                 return _ABORT
             if type(input_type) is not str or input_type == "password":
                 return _ABORT
@@ -535,7 +537,7 @@ def _field_guard(tree, focus, context, stopped, context_provider=None, *, roles=
                 stable_pid = pid
             elif pid != stable_pid:
                 return _ABORT
-            if type(role) is not int or role not in {61, 73, 79, 83}:
+            if type(role) is not int or role not in {61, 73, 79, 83, *roles}:
                 return _ABORT
             if stopped() or get_context() != context:
                 return _ABORT
@@ -585,6 +587,68 @@ def _plain_field_ready(focus, source, target, stopped):
             or _live_focus(stopped, focus, now) is None or _physical_count(stopped) is None):
         return False
     return True
+
+
+def _replace_shell_with_tree(tree, focus, source, target, commit, stopped, shell,
+                             *, context_provider, before_write):
+    if (not _plain_field_ready(focus, source, target, stopped)
+            or not any(app.casefold().removesuffix(".desktop") in {
+                "google-chrome", "google-chrome-beta", "google-chrome-unstable",
+                "chromium", "chromium-browser", "com.google.chrome",
+                "org.chromium.chromium"} for app in focus.app_ids)):
+        return None
+    attempted = False
+    try:
+        context = context_provider()
+        if context is None or not context.app_ids or context.protected():
+            return SpanResult(ABORTED)
+        check = _field_guard(tree, focus, context, stopped, context_provider,
+                             roles=(61, 79, 85), require_editable=False)
+        if check() != _OK:
+            return SpanResult(ABORTED)
+        node = focus.field
+        physical = _physical_count(stopped)
+        caret, count = tree.caret(node), tree.character_count(node)
+        if (physical is None or type(caret) is not int or type(count) is not int
+                or not len(source) <= caret <= count):
+            return SpanResult(ABORTED)
+        start = caret - len(source)
+
+        def unchanged():
+            return (check() == _OK and _physical_count(stopped) == physical
+                    and tree.caret(node) == caret and tree.character_count(node) == count
+                    and tree.text_range(node, start, caret).replace("\u00a0", " ") == source
+                    and check() == _OK and _physical_count(stopped) == physical)
+
+        if not unchanged():
+            return SpanResult(ABORTED)
+        ticket = shell.prepare_replacement(context.pid, source, target)
+        if not ticket or not unchanged():
+            return SpanResult(ABORTED)
+        group = stopped.defer_layout()
+        if commit() is False or not unchanged() or not before_write():
+            return SpanResult(ABORTED)
+        attempted = True
+        if not shell.commit_replacement(ticket, group):
+            return SpanResult(ABORTED)
+        deadline = time.monotonic() + 0.5
+        while time.monotonic() < deadline:
+            _drain_thread_events()
+            if check() != _OK:
+                break
+            appended = _physical_count(stopped)
+            if appended is None or appended < physical:
+                break
+            delta = len(target) - len(source) + appended - physical
+            if (tree.text_range(node, start, start + len(target)).replace("\u00a0", " ") == target
+                    and tree.caret(node) == caret + delta
+                    and tree.character_count(node) == count + delta
+                    and _physical_count(stopped) == appended and check() == _OK):
+                return SpanResult(DONE, True)
+            time.sleep(0.01)
+        return SpanResult(UNCERTAIN, True)
+    except Exception:  # noqa: BLE001 — не повторять запись после неопределённого ответа
+        return SpanResult(UNCERTAIN if attempted else FAILED, attempted)
 
 
 def _replace_field_with_tree(tree, focus, source, target, commit, stopped, events,

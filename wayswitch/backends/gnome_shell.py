@@ -66,6 +66,7 @@ class GnomeShellBackend(LayoutBackend):
         # переопрашиваем раскладку — пользователь мог сменить её на экране входа.
         self._proxy.connect("notify::g-name-owner", self._on_owner_changed)
         self._current = self._query()
+        self.supports_native_replace = (extension_version() or 0) >= 5
         # Человек добавил или переставил раскладку — индексы сдвинулись.
         try:
             self._sources_settings = gnome_common._settings(gnome_common.SCHEMA_SOURCES)
@@ -153,6 +154,27 @@ class GnomeShellBackend(LayoutBackend):
 
     def type_text(self, text: str) -> None:
         self._proxy.call_sync("TypeText", self._GLib.Variant("(s)", (text,)), 0, 2000, None)
+
+    def prepare_replacement(self, pid: int, source: str, target: str) -> int:
+        return self._proxy.call_sync(
+            "PrepareReplacement", self._GLib.Variant("(uss)", (pid, source, target)),
+            0, 1000, None).unpack()[0]
+
+    def commit_replacement(self, token: int, group: int | None) -> bool:
+        self._expected = group
+        try:
+            accepted = self._proxy.call_sync(
+                "CommitReplacement", self._GLib.Variant(
+                    "(uu)", (token, group if group is not None else 0xFFFFFFFF)),
+                0, 1000, None).unpack()[0]
+            if accepted and group is not None:
+                self._current = group
+            if not accepted:
+                self._expected = None
+            return bool(accepted)
+        except Exception:
+            self._expected = None
+            raise
 
 
 class ShellTypist:

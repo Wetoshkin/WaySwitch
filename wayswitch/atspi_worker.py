@@ -114,6 +114,7 @@ class AtspiRequest:
     limit: int = 300
     source: str = ""
     target: str = ""
+    shell: bool = False
 
 
 class _QueuedItem:
@@ -143,6 +144,7 @@ class AtspiWorker:
                  connection_factory: Callable[[], object] | None = None,
                  tree_factory: Callable[[object], object] | None = None,
                  changes_factory=None,
+                 shell_backend=None,
                  context_provider: Callable[[], a11y.ShellContext | None] | None = None,
                  main_invoke: Callable[[Callable[[], None]], None] | None = None,
                  main_pump: Callable[[], None] | None = None,
@@ -153,6 +155,7 @@ class AtspiWorker:
         self._connection_factory = connection_factory or a11y._new_a11y_connection
         self._tree_factory = tree_factory or a11y._DbusTree
         self._changes_factory = changes_factory or editable._text_changes
+        self._shell_backend = shell_backend
         self._context_provider = context_provider or a11y.query_shell_context
         self._main_invoke = main_invoke or _default_main_invoke
         self._main_pump = main_pump
@@ -287,12 +290,13 @@ class AtspiWorker:
         """Расширенный диапазон допустим у обычного поля с адресной заменой."""
         if not editable._plain_field_ready(focus, source, target, stopped):
             return None
-        return self.replace_span(focus, source, target, commit, stopped)
+        return self.replace_span(focus, source, target, commit, stopped, shell=True)
 
     def replace_span(self, focus, source: str, target: str,
                      commit: Callable[[], bool | None],
                      stopped: Callable[[], bool],
-                     *, timeout: float = DEFAULT_TIMEOUT_SEC) -> editable.SpanResult | None:
+                     *, timeout: float = DEFAULT_TIMEOUT_SEC,
+                     shell: bool = False) -> editable.SpanResult | None:
         """Выполнить нативную замену через постоянный AT-SPI worker."""
         if not isinstance(focus, a11y.FocusSnapshot):
             return editable.SpanResult(editable.ABORTED)
@@ -334,6 +338,7 @@ class AtspiWorker:
                 cancel_epoch=self._cancel_epoch,
                 source=source,
                 target=target,
+                shell=shell,
             )
             token = CancelToken(op_id, req.cancel_epoch, deadline, clock=self._clock)
             item = _QueuedItem(req, token, commit=commit, stopped=stopped)
@@ -540,6 +545,12 @@ class AtspiWorker:
                         tree, req.focus, req.source, req.target,
                         commit_proxy, stopped_proxy, events,
                         context_provider=self._context_provider)
+                    if result is None and req.shell and self._shell_backend is not None:
+                        result = editable._replace_shell_with_tree(
+                            tree, req.focus, req.source, req.target, commit_proxy,
+                            stopped_proxy, self._shell_backend,
+                            context_provider=self._context_provider,
+                            before_write=token.begin_write)
                 elif req.focus.app_ids:
                     result = editable._replace(
                         tree, req.focus, req.source, req.target,

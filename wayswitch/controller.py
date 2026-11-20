@@ -1935,11 +1935,12 @@ class Controller:
                     return
                 if wait_until is not None and self.schedule_later is not None:
                     now = self.clock()
-                    if now > wait_until or self._pending_gesture:
+                    deadline = max(wait_until, self._last_key_press + 0.45)
+                    if now > deadline or self._pending_gesture:
                         return
                     quiet_at = self._last_key_press + quiet_interval
                     if quiet_at > now:
-                        if quiet_at <= wait_until:
+                        if quiet_at <= deadline:
                             rescheduled = True
                             self._pending += 1
                             self.schedule_later(quiet_at - now, run)
@@ -1959,7 +1960,7 @@ class Controller:
                         return
                     unchanged = self.buffer.phrase() == capture_phrase
                 fix_keys, fix_tail, fix_text = snapshot, tail, text
-                fix_span, fix_source, deferred_native = span, source_text, False
+                fix_span, fix_source, deferred_native = span, source_text, ordered
                 if not unchanged:
                     phrase = self.buffer.phrase()
                     expected = snapshot + [SPACE] * tail
@@ -1986,6 +1987,16 @@ class Controller:
                                      span=fix_span, caps_off=caps_off, secret=secret,
                                      outcome=outcome,
                                      source_text=fix_source, deferred_native=deferred_native)
+                if (not ok and outcome.get("retry_native") and wait_until is not None
+                        and self.schedule_later is not None
+                        and self.clock() + quiet_interval <= max(
+                            wait_until, self._last_key_press + 0.45)
+                        and self._context_epoch == capture_epoch
+                        and self._last_edit_at == capture_edit
+                        and self.backend.current() == group_before):
+                    rescheduled = True
+                    self._pending += 1
+                    self.schedule_later(quiet_interval, run)
             finally:
                 if not rescheduled:
                     if self._deferred_word == (capture_epoch, run):
@@ -2176,7 +2187,7 @@ class Controller:
             log.warning("не могу набрать текст в группе %s", target_group)
             return False
         # До границы слова человек продолжает печатать: клавиатурная замена не атомарна.
-        plan.require_verified = (deferred_native or self._provisional_binding
+        plan.require_verified = (deferred_native and span or self._provisional_binding
                                  or reason in {"early", "url-early"})
         original = (source_text if source_text is not None
                     else self.keymap.decode(keys, group_before))
@@ -2275,6 +2286,7 @@ class Controller:
                 self._clear_context()
             lost = False
         if result == ABORTED and not interrupted:
+            outcome["retry_native"] = deferred_native
             if self._provisional_binding:
                 # Буфер собран при неподтверждённой привязке. Если слово уже
                 # закончилось пробелом (tail), пропускать следующее нельзя:

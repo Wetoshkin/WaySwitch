@@ -2221,6 +2221,55 @@ def test_deferred_first_word_precedes_later_word_decision(env):
     assert native.native == [("ghbdtn vbh ", "привет мир ")]
     assert env["typist"].taps() == []
 
+
+def test_deferred_first_word_retries_when_client_text_is_not_ready(env):
+    from wayswitch.editable import SpanResult
+
+    ctrl = env["ctrl"]
+    ctrl.set_probe(FieldProbe(env["clock"]))
+    accepted = RecordingReplacer()
+    attempts = []
+
+    def native(*args):
+        attempts.append(True)
+        return SpanResult("aborted") if len(attempts) == 1 else accepted(*args)
+
+    ctrl.deferred_native_replacer = native
+    deferred(env)
+    timers = []
+    ctrl.schedule_later = lambda delay, run: timers.append((delay, run))
+    type_text(env, "ghbdtn vbh")
+    delay, run = timers.pop(0)
+    env["clock"].now += delay
+    run()
+    assert len(timers) == 1
+    delay, run = timers.pop(0)
+    env["clock"].now += delay
+    run()
+    assert accepted.native == [("ghbdtn vbh", "привет мир")]
+    assert env["typist"].taps() == []
+
+
+def test_first_word_is_retained_during_longer_continuous_typing(env):
+    ctrl = env["ctrl"]
+    ctrl.set_probe(FieldProbe(env["clock"]))
+    native = RecordingReplacer()
+    ctrl.deferred_native_replacer = native
+    deferred(env)
+    timers = []
+    ctrl.schedule_later = lambda delay, run: timers.append((delay, run))
+    type_text(env, "ghbdtn ")
+    _, run = timers.pop(0)
+    env["clock"].now += 0.6
+    type_text(env, "vbh")
+    run()
+    assert len(timers) == 1
+    delay, run = timers.pop(0)
+    env["clock"].now += delay
+    run()
+    assert native.native == [("ghbdtn vbh", "привет мир")]
+
+
 def test_focus_change_without_space_does_not_finish_word(env):
     ctrl = env["ctrl"]
     probe = FieldProbe(env["clock"])

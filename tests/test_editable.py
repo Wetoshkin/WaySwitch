@@ -1566,6 +1566,73 @@ def test_plain_field_without_editable_interface_keeps_original_transport(plain_n
     assert native.tree.reads == native.tree.writes == native.committed == []
 
 
+@pytest.fixture
+def chrome_native(plain_native, monkeypatch):
+    n = plain_native
+    n.tree.app = "Google Chrome"
+    n.context = a11y.ShellContext(("google-chrome",), False, True, 0, 0, 1234)
+    n.focus = n.focus._replace(app=n.tree.app, app_ids=n.context.app_ids)
+    n.tree.interfaces = lambda node: [a11y.TEXT]
+    monkeypatch.setattr(a11y, "_same_application", lambda first, second: first == second)
+    n.stopped.defer_layout = lambda: 1
+    n.shell_writes = []
+    n.after_prepare = lambda: None
+    n.accept = True
+
+    def prepare(pid, source, target):
+        assert pid == 1234 and source == SOURCE and target == TARGET
+        n.after_prepare()
+        return 7
+
+    def write(ticket, group):
+        assert ticket == 7 and group == 1
+        if n.accept:
+            n.shell_writes.append((SOURCE, TARGET))
+            n.tree.text = "Test " + TARGET
+            n.tree.position = len(n.tree.text)
+        return n.accept
+
+    n.shell = SimpleNamespace(prepare_replacement=prepare, commit_replacement=write)
+    return n
+
+
+def chrome_replace(n):
+    return editable._replace_shell_with_tree(
+        n.tree, n.focus, SOURCE, TARGET, n.commit, n.stopped, n.shell,
+        context_provider=lambda: n.context, before_write=lambda: True)
+
+
+@pytest.mark.parametrize("role", [61, 79, 85])
+def test_chrome_text_field_without_editable_interface_uses_verified_shell_edit(chrome_native, role):
+    n = chrome_native
+    n.tree.role = lambda node: role
+    assert chrome_replace(n) == editable.SpanResult("done", True)
+    assert n.tree.text == "Test " + TARGET
+    assert n.tree.writes == []
+    assert n.shell_writes == [(SOURCE, TARGET)]
+
+
+@pytest.mark.parametrize("change", ["focus", "keypress", "source", "password", "ticket"])
+def test_chrome_cancels_before_native_write(chrome_native, change):
+    n = chrome_native
+
+    def change_before_commit():
+        if change == "focus":
+            n.tree.focused = False
+        elif change == "keypress":
+            n.physical[0] += 1
+        elif change == "source":
+            n.tree.text = "Test changed"
+        elif change == "password":
+            n.tree.kind = "password"
+        else:
+            n.accept = False
+
+    n.after_prepare = change_before_commit
+    assert chrome_replace(n) == editable.SpanResult("aborted")
+    assert n.shell_writes == n.tree.writes == []
+
+
 def test_text_event_registration_is_limited_to_the_field_provider(event_bus):
     connection, _calls = event_bus
     registrations = []

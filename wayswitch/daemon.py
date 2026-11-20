@@ -184,7 +184,8 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     probe.poke()
     from wayswitch.atspi_worker import AtspiWorker
 
-    worker = AtspiWorker(main_pump=pump)
+    worker = AtspiWorker(main_pump=pump, shell_backend=backend if
+                         getattr(backend, "supports_native_replace", False) else None)
 
     last_beep = [0.0]
 

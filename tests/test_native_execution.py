@@ -54,6 +54,24 @@ def native_plan(**overrides):
     return Plan([SwitchLayout(RU), Backspace(7), Type("привет ", [])], **values)
 
 
+@pytest.mark.parametrize("accepted", [False, True])
+def test_native_transport_can_switch_layout_with_the_text_atomically(accepted):
+    typist, backend = RecordingTextTypist(), FakeBackend(current=US)
+
+    def replace(commit, stopped):
+        assert stopped.defer_layout() == RU
+        assert commit() is True
+        assert backend.set_calls == []
+        if accepted:
+            backend.set(RU)
+        return SpanResult(DONE, True) if accepted else SpanResult(ABORTED)
+
+    result = execute(native_plan(), typist, backend, restore_group=US,
+                     native_replacer=RecordingReplacer(replace))
+    assert result == (DONE if accepted else ABORTED)
+    assert backend.set_calls == ([RU] if accepted else [])
+
+
 def key_plan(*, caps_off=False, target="привет "):
     plan = plan_fix(len("ghbdtn "), target, RU, make_keymap(), caps_on=False,
                     caps_off=caps_off)

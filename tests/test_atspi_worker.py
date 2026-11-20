@@ -166,6 +166,58 @@ def make_focus(generation=1, app="soffice", app_ids=("libreoffice-writer",)):
     )
 
 
+@pytest.mark.parametrize("deferred,cancel", [(False, False), (True, False), (True, True)])
+def test_worker_shell_replace_is_opt_in_and_cancellable(monkeypatch, deferred, cancel):
+    tree = WorkerTree([])
+    tree.nodes[FIELD].update(role=61, app_name="Google Chrome", interfaces=(a11y.TEXT,))
+    focus = make_focus(app="Google Chrome", app_ids=("google-chrome",))
+    context = a11y.ShellContext(focus.app_ids, ime_focus=True, pid=123)
+    monkeypatch.setattr(a11y, "_same_application", lambda a, b: a == b)
+    writes = []
+
+    class Stopped:
+        def __call__(self):
+            return False
+
+        def focus_snapshot(self):
+            return focus._replace(taken_at=time.monotonic())
+
+        def append_count(self):
+            return 0
+
+        def defer_layout(self):
+            return RU
+
+    def prepare(*_args):
+        if cancel:
+            worker.cancel(worker._active_item.request.op_id)
+        return 1
+
+    def commit(ticket, group):
+        assert worker._active_item.token.in_write
+        writes.append((ticket, group))
+        tree.text = "Test привет"
+        return True
+
+    @contextmanager
+    def changes(*_args):
+        yield []
+
+    worker = AtspiWorker(
+        connection_factory=_fake_conn, tree_factory=lambda _conn: tree,
+        changes_factory=changes, context_provider=lambda: context,
+        main_invoke=lambda fn: fn(),
+        shell_backend=SimpleNamespace(prepare_replacement=prepare, commit_replacement=commit))
+    try:
+        replace = worker.replace_deferred_field if deferred else worker.replace_span
+        result = replace(focus, "ghbdtn", "привет", lambda: True, Stopped())
+        assert result == (None if not deferred else editable.SpanResult(
+            "aborted" if cancel else "done", not cancel))
+        assert writes == ([(1, RU)] if deferred and not cancel else [])
+    finally:
+        worker.close(timeout=1)
+
+
 def test_worker_cancel_during_final_context_query_cannot_start_insert():
     events = []
     tree = WorkerTree(events)

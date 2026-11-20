@@ -10,6 +10,7 @@
 
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import IBus from 'gi://IBus';
 import Clutter from 'gi://Clutter';
 import St from 'gi://St';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
@@ -42,6 +43,14 @@ const IFACE_XML = `
     <method name="SetLayout"><arg type="u" name="index" direction="in"/></method>
     <method name="TypeText"><arg type="s" name="text" direction="in"/></method>
     <method name="Backspace"><arg type="u" name="count" direction="in"/></method>
+    <method name="PrepareReplacement">
+      <arg type="u" direction="in"/><arg type="s" direction="in"/>
+      <arg type="s" direction="in"/><arg type="u" direction="out"/>
+    </method>
+    <method name="CommitReplacement">
+      <arg type="u" direction="in"/><arg type="u" direction="in"/>
+      <arg type="b" direction="out"/>
+    </method>
     <method name="GetSelection"><arg type="s" name="text" direction="out"/></method>
     <method name="GetVersion"><arg type="u" name="version" direction="out"/></method>
     <signal name="LayoutChanged"><arg type="u" name="index"/></signal>
@@ -50,7 +59,7 @@ const IFACE_XML = `
 </node>`;
 // Версия протокола: демон сверяет её и просит перелогиниться, если Shell
 // держит старую копию расширения (на Wayland оно перезагружается только так).
-const PROTOCOL_VERSION = 4;
+const PROTOCOL_VERSION = 5;
 
 // GNOME 51 убрал Clutter.get_default_backend() — берём бэкенд у контекста
 // сцены (get_backend() есть с GNOME 48), а старый путь оставляем для 46–47.
@@ -74,20 +83,24 @@ export default class WaySwitchExtension extends Extension {
             },
             () => {
                 this._daemon = null;
+                this._invalidateReplacement();
             });
         this._dbus = Gio.DBusExportedObject.wrapJSObject(IFACE_XML, this);
         this._dbus.export(Gio.DBus.session, OBJECT_PATH);
         this._nameId = Gio.DBus.session.own_name(BUS_NAME,
             Gio.BusNameOwnerFlags.NONE, null, null);
         this._changedId = this._ism.connect('current-source-changed', () => {
+            this._invalidateReplacement();
             const src = this._ism.currentSource;
             if (src)
                 this._dbus.emit_signal('LayoutChanged', new GLib.Variant('(u)', [src.index]));
         });
         this._watchFocusedContext();
+        this._watchReplacements();
     }
 
     disable() {
+        this._unwatchReplacements();
         for (const [object, id] of this._focusSignals ?? [])
             object.disconnect(id);
         this._focusSignals = [];
@@ -184,11 +197,148 @@ export default class WaySwitchExtension extends Extension {
             [Main.inputMethod, 'notify::content-hints'],
         ]) {
             if (object) {
-                const id = object.connect(signal, () =>
-                    this._dbus?.emit_signal('FocusedContextChanged', null));
+                const id = object.connect(signal, () => {
+                    this._invalidateReplacement();
+                    this._dbus?.emit_signal('FocusedContextChanged', null);
+                });
                 this._focusSignals.push([object, id]);
             }
         }
+    }
+
+    _invalidateReplacement() {
+        this._replacement = null;
+    }
+
+    _watchReplacements() {
+        const im = Main.inputMethod;
+        this._replacementSerial = 0;
+        this._replacementHooks = [];
+        this._replacementPending = new WeakMap();
+        this._replacementSupported = Boolean(im &&
+            typeof im.notify_key_event === 'function' && typeof im._fullReset === 'function' &&
+            typeof im.getSurroundingText === 'function' && typeof im.hasPreedit === 'function' &&
+            typeof IBus.InputContext.prototype.process_key_event_async === 'function');
+        if (!this._replacementSupported)
+            return;
+        for (const name of ['notify_key_event', '_fullReset']) {
+            const original = im[name];
+            const wrapper = (...args) => {
+                if (name === '_fullReset' ? !im.currentFocus :
+                    args[0].type() === Clutter.EventType.KEY_PRESS)
+                    this._invalidateReplacement();
+                return original.apply(im, args);
+            };
+            im[name] = wrapper;
+            this._replacementHooks.push([im, name, original, wrapper]);
+        }
+        // IBus отвечает асинхронно: замена не должна обогнать ещё не доставленную клавишу.
+        const object = IBus.InputContext.prototype;
+        const original = object.process_key_event_async;
+        const pending = this._replacementPending;
+        const extension = this;
+        const wrapper = function (...args) {
+            if (this !== Main.inputMethod?._context)
+                return original.apply(this, args);
+            extension._invalidateReplacement();
+            pending.set(this, (pending.get(this) ?? 0) + 1);
+            let finished = false;
+            const complete = () => {
+                if (!finished)
+                    pending.set(this, pending.get(this) - 1);
+                finished = true;
+            };
+            const callback = args.at(-1);
+            try {
+                if (typeof callback !== 'function')
+                    return original.apply(this, args).finally(complete);
+                args[args.length - 1] = (...result) => {
+                    complete();
+                    return callback(...result);
+                };
+                return original.apply(this, args);
+            } catch (error) {
+                complete();
+                throw error;
+            }
+        };
+        object.process_key_event_async = wrapper;
+        this._replacementHooks.push([object, 'process_key_event_async', original, wrapper]);
+    }
+
+    _unwatchReplacements() {
+        this._invalidateReplacement();
+        this._replacementSupported = false;
+        for (const [object, name, original, wrapper] of this._replacementHooks ?? []) {
+            if (object[name] === wrapper)
+                object[name] = original;
+        }
+        this._replacementHooks = [];
+    }
+
+    _replacementContext(pid) {
+        const im = Main.inputMethod;
+        return this._replacementSupported && Main.modalCount === 0 && pid > 0 &&
+            !this._replacementPending?.get(im?._context) &&
+            global.display.focus_window?.get_pid() === pid && im?.currentFocus &&
+            im.content_purpose === Clutter.InputContentPurpose.NORMAL &&
+            Number.isInteger(im.content_hints) && im.content_hints >= 0 &&
+            (im.content_hints & (Clutter.InputContentHintFlags.SENSITIVE_DATA |
+                Clutter.InputContentHintFlags.HIDDEN_TEXT)) === 0 && !im.hasPreedit();
+    }
+
+    PrepareReplacementAsync([pid, source, target], invocation) {
+        if (!this._allowed(invocation))
+            return;
+        this._invalidateReplacement();
+        const reply = token => invocation.return_value(new GLib.Variant('(u)', [token]));
+        if (!this._replacementContext(pid) || !source.length || !target.length ||
+            source.length > MAX_BACKSPACE || target.length > MAX_BACKSPACE) {
+            reply(0);
+            return;
+        }
+        const im = Main.inputMethod;
+        const [text, cursor, anchor] = im.getSurroundingText();
+        const chars = typeof text === 'string' ? Array.from(text) : [];
+        const count = Array.from(source).length;
+        if (chars.length > MAX_TEXT || !Number.isInteger(cursor) || cursor !== anchor ||
+            cursor < count || cursor > chars.length ||
+            chars.slice(cursor - count, cursor).join('').replaceAll('\u00a0', ' ') !== source) {
+            reply(0);
+            return;
+        }
+        this._replacementSerial = (this._replacementSerial ?? 0) % 0xFFFFFFFF + 1;
+        this._replacement = {token: this._replacementSerial, pid, target, count,
+            text, cursor, focus: im.currentFocus, window: global.display.focus_window,
+            expires: GLib.get_monotonic_time() + 1000000};
+        reply(this._replacementSerial);
+    }
+
+    CommitReplacementAsync([token, group], invocation) {
+        if (!this._allowed(invocation))
+            return;
+        const pending = this._replacement;
+        this._invalidateReplacement();
+        const reply = result => invocation.return_value(new GLib.Variant('(b)', [result]));
+        if (!pending || pending.token !== token || !this._replacementContext(pending.pid) ||
+            pending.expires < GLib.get_monotonic_time() ||
+            pending.window !== global.display.focus_window ||
+            pending.focus !== Main.inputMethod.currentFocus ||
+            group !== 0xFFFFFFFF && !this._ism.inputSources[group]) {
+            reply(false);
+            return;
+        }
+        const im = Main.inputMethod;
+        const [text, cursor, anchor] = im.getSurroundingText();
+        if (text !== pending.text || cursor !== pending.cursor || anchor !== cursor) {
+            reply(false);
+            return;
+        }
+        if (group !== 0xFFFFFFFF)
+            this._ism.inputSources[group].activate(false);
+        im.delete_surrounding(-pending.count, pending.count);
+        im.commit(pending.target);
+        reply(true);
     }
 
     SetLayoutAsync([index], invocation) {
