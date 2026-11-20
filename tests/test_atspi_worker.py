@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.fakes import RU, US, FakeBackend, RecordingTypist, make_keymap
+from tests.fakes import RU, US, FakeBackend, RecordingTypist, keys_for_text, make_keymap
 from tests.test_focus import DictTree
 from wayswitch import a11y, editable
 from wayswitch.actuator import ABORTED, UNCERTAIN, Backspace, Plan, SwitchLayout, Type, execute
@@ -218,7 +218,61 @@ def test_worker_shell_replace_is_opt_in_and_cancellable(monkeypatch, deferred, c
         worker.close(timeout=1)
 
 
-def test_worker_cancel_during_final_context_query_cannot_start_insert():
+@pytest.mark.parametrize("component", ["writer", "calc"])
+@pytest.mark.parametrize("suffix,target", [("", "привет "), ("vb", "привет ми")])
+def test_deferred_libreoffice_word_uses_native_adapter(component, suffix, target):
+    events, pending = [], []
+    tree = WorkerTree(events)
+    source = "ghbdtn " + suffix
+    tree.text = "Test " + source
+    tree.position = len(tree.text)
+    app_ids = (f"libreoffice-{component}",)
+
+    def snapshot():
+        return make_focus(app_ids=app_ids)._replace(
+            window=f"doc — LibreOffice {component.title()}")
+
+    @contextmanager
+    def changes(_conn, _field):
+        yield events
+
+    context = a11y.ShellContext(app_ids, ime_focus=True, pid=123)
+    worker = AtspiWorker(
+        connection_factory=_fake_conn, tree_factory=lambda _conn: tree,
+        changes_factory=changes, context_provider=lambda: context,
+        main_invoke=lambda fn: fn())
+    km = make_keymap()
+    det = Detector(km, {
+        "ru": LanguageModel.from_words(
+            "ru", [("привет", 900.0)], "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"),
+        "en": LanguageModel.from_words(
+            "en", [("hello", 900.0)], "abcdefghijklmnopqrstuvwxyz"),
+    })
+    cfg = Config()
+    cfg.general.early_switch = False
+    cfg.general.skip_password_fields = True
+    typist = RecordingTypist()
+    ctrl = Controller(
+        cfg, km, det, FakeBackend(current=US), typist,
+        probe=SimpleNamespace(snapshot=snapshot, poke=lambda: None),
+        schedule=pending.append, native_replacer=worker.replace_span,
+        deferred_native_replacer=worker.replace_deferred_field)
+    try:
+        for key in keys_for_text(km, source, US):
+            ctrl.on_key(key.code, 1, 1)
+            ctrl.on_key(key.code, 0, 1)
+        while pending:
+            pending.pop(0)()
+        assert tree.text == "Test " + target
+        assert [write[0] for write in tree.writes] == ["insert", "delete"]
+        assert typist.taps() == []
+        assert ctrl.stats["corrections"] == 1
+    finally:
+        worker.close(timeout=1.0)
+
+
+@pytest.mark.parametrize("deferred", [False, True])
+def test_worker_cancel_during_final_context_query_cannot_start_insert(deferred):
     events = []
     tree = WorkerTree(events)
     committed = [False]
@@ -244,7 +298,8 @@ def test_worker_cancel_during_final_context_query_cannot_start_insert():
         connection_factory=_fake_conn, tree_factory=lambda _conn: tree,
         changes_factory=changes, context_provider=get_context, main_invoke=lambda fn: fn())
     try:
-        result = worker.replace_span(make_focus(), "ghbdtn", "привет", commit, lambda: False)
+        replace = worker.replace_deferred_field if deferred else worker.replace_span
+        result = replace(make_focus(), "ghbdtn", "привет", commit, lambda: False)
         assert result == editable.SpanResult(ABORTED)
         assert final_queries[0] == 2
         assert tree.writes == []
