@@ -198,6 +198,28 @@ def test_ordinary_loop_exit_closes_probe_without_waiting(environment):
     assert environment.state.typist.closed == 1
 
 
+@pytest.mark.parametrize("backend", ["kde", "fake"])
+def test_kde_uses_native_worker_for_deferred_first_word(environment, monkeypatch, backend):
+    from wayswitch import atspi_worker
+
+    worker = SimpleNamespace(replace_span=lambda *_: None,
+                             replace_deferred_field=lambda *_: None,
+                             read_selection=lambda *_: None, close=lambda: None)
+    monkeypatch.setattr(atspi_worker, "AtspiWorker", lambda **_: worker)
+    environment.state.backend.name = backend
+    captured = {}
+
+    class Capture(Controller):
+        def __init__(self, *args, **kwargs):
+            captured.update(kwargs)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(daemon, "Controller", Capture)
+    assert daemon.run(None, False, False) == 0
+    assert captured["deferred_native_replacer"] is (
+        worker.replace_span if backend == "kde" else None)
+
+
 @pytest.mark.parametrize("keyboard", [False, True])
 def test_probe_close_failure_does_not_block_other_cleanup(environment, keyboard, caplog):
     environment.state.devices = [] if not keyboard else [("event0", "keyboard", "keyboard")]

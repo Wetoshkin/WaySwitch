@@ -43,6 +43,7 @@ def extension_version() -> int | None:
 class GnomeShellBackend(LayoutBackend):
     name = "shell"
     supports_auto = True
+    # Устарело: для выделения используется AT-SPI; будет удалено в 2.0; не добавлять новых вызовов.
     supports_selection = True
 
     def __init__(self, settle_ms: int = 30):
@@ -65,6 +66,7 @@ class GnomeShellBackend(LayoutBackend):
         # переопрашиваем раскладку — пользователь мог сменить её на экране входа.
         self._proxy.connect("notify::g-name-owner", self._on_owner_changed)
         self._current = self._query()
+        self.supports_native_replace = (extension_version() or 0) >= 5
         # Человек добавил или переставил раскладку — индексы сдвинулись.
         try:
             self._sources_settings = gnome_common._settings(gnome_common.SCHEMA_SOURCES)
@@ -136,7 +138,7 @@ class GnomeShellBackend(LayoutBackend):
         self._callbacks.append(cb)
 
     def get_selection(self) -> str | None:
-        """Выделенный текст (PRIMARY) — через расширение, буфер обмена не трогаем."""
+        """Устарело: для выделения используется AT-SPI; удаление в 2.0."""
         try:
             (text,) = self._proxy.call_sync("GetSelection", None, 0, 1000, None).unpack()
         except self._GLib.Error as exc:
@@ -152,6 +154,27 @@ class GnomeShellBackend(LayoutBackend):
 
     def type_text(self, text: str) -> None:
         self._proxy.call_sync("TypeText", self._GLib.Variant("(s)", (text,)), 0, 2000, None)
+
+    def prepare_replacement(self, pid: int, source: str, target: str) -> int:
+        return self._proxy.call_sync(
+            "PrepareReplacement", self._GLib.Variant("(uss)", (pid, source, target)),
+            0, 1000, None).unpack()[0]
+
+    def commit_replacement(self, token: int, group: int | None) -> bool:
+        self._expected = group
+        try:
+            accepted = self._proxy.call_sync(
+                "CommitReplacement", self._GLib.Variant(
+                    "(uu)", (token, group if group is not None else 0xFFFFFFFF)),
+                0, 1000, None).unpack()[0]
+            if accepted and group is not None:
+                self._current = group
+            if not accepted:
+                self._expected = None
+            return bool(accepted)
+        except Exception:
+            self._expected = None
+            raise
 
 
 class ShellTypist:
@@ -177,11 +200,6 @@ class ShellTypist:
     def backspace(self, count: int) -> None:
         self._backend.backspace(count)
 
-    def replace_span(self, focus, source: str, target: str, commit, stopped):
-        from wayswitch.editable import try_replace
-
-        return try_replace(focus, source, target, commit, stopped)
-
     def type_text(self, text: str) -> None:
         self._backend.type_text(text)
 
@@ -189,7 +207,4 @@ class ShellTypist:
 def make_typist(backend, keys, mode):
     if mode == "extension" and (extension_version() or 0) >= TYPING_PROTOCOL_VERSION:
         return ShellTypist(backend, keys=keys)
-    from wayswitch.editable import try_replace
-
-    keys.replace_span = try_replace
     return keys
