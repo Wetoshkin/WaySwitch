@@ -717,6 +717,10 @@ class _DbusTree:
             return None
 
     def children(self, node):
+        # Qt выделяет память для всего GetChildren до применения бюджета обхода.
+        count = self._property(node, ACC, "ChildCount")
+        if type(count) is not int or not 0 <= count <= MAX_NODES:
+            return None
         kids = self._call(node, ACC, "GetChildren", None, "(a(so))")
         return [(n, p) for n, p in kids[0] if n and p
                 and p != "/org/a11y/atspi/null"] if kids else None

@@ -516,18 +516,25 @@ def test_flatpak_pid_scope_distinguishes_simultaneous_instances(proc_metadata):
     assert a11y.find_focus(tree, "root", 123) == FocusSnapshot("Editor", field="field")
 
 
-def test_real_dbus_metadata_adapter_accepts_editable_paragraph_without_reading_text(monkeypatch):
+@pytest.mark.parametrize("large_sheet", [False, True])
+def test_real_dbus_metadata_adapter_accepts_editable_paragraph_without_reading_text(
+        monkeypatch, large_sheet):
     shell_bus(monkeypatch, [(["writer.desktop"], False, False, 0, 0, 0)])
     tree = a11y._DbusTree(object())
     root, app, window, field = a11y.ROOT, (":1.5", "/app"), (":1.5", "/window"), (":1.5", "/field")
+    sheet = (":1.5", "/sheet")
+    children = {root: [app], app: [window], window: [field], field: []}
+    if large_sheet:
+        children[window] = [sheet, field]
 
     def call(node, iface, method, args, signature):
         if method == "GetChildren":
-            return ({root: [app], app: [window], window: [field], field: []}[node],)
+            assert node != sheet, "Calc/KF6 allocates its entire sheet before replying"
+            return (children[node],)
         if method == "GetState":
             return ([{window: 1 << 1, field: (1 << 12) | (1 << 7)}.get(node, 0)],)
         if method == "GetRole":
-            return (73 if node == field else 23,)
+            return ({field: 73, sheet: 55}.get(node, 23),)
         if method == "GetInterfaces":
             return (["org.a11y.atspi.Text"],)
         if method == "GetAttributes":
@@ -535,6 +542,8 @@ def test_real_dbus_metadata_adapter_accepts_editable_paragraph_without_reading_t
         if method == "GetRelationSet":
             return ([],)
         if method == "Get":
+            if args == ("(ss)", (a11y.ACC, "ChildCount")):
+                return (2147483647 if node == sheet else len(children[node]),)
             assert args in [("(ss)", (a11y.ACC, "Name")),
                             ("(ss)", ("org.a11y.atspi.Text", "CaretOffset"))]
             if args[1][1] == "Name":
@@ -547,6 +556,16 @@ def test_real_dbus_metadata_adapter_accepts_editable_paragraph_without_reading_t
     monkeypatch.setattr(a11y, "_DbusTree", lambda _: tree)
     monkeypatch.setattr(a11y, "_a11y_connection", lambda: object())
     assert a11y.query_focus() == FocusSnapshot("Writer", app_ids=("writer.desktop",), field=field)
+
+
+@pytest.mark.parametrize("count", [None, -1, True, "1", a11y.MAX_NODES + 1, 2147483647])
+def test_dbus_children_refuses_unknown_or_excessive_count_before_enumeration(count):
+    tree = object.__new__(a11y._DbusTree)
+    tree._property = lambda *_args: count
+    calls = []
+    tree._call = lambda *args: calls.append(args) or ([],)
+    assert tree.children((":1.5", "/sheet")) is None
+    assert calls == []
 
 
 @pytest.mark.parametrize("broken", [None, "caret", "interfaces", "attrs", "count", "link",
@@ -598,6 +617,9 @@ def test_dbus_unicode_embedded_password_and_metadata_failures(monkeypatch, broke
             return None if broken == "object" else (anchor,)
         if method == "Get":
             interface, name = args[1]
+            if name == "ChildCount":
+                assert interface == a11y.ACC
+                return (len({root: [app], app: [window], window: [field], field: []}[node]),)
             if name == "Name":
                 assert node == app and interface == a11y.ACC
                 return ("Browser",)
