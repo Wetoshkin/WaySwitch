@@ -13,6 +13,7 @@ MAX_SPAN = 512
 KDE_APPS = frozenset({"soffice", "libreoffice", "soffice.bin"})
 DONE, ABORTED, FAILED, UNCERTAIN = "done", "aborted", "failed", "uncertain"
 _OK, _ABORT, _UNSUPPORTED = "ok", "abort", "unsupported"
+_SELECTED = "selected"
 
 
 def _drain_thread_events() -> None:
@@ -537,8 +538,10 @@ def _field_guard(tree, focus, context, stopped, context_provider=None, *, roles=
                 return _ABORT
             if type(input_type) is not str or input_type == "password":
                 return _ABORT
-            if type(selections) is not int or selections != 0:
+            if type(selections) is not int or selections < 0:
                 return _ABORT
+            if selections:
+                return _SELECTED
             if type(pid) is not int or pid <= 0:
                 return _ABORT
             if stable_pid is None:
@@ -642,7 +645,12 @@ def _replace_shell_with_tree(tree, focus, source, target, commit, stopped, shell
         deadline = time.monotonic() + 0.5
         while time.monotonic() < deadline:
             _drain_thread_events()
-            if check() != _OK:
+            state = check()
+            # Firefox временно выделяет диапазон при уже принятой замене.
+            if state == _SELECTED and is_firefox(focus):
+                time.sleep(0.01)
+                continue
+            if state != _OK:
                 break
             appended = _physical_count(stopped)
             if appended is None or appended < physical:

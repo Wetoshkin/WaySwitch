@@ -1722,6 +1722,30 @@ def test_chrome_cancels_before_native_write(chrome_native, change):
     assert n.shell_writes == n.tree.writes == []
 
 
+@pytest.mark.parametrize("after_selection,expected", [
+    ("cleared", "done"), ("kept", "uncertain"), ("focus_changed", "uncertain"),
+])
+def test_shell_verification_waits_for_firefox_selection(chrome_native, after_selection, expected):
+    n = chrome_native
+    n.context = n.context._replace(app_ids=("firefox",))
+    n.focus = n.focus._replace(app_ids=n.context.app_ids)
+    seen = []
+
+    def selection_count(node):
+        if not n.shell_writes:
+            return 0
+        seen.append(len(n.tree.reads))
+        if after_selection == "focus_changed":
+            n.tree.focused = False
+        return int(len(seen) == 1 or after_selection != "cleared")
+
+    n.tree.selection_count = selection_count
+    assert chrome_replace(n) == editable.SpanResult(expected, True)
+    assert n.shell_writes == [(SOURCE, TARGET)] and not n.tree.writes
+    if expected == "uncertain":
+        assert len(n.tree.reads) == seen[0]
+
+
 def test_text_event_registration_is_limited_to_the_field_provider(event_bus):
     connection, _calls = event_bus
     registrations = []
