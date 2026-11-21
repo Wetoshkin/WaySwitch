@@ -70,7 +70,7 @@ const IFACE_XML = `
 </node>`;
 // Версия протокола: демон сверяет её и просит перелогиниться, если Shell
 // держит старую копию расширения (на Wayland оно перезагружается только так).
-const PROTOCOL_VERSION = 5;
+const PROTOCOL_VERSION = 4;
 
 // GNOME 51 убрал Clutter.get_default_backend() — берём бэкенд у контекста
 // сцены (get_backend() есть с GNOME 48), а старый путь оставляем для 46–47.
@@ -181,7 +181,8 @@ export default class WaySwitchExtension extends Extension {
     }
 
     GetInputCapabilities() {
-        return CompositorInput.capabilities(defaultBackend().get_default_seat());
+        // Mutter consumes client keys before the Clutter filter on the tested versions.
+        return [];
     }
 
     SetWatchedDevicesAsync([paths], invocation) {
@@ -201,6 +202,11 @@ export default class WaySwitchExtension extends Extension {
     EnableCompositorInputAsync([ownNode], invocation) {
         if (!this._allowed(invocation))
             return;
+        if (!this.GetInputCapabilities().length) {
+            invocation.return_dbus_error('org.freedesktop.DBus.Error.NotSupported',
+                'No verified compositor keyboard event stream');
+            return;
+        }
         // У ClutterVirtualInputDevice нет публичной связи с source-device событий.
         if (virtualOutputUsed || this._vdev || this._inputGeneration >= 0xFFFFFFFF) {
             invocation.return_dbus_error('org.freedesktop.DBus.Error.NotSupported',

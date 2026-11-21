@@ -225,9 +225,10 @@ Additional layouts need ordinary cyclic XKB shortcuts such as
 ### Remote desktop (RDP)
 
 The source tree includes an **unreleased experimental** GNOME virtual-keyboard
-input source (#45). Live RDP validation has not been performed; compatibility
-with a particular server/client is unconfirmed. The default mode is unchanged.
-For later validation, set these values in `~/.config/wayswitch/config.toml`:
+input source (#45). In a live FreeRDP session on GNOME 46, GTK4 received the
+typed character, but the extension's event filter missed the key press and
+release. The extension reports the source as unavailable even when these
+options are enabled in `~/.config/wayswitch/config.toml`.
 
 ```toml
 [backend]

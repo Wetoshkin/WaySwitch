@@ -157,6 +157,13 @@ const invoke = sender => ({get_sender: () => sender, return_value() {},
 ext.EnableCompositorInputAsync(['/dev/input/event9'], invoke(':forged'));
 assert.equal(error, 'org.freedesktop.DBus.Error.AccessDenied');
 assert.equal(filter, null);
+assert.deepEqual(Array.from(ext.GetInputCapabilities()), []);
+ext.EnableCompositorInputAsync(['/dev/input/event9'], invoke(':daemon'));
+assert.equal(error, 'org.freedesktop.DBus.Error.NotSupported');
+assert.equal(filter, null);
+
+// Exercise the owner and output guards independently of transport availability.
+ext.GetInputCapabilities = () => context.Input.capabilities(seat);
 ext.EnableCompositorInputAsync(['/dev/input/event9'], invoke(':daemon'));
 assert(filter);
 assert.equal(virtualOutputs, 0);
