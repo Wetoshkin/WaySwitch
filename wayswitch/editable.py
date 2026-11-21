@@ -50,6 +50,11 @@ class NativeReplacer(Protocol):
     ) -> SpanResult | None: ...
 
 
+def is_firefox(focus):
+    return any(app.casefold().removesuffix(".desktop") in {"firefox", "firefox-beta"}
+               for app in focus.app_ids)
+
+
 def _writer(focus):
     return (isinstance(focus, a11y.FocusSnapshot)
             and any(app.casefold().removesuffix(".desktop") == "libreoffice-writer"
@@ -303,10 +308,15 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
         if not _span(source) or not _span(target):
             return SpanResult("aborted")
 
+        firefox_spaces = is_firefox(focus) and "\u00a0" not in source + target
+
         def read(start, end):
             if not safe():
                 return None
             text = tree.text_range(node, start, end)
+            # contenteditable хранит набранный Space как NBSP; явный NBSP сохраняем.
+            if firefox_spaces and isinstance(text, str):
+                text = text.replace("\u00a0", " ")
             return text if isinstance(text, str) and len(text) == end - start and safe() else None
 
         if not safe():
@@ -590,7 +600,7 @@ def _plain_field_ready(focus, source, target, stopped):
 def _replace_shell_with_tree(tree, focus, source, target, commit, stopped, shell,
                              *, context_provider, before_write):
     if (not _plain_field_ready(focus, source, target, stopped)
-            or not any(app.casefold().removesuffix(".desktop") in {
+            or not is_firefox(focus) and not any(app.casefold().removesuffix(".desktop") in {
                 "google-chrome", "google-chrome-beta", "google-chrome-unstable",
                 "chromium", "chromium-browser", "com.google.chrome",
                 "org.chromium.chromium"} for app in focus.app_ids)):

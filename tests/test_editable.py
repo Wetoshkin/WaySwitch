@@ -1545,6 +1545,48 @@ def test_plain_field_native_replacement_preserves_append_before_first_insert(pla
     assert native.stopped.fast_switch
 
 
+@pytest.mark.parametrize("convert_on_write", [False, True])
+def test_plain_field_accepts_browser_nonbreaking_spaces(plain_native, convert_on_write):
+    native = plain_native
+    tree = native.tree
+    native.focus = native.focus._replace(app_ids=("firefox",))
+    tree.text = "Test\u00a0" + SOURCE.replace(" ", "\u00a0")
+
+    def browser_spaces():
+        tree.text = tree.text.replace(" ", "\u00a0")
+
+    if convert_on_write:
+        tree.after_insert = tree.after_delete = browser_spaces
+    result = editable.try_replace_kde(native.focus, SOURCE, TARGET,
+                                      native.commit, native.stopped)
+    assert result == editable.SpanResult("done", True)
+    expected = TARGET.replace(" ", "\u00a0") if convert_on_write else TARGET
+    assert tree.text == "Test\u00a0" + expected
+    assert tree.position == len(tree.text)
+    assert tree.writes == [("insert", 5, TARGET), ("delete", 12, 19)]
+
+
+@pytest.mark.parametrize("ending", ["\u202f", "\t", "x", "  "])
+def test_plain_field_does_not_accept_other_changed_delimiters(plain_native, ending):
+    native = plain_native
+    native.focus = native.focus._replace(app_ids=("firefox",))
+    native.tree.text = "Test " + SOURCE.rstrip() + ending
+    native.tree.position = len(native.tree.text)
+    result = editable.try_replace_kde(native.focus, SOURCE, TARGET,
+                                      native.commit, native.stopped)
+    assert result == editable.SpanResult("aborted")
+    assert native.tree.writes == []
+
+
+def test_firefox_preserves_explicit_nonbreaking_space(plain_native):
+    native = plain_native
+    native.focus = native.focus._replace(app_ids=("firefox",))
+    source, target = SOURCE.replace(" ", "\u00a0"), TARGET.replace(" ", "\u00a0")
+    native.tree.text = "Test " + source
+    assert kde_replace(native, source, target) == editable.SpanResult("done", True)
+    assert native.tree.text == "Test " + target
+
+
 def test_plain_field_refuses_unexplained_text_append(plain_native):
     native = plain_native
     read = native.tree.text_range

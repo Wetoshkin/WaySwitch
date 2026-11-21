@@ -166,11 +166,19 @@ def make_focus(generation=1, app="soffice", app_ids=("libreoffice-writer",)):
     )
 
 
-@pytest.mark.parametrize("deferred,cancel", [(False, False), (True, False), (True, True)])
-def test_worker_shell_replace_is_opt_in_and_cancellable(monkeypatch, deferred, cancel):
+@pytest.mark.parametrize("app,ident,interfaces,deferred,cancel", [
+    ("Google Chrome", "google-chrome", (a11y.TEXT,), False, False),
+    ("Google Chrome", "google-chrome", (a11y.TEXT,), True, False),
+    ("Google Chrome", "google-chrome", (a11y.TEXT,), True, True),
+    ("Firefox", "firefox", (a11y.TEXT, editable.EDITABLE), True, False),
+    ("Firefox", "firefox", (a11y.TEXT, editable.EDITABLE), True, True),
+    ("Firefox", "firefox-beta", (a11y.TEXT, editable.EDITABLE), True, False),
+])
+def test_worker_shell_replace_is_opt_in_and_cancellable(
+        monkeypatch, app, ident, interfaces, deferred, cancel):
     tree = WorkerTree([])
-    tree.nodes[FIELD].update(role=61, app_name="Google Chrome", interfaces=(a11y.TEXT,))
-    focus = make_focus(app="Google Chrome", app_ids=("google-chrome",))
+    tree.nodes[FIELD].update(role=61, app_name=app, interfaces=interfaces)
+    focus = make_focus(app=app, app_ids=(ident,))
     context = a11y.ShellContext(focus.app_ids, ime_focus=True, pid=123)
     monkeypatch.setattr(a11y, "_same_application", lambda a, b: a == b)
     writes = []
@@ -213,6 +221,7 @@ def test_worker_shell_replace_is_opt_in_and_cancellable(monkeypatch, deferred, c
         result = replace(focus, "ghbdtn", "привет", lambda: True, Stopped())
         assert result == (None if not deferred else editable.SpanResult(
             "aborted" if cancel else "done", not cancel))
+        assert tree.writes == []
         assert writes == ([(1, RU)] if deferred and not cancel else [])
     finally:
         worker.close(timeout=1)

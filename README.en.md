@@ -507,6 +507,9 @@ Chrome checks cover ordinary fields, editable page elements, passwords and reado
 The original eXpress message editor was tested in an isolated environment
 without sending messages; an authenticated chat has not been tested.
 
+On GNOME 50.1 with extension protocol 5, Firefox 160.0.1 and 161.0b5 passed
+checks for a fast first word, continued typing and cancellation on a field
+change. The page receives a regular key event for each typed character.
 Firefox Flatpak checks on Bazzite cover input, textarea, contenteditable and the
 address bar. Native Telegram 7.4.1 on GNOME 51.1
 passed both directions in an authenticated message composer, without sending

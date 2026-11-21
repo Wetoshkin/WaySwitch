@@ -539,11 +539,15 @@ class AtspiWorker:
                     while ctx.pending():
                         ctx.iteration(False)
                 if req.focus.app and req.focus.app.casefold() not in editable.KDE_APPS:
-                    result = editable._replace_field_with_tree(
-                        tree, req.focus, req.source, req.target,
-                        commit_proxy, stopped_proxy, events,
-                        context_provider=self._context_provider)
-                    if result is None and req.shell and self._shell_backend is not None:
+                    shell_available = req.shell and self._shell_backend is not None
+                    result = None
+                    # Firefox 160 acknowledges EditableText writes without changing the field.
+                    if not (shell_available and editable.is_firefox(req.focus)):
+                        result = editable._replace_field_with_tree(
+                            tree, req.focus, req.source, req.target,
+                            commit_proxy, stopped_proxy, events,
+                            context_provider=self._context_provider)
+                    if result is None and shell_available:
                         result = editable._replace_shell_with_tree(
                             tree, req.focus, req.source, req.target, commit_proxy,
                             stopped_proxy, self._shell_backend,
