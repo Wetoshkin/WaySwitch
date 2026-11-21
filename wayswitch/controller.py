@@ -869,6 +869,15 @@ class Controller:
         owner = self._focus_owner(snap if snap.age(self.clock()) <= focus.MAX_AGE_SEC
                                   else focus.FocusSnapshot())
         owner_changed = not self._same_focus_owner(old_owner, owner)
+        if (guarded and self.backend.name == "kde" and not self.busy and typing_key
+                and protection is None and old is not None and old[-1] is False
+                and old[2] is not None and old_owner is not None
+                and self.buffer.current_word()
+                and libreoffice_component(focus.FocusSnapshot(
+                    old_owner[1], app_ids=old_owner[3], window=old_owner[4])) == "calc"):
+            # KF6 повторно сообщает потерю/возврат того же поля после первой буквы.
+            self._provisional_binding = True
+            return True
         if not guarded and old is not None and old_owner is not None:
             if (old_owner[2] is None and snap.field is None
                     and old[-1] is not None and protection is not None
@@ -912,6 +921,7 @@ class Controller:
                                 or not guarded and old_field is not None) and same_window)
         same_app = old_app in (None, app) or not guarded and not owner_changed
         calc_rebind = (old_probe is self.probe and old_app == app and same_window
+                       and not self._provisional_binding
                        and libreoffice_component(snap) == "calc")
         carry = (old_probe is self.probe and partial_word and app is not None
                  and protection is False and old_protection is not True

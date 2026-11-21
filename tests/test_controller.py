@@ -2012,6 +2012,46 @@ class FieldProbe(SafeProbe):
         self.generation += 1
 
 
+@pytest.mark.parametrize("change", ["same", "field", "app", "password", "click"])
+@pytest.mark.parametrize("during_wake", [False, True])
+def test_calc_focus_refresh_after_first_key_keeps_only_same_field(env, change, during_wake):
+    from wayswitch.editable import SpanResult
+
+    ctrl = env["ctrl"]
+    ctrl.config.general.skip_password_fields = True
+    env["backend"].name = "kde"
+    probe = FieldProbe(env["clock"], app="soffice.bin", app_ids=(),
+                       window="doc — LibreOffice Calc")
+    ctrl.set_probe(probe)
+    writes = []
+
+    def native(_focus, source, target, commit, _stop):
+        assert commit() is True
+        writes.append((source, target))
+        return SpanResult("done", True)
+
+    ctrl.native_replacer = native
+    code, _ = env["km"].key_for("g", US)
+    ctrl.on_key(code, 1, 1)
+    probe.visible = False
+    probe.bump()
+    ctrl.on_key(code, 0, 1)
+    probe.visible = not during_wake
+    ctrl.pump = lambda: setattr(probe, "visible", True)
+    if change == "field":
+        probe.field = (":1.1", "/other")
+    elif change == "app":
+        probe.app = "other"
+    elif change == "password":
+        snapshot = probe.snapshot
+        probe.snapshot = lambda: snapshot()._replace(password=True)
+    elif change == "click":
+        ctrl.on_click()
+    type_text(env, "hbdtn ")
+    assert writes == ([("ghbdtn ", "привет ")] if change == "same" else [])
+    assert env["typist"].taps() == []
+
+
 def test_unprotected_generation_only_same_field_uses_keyboard(env):
     probe = FieldProbe(env["clock"])
     ctrl = env["ctrl"]

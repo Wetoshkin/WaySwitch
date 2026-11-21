@@ -296,7 +296,7 @@ def _prepare_anchor(tree, focus, source, stopped):
 
 
 def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
-                     anchor=None, allow_append=False) -> SpanResult:
+                     anchor=None) -> SpanResult:
     attempted = False
     try:
         node = focus.field
@@ -329,8 +329,6 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
         def append_only():
             if physical_base is None:
                 return True
-            if not allow_append:
-                return _physical_count(stopped) == physical_base
             for _ in range(3):
                 first = _physical_count(stopped)
                 current_count, current_caret = tree.character_count(node), tree.caret(node)
@@ -673,7 +671,7 @@ def _replace_field_with_tree(tree, focus, source, target, commit, stopped, event
     if anchor is None:
         return SpanResult("aborted")
     return _replace_checked(tree, focus, source, target, commit, stopped, events,
-                            lambda: check() == _OK, anchor=anchor, allow_append=True)
+                            lambda: check() == _OK, anchor=anchor)
 
 
 def _try_replace_field(focus, source, target, commit, stopped):

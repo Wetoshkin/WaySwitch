@@ -1327,7 +1327,7 @@ def test_kde_unknown_or_localized_component_keeps_keyboard_transport(kde_native,
 
 
 @pytest.mark.parametrize("aborted", [False, True])
-def test_kde_calc_physical_input_before_first_mutation_cancels(
+def test_kde_calc_proven_append_before_first_mutation_is_preserved(
         kde_native, monkeypatch, aborted):
     kde_native.focus = kde_native.focus._replace(window="doc — LibreOffice Calc")
     tree = kde_native.tree
@@ -1345,9 +1345,56 @@ def test_kde_calc_physical_input_before_first_mutation_cancels(
         yield kde_native.events
 
     monkeypatch.setattr(editable, "_text_changes", changes)
-    assert kde_replace(kde_native) == editable.SpanResult("aborted")
-    assert tree.text == "Test " + SOURCE + "м"
-    assert tree.writes == [] and kde_native.committed == []
+    assert kde_replace(kde_native) == editable.SpanResult("done", True)
+    assert tree.text == "Test " + TARGET + "м"
+    assert tree.writes == [("insert", 5, TARGET), ("delete", 12, 19)]
+    assert kde_native.committed == [True]
+
+
+@pytest.mark.parametrize("fixture", ["kde_native", "gnome_calc"])
+@pytest.mark.parametrize("phase", ["read", "commit"])
+@pytest.mark.parametrize("count_matches", [False, True])
+def test_calc_append_after_anchor_requires_matching_physical_count(
+        request, fixture, phase, count_matches):
+    native = request.getfixturevalue(fixture)
+    native.focus = native.focus._replace(window="doc — LibreOffice Calc")
+    tree = native.tree
+    tree.silent_events = True
+    count, appended = [0], []
+    native.stopped.append = lambda: count[0]
+    read, commit = tree.text_range, native.commit
+
+    def append():
+        if appended:
+            return
+        assert native.stopped.anchor
+        tree.append("м")
+        count[0] += int(count_matches)
+        native.stopped.aborted = True
+        appended.append(True)
+
+    def read_after_anchor(*args):
+        value = read(*args)
+        if phase == "read":
+            append()
+        return value
+
+    def commit_and_append():
+        commit()
+        if phase == "commit":
+            append()
+
+    tree.text_range, native.commit = read_after_anchor, commit_and_append
+    result = (kde_replace if fixture == "kde_native" else replace)(native)
+    assert appended
+    if count_matches:
+        assert result == editable.SpanResult("done", True)
+        assert tree.text == "Test " + TARGET + "м"
+        assert tree.writes == [("insert", 5, TARGET), ("delete", 12, 19)]
+    else:
+        assert result.status == "aborted"
+        assert tree.text == "Test " + SOURCE + "м"
+        assert tree.writes == []
 
 
 def test_kde_calc_physical_appends_after_mutation_are_preserved(kde_native):

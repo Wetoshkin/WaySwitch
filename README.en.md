@@ -497,8 +497,9 @@ X11, Cinnamon and separate RDP sessions are unsupported.
 
 Application checks below refer to GNOME unless stated otherwise.
 KDE checks cover Writer with KF6 and GTK3, and selection in Kate/KWrite
-and Writer. Calc was tested with GTK3 VCL; testing with KF6 was limited by
-a LibreOffice plugin failure.
+and Writer. Calc checks cover GTK3 and KF6 VCL; additional KF6 checks cover
+a short first word, continuous typing and cancellation when leaving the editor
+for Writer.
 
 See [project status](docs/PROGRESS.md) for the live-test matrix and its limits.
 
