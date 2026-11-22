@@ -1,15 +1,34 @@
-"""Bounded native word replacement for LibreOffice Writer and Calc."""
+"""Bounded native replacement in verified editable fields."""
 
+import sys
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
-from typing import NamedTuple
+from typing import NamedTuple, Protocol
 
 from wayswitch import a11y
 
 EDITABLE = "org.a11y.atspi.EditableText"
 MAX_SPAN = 512
 KDE_APPS = frozenset({"soffice", "libreoffice", "soffice.bin"})
+DONE, ABORTED, FAILED, UNCERTAIN = "done", "aborted", "failed", "uncertain"
 _OK, _ABORT, _UNSUPPORTED = "ok", "abort", "unsupported"
+_SELECTED = "selected"
+
+
+def _drain_thread_events() -> None:
+    """Доставить ожидающие сигналы DBus в thread-default MainContext (если он активен)."""
+    if "gi.repository" not in sys.modules:
+        return
+    try:
+        from gi.repository import GLib
+
+        ctx = GLib.MainContext.get_thread_default()
+        if ctx is not None:
+            while ctx.pending():
+                ctx.iteration(False)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 class SpanResult(NamedTuple):
@@ -17,6 +36,24 @@ class SpanResult(NamedTuple):
     committed: bool = False
     source_text: str | None = None
     target_text: str | None = None
+
+
+class NativeReplacer(Protocol):
+    """Явный обработчик нативной замены слова в подтверждённом поле."""
+
+    def __call__(
+        self,
+        focus,
+        source: str,
+        target: str,
+        commit: Callable[[], bool | None],
+        stopped: Callable[[], bool],
+    ) -> SpanResult | None: ...
+
+
+def is_firefox(focus):
+    return any(app.casefold().removesuffix(".desktop") in {"firefox", "firefox-beta"}
+               for app in focus.app_ids)
 
 
 def _writer(focus):
@@ -35,7 +72,7 @@ def try_replace(focus, source, target, commit, stopped) -> SpanResult | None:
     if (focus is not None and focus.app
             and (focus.app.casefold() not in {"soffice", "libreoffice"}
                  or not (_writer(focus) or _calc(focus)))):
-        return None
+        return _try_replace_field(focus, source, target, commit, stopped)
     if not _normal(focus):
         return SpanResult("aborted")
     connection = None
@@ -65,7 +102,7 @@ def try_replace(focus, source, target, commit, stopped) -> SpanResult | None:
 
 
 def _normal(focus):
-    return ((_writer(focus) or _calc(focus) and _libreoffice_component(focus) == "calc")
+    return ((_writer(focus) or _calc(focus) and libreoffice_component(focus) == "calc")
             and focus.field is not None
             and focus.app is not None and focus.app.casefold() in {"soffice", "libreoffice"}
             and focus.protection(time.monotonic()) is False)
@@ -194,12 +231,15 @@ def _append_edits(events, start, source_size, target_size, kind, appended,
     return observed_appends <= appended
 
 
-def _replace(tree, focus, source, target, commit, stopped, events) -> SpanResult:
+def _replace(tree, focus, source, target, commit, stopped, events,
+             *, context_provider=None) -> SpanResult:
     if not _normal(focus) or not _span(source) or not _span(target):
         return SpanResult("aborted")
     node = focus.field
+    get_context = (context_provider if context_provider is not None
+                   else lambda: a11y.query_shell_context())
     try:
-        context = a11y.query_shell_context()
+        context = get_context()
     except Exception:  # noqa: BLE001 — unknown context is a failed native attempt, not a retry
         return SpanResult("failed")
 
@@ -209,7 +249,7 @@ def _replace(tree, focus, source, target, commit, stopped, events) -> SpanResult
         if _calc(focus) and (_live_focus(stopped, focus, time.monotonic()) is None
                              or _physical_count(stopped) is None):
             return False
-        current = a11y.query_shell_context()
+        current = get_context()
         if (context is None or current != context or context.protected()
                 or not context.ime_focus or type(context.pid) is not int or context.pid <= 0
                 or not focus.app_ids or context.app_ids != focus.app_ids):
@@ -225,7 +265,7 @@ def _replace(tree, focus, source, target, commit, stopped, events) -> SpanResult
                 and tree.input_type(node) not in {None, "password"}
                 and tree.app_of(node) == focus.app and a11y._same_application(pid, context.pid)
                 and type(selections) is int and selections == 0
-                and not stopped() and a11y.query_shell_context() == context)
+                and not stopped() and get_context() == context)
 
     anchor = None
     if _calc(focus):
@@ -251,10 +291,12 @@ def _prepare_anchor(tree, focus, source, stopped):
     prepare = getattr(stopped, "prepare", None)
     if callable(prepare) and prepare() is not True:
         return None
+    if physical_base is not None and (stopped() or _physical_count(stopped) != physical_base):
+        return None
     reserve = getattr(stopped, "reserve_anchor", None)
     if callable(reserve) and reserve() is False:
         return None
-    if physical_base is not None and (stopped() or _physical_count(stopped) != physical_base):
+    if stopped():
         return None
     return caret - len(source), caret, count, physical_base
 
@@ -267,10 +309,15 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
         if not _span(source) or not _span(target):
             return SpanResult("aborted")
 
+        firefox_spaces = is_firefox(focus) and "\u00a0" not in source + target
+
         def read(start, end):
             if not safe():
                 return None
             text = tree.text_range(node, start, end)
+            # contenteditable хранит набранный Space как NBSP; явный NBSP сохраняем.
+            if firefox_spaces and isinstance(text, str):
+                text = text.replace("\u00a0", " ")
             return text if isinstance(text, str) and len(text) == end - start and safe() else None
 
         if not safe():
@@ -289,12 +336,27 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
                     or start < 0 or start + len(source) != caret or count < caret):
                 return SpanResult("aborted")
         anchor_count, anchor_caret = count, caret
-        if physical_base is not None and _physical_count(stopped) != physical_base:
-            # Печать до первой записи относится к прежней раскладке: span уже
-            # не соответствует набранному и не вправе начинать замену.
+
+        def append_only():
+            if physical_base is None:
+                return True
+            for _ in range(3):
+                first = _physical_count(stopped)
+                current_count, current_caret = tree.character_count(node), tree.caret(node)
+                if stopped():
+                    return False
+                last = _physical_count(stopped)
+                if first == last and first is not None:
+                    appended = first - physical_base
+                    return (0 <= appended <= 1024
+                            and current_count == anchor_count + appended
+                            and current_caret == anchor_caret + appended)
+            return False
+
+        if not append_only():
             return SpanResult("aborted")
 
-        eventless = _libreoffice_component(focus) == "calc"
+        eventless = libreoffice_component(focus) == "calc"
 
         def confirmed(first, before, after, kind, size, initial_count):
             if not safe():
@@ -309,6 +371,7 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
                     break
             else:
                 return False
+            _drain_thread_events()
             changes = events[first:]
             if eventless:
                 # Редактор Calc не даёт достоверных object:text-changed: события
@@ -356,14 +419,14 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
             if type(count) is not int or count < caret:
                 return SpanResult("aborted")
             first = len(events)
-        if physical_base is not None and _physical_count(stopped) != physical_base:
+        if not append_only():
             return SpanResult("aborted")
         if commit() is False:
             return SpanResult("aborted")
         attempted = True
         if not safe():
             return SpanResult("failed", True)
-        if physical_base is not None and _physical_count(stopped) != physical_base:
+        if not append_only():
             return SpanResult("aborted")
         if tree.insert_text(node, start, target) is not True:
             return SpanResult("failed", True)
@@ -394,7 +457,7 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
 _COMPONENTS = frozenset({"writer", "calc", "impress", "draw", "base", "math"})
 
 
-def _libreoffice_component(focus) -> str | None:
+def libreoffice_component(focus) -> str | None:
     """Финальный суффикс отделяет компонент от произвольного имени документа."""
     window = getattr(focus, "window", None)
     if not isinstance(window, str):
@@ -409,13 +472,13 @@ def _libreoffice_component(focus) -> str | None:
 
 
 def _writer_window(focus) -> bool:
-    return _libreoffice_component(focus) == "writer"
+    return libreoffice_component(focus) == "writer"
 
 
 def _kde_identity(focus) -> bool:
     return (isinstance(focus, a11y.FocusSnapshot) and type(focus.app) is str
             and focus.app.casefold() in KDE_APPS
-            and _libreoffice_component(focus) in {"writer", "calc"})
+            and libreoffice_component(focus) in {"writer", "calc"})
 
 
 def _kde_field(field) -> bool:
@@ -434,8 +497,9 @@ def _kde_focus(focus, now) -> bool:
             and focus.protection(now) is False)
 
 
-def _kde_guard(tree, focus, context, stopped):
-    """Live-проверка KDE-фокуса: снимок контроллера + метаданные узла.
+def _field_guard(tree, focus, context, stopped, context_provider=None, *, roles=(73, 83),
+                 require_editable=True):
+    """Живая проверка фокуса: снимок контроллера + метаданные узла.
 
     Полные обходы a11y.find_focus здесь не повторяются: они занимают ~0,1 с и
     физический ввод успевает отменить операцию до записи. Доказательство того
@@ -443,6 +507,8 @@ def _kde_guard(tree, focus, context, stopped):
     по-узловые проверки остаются прежними.
     """
     stable_pid = None
+    get_context = (context_provider if context_provider is not None
+                   else lambda: a11y.query_shell_context())
 
     def check():
         nonlocal stable_pid
@@ -452,7 +518,7 @@ def _kde_guard(tree, focus, context, stopped):
             started = time.monotonic()
             if _live_focus(stopped, focus, started) is None:
                 return _ABORT
-            current = a11y.query_shell_context()
+            current = get_context()
             if current is None or current != context or current.protected():
                 return _ABORT
             node = focus.field
@@ -467,39 +533,206 @@ def _kde_guard(tree, focus, context, stopped):
             if not (bool(state) and a11y._state_bit(state, a11y.EDITABLE)
                     and a11y._state_bit(state, a11y.FOCUSED)):
                 return _ABORT
-            if interfaces is None or a11y.TEXT not in interfaces or EDITABLE not in interfaces:
+            if (interfaces is None or a11y.TEXT not in interfaces
+                    or require_editable and EDITABLE not in interfaces):
                 return _ABORT
             if type(input_type) is not str or input_type == "password":
                 return _ABORT
-            if type(selections) is not int or selections != 0:
+            if type(selections) is not int or selections < 0:
                 return _ABORT
+            if selections:
+                return _SELECTED
             if type(pid) is not int or pid <= 0:
                 return _ABORT
             if stable_pid is None:
                 stable_pid = pid
             elif pid != stable_pid:
                 return _ABORT
-            if type(role) is not int or role not in {61, 73, 79, 83}:
+            if type(role) is not int or role not in {61, 73, 79, 83, *roles}:
                 return _ABORT
-            if stopped() or a11y.query_shell_context() != context:
+            if stopped() or get_context() != context:
                 return _ABORT
             if not 0 <= time.monotonic() - started <= a11y.MAX_AGE_SEC:
                 return _ABORT
+            if context.app_ids and (focus.app_ids != context.app_ids
+                                    or not a11y._same_application(pid, context.pid)):
+                return _ABORT
             # Доверие продлевает только свежий снимок в начале следующей проверки.
-            return _UNSUPPORTED if role in {61, 79} else _OK
+            return _OK if role in roles else _UNSUPPORTED
         except Exception:  # noqa: BLE001 — unknown metadata cannot authorize a read
             return _ABORT
 
     return check
 
 
+def _replace_kde_with_tree(tree, focus, source, target, commit, stopped, events,
+                           *, context_provider=None) -> SpanResult | None:
+    """KDE-замена поверх уже открытого соединения/дерева AT-SPI."""
+    get_context = (context_provider if context_provider is not None
+                   else lambda: a11y.query_shell_context())
+    try:
+        context = get_context()
+    except Exception:  # noqa: BLE001 — неизвестный контекст не разрешает попытку
+        return SpanResult("aborted")
+    if context != a11y.ShellContext():
+        return SpanResult("aborted")
+    check = _field_guard(tree, focus, context, stopped, context_provider=get_context)
+    state = check()
+    if state == _UNSUPPORTED:
+        return None
+    if state != _OK:
+        return SpanResult("aborted")
+    anchor = _prepare_anchor(tree, focus, source, stopped)
+    if anchor is None:
+        return SpanResult("aborted")
+    return _replace_checked(
+        tree, focus, source, target, commit, stopped, events,
+        lambda: check() == _OK, anchor=anchor)
+
+
+def _plain_field_ready(focus, source, target, stopped):
+    now = time.monotonic()
+    if (not isinstance(focus, a11y.FocusSnapshot) or not focus.app
+            or focus.app.casefold() in KDE_APPS or not _kde_field(focus.field)
+            or focus.protection(now) is not False or not _span(source) or not _span(target)
+            or _live_focus(stopped, focus, now) is None or _physical_count(stopped) is None):
+        return False
+    return True
+
+
+def _replace_shell_with_tree(tree, focus, source, target, commit, stopped, shell,
+                             *, context_provider, before_write):
+    if (not _plain_field_ready(focus, source, target, stopped)
+            or not is_firefox(focus) and not any(app.casefold().removesuffix(".desktop") in {
+                "google-chrome", "google-chrome-beta", "google-chrome-unstable",
+                "chromium", "chromium-browser", "com.google.chrome",
+                "org.chromium.chromium"} for app in focus.app_ids)):
+        return None
+    attempted = False
+    try:
+        context = context_provider()
+        if context is None or not context.app_ids or context.protected():
+            return SpanResult(ABORTED)
+        check = _field_guard(tree, focus, context, stopped, context_provider,
+                             roles=(61, 79, 85), require_editable=False)
+        if check() != _OK:
+            return SpanResult(ABORTED)
+        node = focus.field
+        physical = _physical_count(stopped)
+        caret, count = tree.caret(node), tree.character_count(node)
+        if (physical is None or type(caret) is not int or type(count) is not int
+                or not len(source) <= caret <= count):
+            return SpanResult(ABORTED)
+        start = caret - len(source)
+
+        def unchanged():
+            return (check() == _OK and _physical_count(stopped) == physical
+                    and tree.caret(node) == caret and tree.character_count(node) == count
+                    and tree.text_range(node, start, caret).replace("\u00a0", " ") == source
+                    and check() == _OK and _physical_count(stopped) == physical)
+
+        if not unchanged():
+            return SpanResult(ABORTED)
+        ticket = shell.prepare_replacement(context.pid, source, target)
+        if not ticket or not unchanged():
+            return SpanResult(ABORTED)
+        group = stopped.defer_layout()
+        if commit() is False or not unchanged() or not before_write():
+            return SpanResult(ABORTED)
+        attempted = True
+        if not shell.commit_replacement(ticket, group):
+            return SpanResult(ABORTED)
+        deadline = time.monotonic() + 0.5
+        while time.monotonic() < deadline:
+            _drain_thread_events()
+            state = check()
+            # Firefox временно выделяет диапазон при уже принятой замене.
+            if state == _SELECTED and is_firefox(focus):
+                time.sleep(0.01)
+                continue
+            if state != _OK:
+                break
+            appended = _physical_count(stopped)
+            if appended is None or appended < physical:
+                break
+            delta = len(target) - len(source) + appended - physical
+            if (tree.text_range(node, start, start + len(target)).replace("\u00a0", " ") == target
+                    and tree.caret(node) == caret + delta
+                    and tree.character_count(node) == count + delta
+                    and _physical_count(stopped) == appended and check() == _OK):
+                return SpanResult(DONE, True)
+            time.sleep(0.01)
+        return SpanResult(UNCERTAIN, True)
+    except Exception:  # noqa: BLE001 — не повторять запись после неопределённого ответа
+        return SpanResult(UNCERTAIN if attempted else FAILED, attempted)
+
+
+def _replace_field_with_tree(tree, focus, source, target, commit, stopped, events,
+                             *, context_provider=None):
+    if not _plain_field_ready(focus, source, target, stopped):
+        return None
+    interfaces = tree.interfaces(focus.field)
+    if not interfaces or a11y.TEXT not in interfaces or EDITABLE not in interfaces:
+        return None
+    get_context = context_provider or a11y.query_shell_context
+    context = get_context()
+    if context is None or context.protected():
+        return SpanResult("aborted")
+    check = _field_guard(tree, focus, context, stopped, context_provider=get_context,
+                         roles=(61, 79))
+    state = check()
+    if state == _UNSUPPORTED:
+        return None
+    if state != _OK:
+        return SpanResult("aborted")
+    anchor = _prepare_anchor(tree, focus, source, stopped)
+    if anchor is None:
+        return SpanResult("aborted")
+    return _replace_checked(tree, focus, source, target, commit, stopped, events,
+                            lambda: check() == _OK, anchor=anchor)
+
+
+def _try_replace_field(focus, source, target, commit, stopped):
+    if not _plain_field_ready(focus, source, target, stopped):
+        return None
+    connection = None
+    attempted = False
+
+    def begin():
+        nonlocal attempted
+        result = commit()
+        if result is not False:
+            attempted = True
+        return result
+
+    try:
+        context = a11y.query_shell_context()
+        if context is None or context.protected():
+            return SpanResult("aborted")
+        connection = a11y._new_a11y_connection()
+        tree = a11y._DbusTree(connection)
+        interfaces = tree.interfaces(focus.field)
+        if not interfaces or a11y.TEXT not in interfaces or EDITABLE not in interfaces:
+            return None
+        with _text_changes(connection, focus.field) as events:
+            return _replace_field_with_tree(tree, focus, source, target, begin, stopped, events)
+    except Exception:  # noqa: BLE001 — provider errors can contain private field contents
+        return SpanResult("failed", attempted)
+    finally:
+        if connection is not None:
+            try:
+                connection.close_sync(None)
+            except Exception:  # noqa: BLE001 — cleanup never authorizes keyboard fallback
+                pass
+
+
 def try_replace_kde(focus, source, target, commit, stopped) -> SpanResult | None:
-    """KDE-вход: нативный span для подтверждённого редактора Writer или Calc."""
+    """KDE-вход: нативный span для подтверждённого редактируемого поля."""
     if not isinstance(focus, a11y.FocusSnapshot):
         return SpanResult("aborted")
     if not _kde_identity(focus):
-        # Не LibreOffice: обычный транспорт должен работать как раньше.
-        return None if focus.app else SpanResult("aborted")
+        return (_try_replace_field(focus, source, target, commit, stopped)
+                if focus.app else SpanResult("aborted"))
     if not _kde_focus(focus, time.monotonic()):
         return SpanResult("aborted")
     try:
@@ -524,7 +757,7 @@ def try_replace_kde(focus, source, target, commit, stopped) -> SpanResult | None
         if connection is None:
             return SpanResult("failed")
         tree = a11y._DbusTree(connection)
-        check = _kde_guard(tree, focus, context, stopped)
+        check = _field_guard(tree, focus, context, stopped)
         state = check()
         if state == _UNSUPPORTED:
             # Роль/компонент не поддерживается, но живой фокус уже доказан:
@@ -549,8 +782,19 @@ def try_replace_kde(focus, source, target, commit, stopped) -> SpanResult | None
                 pass
 
 
+def try_replace_auto(focus, source, target, commit, stopped) -> SpanResult | None:
+    """Выбрать нативный обработчик LibreOffice по источнику контекста фокуса."""
+    if not isinstance(focus, a11y.FocusSnapshot):
+        return SpanResult("aborted")
+    if focus.app_ids:
+        return try_replace(focus, source, target, commit, stopped)
+    return try_replace_kde(focus, source, target, commit, stopped)
+
+
 @contextmanager
 def _text_changes(connection, node):
+    if not _kde_field(node) or not node[0].startswith(":"):
+        raise ValueError("требуется уникальный провайдер поля AT-SPI")
     from gi.repository import Gio, GLib
 
     events = []
@@ -581,7 +825,7 @@ def _text_changes(connection, node):
             node[0], "org.a11y.atspi.Event.Object", "TextChanged", node[1], None,
             Gio.DBusSignalFlags.NONE, changed, None)
         connection.call_sync(registry, "/org/a11y/atspi/registry", registry, "RegisterEvent",
-                             GLib.Variant("(sass)", (event_name, [], "")),
+                             GLib.Variant("(sass)", (event_name, [], node[0])),
                              GLib.VariantType("()"), Gio.DBusCallFlags.NONE, 1500, None)
         registered = True
         yield events
@@ -591,7 +835,8 @@ def _text_changes(connection, node):
         if registered:
             try:
                 connection.call_sync(registry, "/org/a11y/atspi/registry", registry,
-                                     "DeregisterEvent", GLib.Variant("(s)", (event_name,)),
+                                     "DeregisterEvent",
+                                     GLib.Variant("(ss)", (event_name, node[0])),
                                      GLib.VariantType("()"), Gio.DBusCallFlags.NONE, 400, None)
             except Exception:  # noqa: BLE001 — connection ownership also clears registrations
                 pass

@@ -1128,7 +1128,7 @@ def test_kde_slow_live_proof_cannot_renew_trust(kde_native, monkeypatch):
         return input_type(node)
 
     kde_native.tree.input_type = delayed_type
-    check = editable._kde_guard(kde_native.tree, kde_native.focus, kde_native.context,
+    check = editable._field_guard(kde_native.tree, kde_native.focus, kde_native.context,
                                 kde_native.stopped)
     assert check() == "abort"
     assert kde_native.tree.reads == kde_native.tree.writes == []
@@ -1293,7 +1293,7 @@ def test_kde_calc_external_change_without_events_is_refused(kde_native):
     ("LibreOffice Writer.xlsx", None),
 ])
 def test_libreoffice_component_uses_only_the_final_component_suffix(window, expected):
-    assert editable._libreoffice_component(SimpleNamespace(window=window)) == expected
+    assert editable.libreoffice_component(SimpleNamespace(window=window)) == expected
 
 
 def test_kde_calc_final_suffix_with_writer_document_name_uses_readback(kde_native):
@@ -1327,7 +1327,7 @@ def test_kde_unknown_or_localized_component_keeps_keyboard_transport(kde_native,
 
 
 @pytest.mark.parametrize("aborted", [False, True])
-def test_kde_calc_physical_input_before_first_mutation_cancels(
+def test_kde_calc_proven_append_before_first_mutation_is_preserved(
         kde_native, monkeypatch, aborted):
     kde_native.focus = kde_native.focus._replace(window="doc — LibreOffice Calc")
     tree = kde_native.tree
@@ -1345,9 +1345,56 @@ def test_kde_calc_physical_input_before_first_mutation_cancels(
         yield kde_native.events
 
     monkeypatch.setattr(editable, "_text_changes", changes)
-    assert kde_replace(kde_native) == editable.SpanResult("aborted")
-    assert tree.text == "Test " + SOURCE + "м"
-    assert tree.writes == [] and kde_native.committed == []
+    assert kde_replace(kde_native) == editable.SpanResult("done", True)
+    assert tree.text == "Test " + TARGET + "м"
+    assert tree.writes == [("insert", 5, TARGET), ("delete", 12, 19)]
+    assert kde_native.committed == [True]
+
+
+@pytest.mark.parametrize("fixture", ["kde_native", "gnome_calc"])
+@pytest.mark.parametrize("phase", ["read", "commit"])
+@pytest.mark.parametrize("count_matches", [False, True])
+def test_calc_append_after_anchor_requires_matching_physical_count(
+        request, fixture, phase, count_matches):
+    native = request.getfixturevalue(fixture)
+    native.focus = native.focus._replace(window="doc — LibreOffice Calc")
+    tree = native.tree
+    tree.silent_events = True
+    count, appended = [0], []
+    native.stopped.append = lambda: count[0]
+    read, commit = tree.text_range, native.commit
+
+    def append():
+        if appended:
+            return
+        assert native.stopped.anchor
+        tree.append("м")
+        count[0] += int(count_matches)
+        native.stopped.aborted = True
+        appended.append(True)
+
+    def read_after_anchor(*args):
+        value = read(*args)
+        if phase == "read":
+            append()
+        return value
+
+    def commit_and_append():
+        commit()
+        if phase == "commit":
+            append()
+
+    tree.text_range, native.commit = read_after_anchor, commit_and_append
+    result = (kde_replace if fixture == "kde_native" else replace)(native)
+    assert appended
+    if count_matches:
+        assert result == editable.SpanResult("done", True)
+        assert tree.text == "Test " + TARGET + "м"
+        assert tree.writes == [("insert", 5, TARGET), ("delete", 12, 19)]
+    else:
+        assert result.status == "aborted"
+        assert tree.text == "Test " + SOURCE + "м"
+        assert tree.writes == []
 
 
 def test_kde_calc_physical_appends_after_mutation_are_preserved(kde_native):
@@ -1439,3 +1486,282 @@ def test_kde_rejects_snapshot_with_conflicting_shell_identity(kde_native):
     kde_native.focus = kde_native.focus._replace(app_ids=("libreoffice-writer",))
     assert kde_replace(kde_native) == editable.SpanResult("aborted")
     assert kde_native.tree.reads == kde_native.tree.writes == kde_native.committed == []
+
+
+def test_try_replace_auto_dispatches_by_shell_app_ids(monkeypatch):
+    gnome_calls, kde_calls = [], []
+    gnome_focus = a11y.FocusSnapshot("soffice", False, 100.0, ("libreoffice-writer",), FIELD)
+    kde_focus = a11y.FocusSnapshot("soffice.bin", False, 100.0, (), FIELD,
+                                  window="doc — LibreOffice Writer")
+    commit, stopped = (lambda: True), (lambda: False)
+
+    monkeypatch.setattr(editable, "try_replace",
+                        lambda *args: gnome_calls.append(args) or editable.SpanResult("done", True))
+    monkeypatch.setattr(editable, "try_replace_kde",
+                        lambda *args: kde_calls.append(args) or editable.SpanResult("done", True))
+
+    assert editable.try_replace_auto(
+        gnome_focus, SOURCE, TARGET, commit, stopped) == editable.SpanResult("done", True)
+    assert editable.try_replace_auto(
+        kde_focus, SOURCE, TARGET, commit, stopped) == editable.SpanResult("done", True)
+    assert gnome_calls == [(gnome_focus, SOURCE, TARGET, commit, stopped)]
+    assert kde_calls == [(kde_focus, SOURCE, TARGET, commit, stopped)]
+    assert editable.try_replace_auto(
+        None, SOURCE, TARGET, commit, stopped) == editable.SpanResult("aborted")
+
+@pytest.fixture
+def plain_native(kde_native):
+    native = kde_native
+    native.tree.app = "ordinary-editor"
+    native.tree.field_role = 79
+    native.focus = native.focus._replace(app=native.tree.app, window="Document")
+    native.physical = [0]
+    native.stopped.append = lambda: native.physical[0]
+    return native
+
+
+@pytest.mark.parametrize("entry", ["try_replace", "try_replace_kde"])
+def test_plain_field_native_replacement_preserves_append_before_first_insert(plain_native, entry):
+    native = plain_native
+    read = native.tree.text_range
+    appended = []
+
+    def type_after_anchor(node, start, end):
+        text = read(node, start, end)
+        if not native.tree.writes and not appended:
+            assert native.stopped.anchor
+            native.tree.append("X")
+            native.physical[0] += 1
+            native.stopped.aborted = True
+            appended.append(True)
+        return text
+
+    native.tree.text_range = type_after_anchor
+    result = getattr(editable, entry)(native.focus, SOURCE, TARGET,
+                                      native.commit, native.stopped)
+    assert result == editable.SpanResult("done", True)
+    assert native.tree.text == "Test " + TARGET + "X"
+    assert native.tree.position == len(native.tree.text)
+    assert native.stopped.fast_switch
+
+
+@pytest.mark.parametrize("convert_on_write", [False, True])
+def test_plain_field_accepts_browser_nonbreaking_spaces(plain_native, convert_on_write):
+    native = plain_native
+    tree = native.tree
+    native.focus = native.focus._replace(app_ids=("firefox",))
+    tree.text = "Test\u00a0" + SOURCE.replace(" ", "\u00a0")
+
+    def browser_spaces():
+        tree.text = tree.text.replace(" ", "\u00a0")
+
+    if convert_on_write:
+        tree.after_insert = tree.after_delete = browser_spaces
+    result = editable.try_replace_kde(native.focus, SOURCE, TARGET,
+                                      native.commit, native.stopped)
+    assert result == editable.SpanResult("done", True)
+    expected = TARGET.replace(" ", "\u00a0") if convert_on_write else TARGET
+    assert tree.text == "Test\u00a0" + expected
+    assert tree.position == len(tree.text)
+    assert tree.writes == [("insert", 5, TARGET), ("delete", 12, 19)]
+
+
+@pytest.mark.parametrize("ending", ["\u202f", "\t", "x", "  "])
+def test_plain_field_does_not_accept_other_changed_delimiters(plain_native, ending):
+    native = plain_native
+    native.focus = native.focus._replace(app_ids=("firefox",))
+    native.tree.text = "Test " + SOURCE.rstrip() + ending
+    native.tree.position = len(native.tree.text)
+    result = editable.try_replace_kde(native.focus, SOURCE, TARGET,
+                                      native.commit, native.stopped)
+    assert result == editable.SpanResult("aborted")
+    assert native.tree.writes == []
+
+
+def test_firefox_preserves_explicit_nonbreaking_space(plain_native):
+    native = plain_native
+    native.focus = native.focus._replace(app_ids=("firefox",))
+    source, target = SOURCE.replace(" ", "\u00a0"), TARGET.replace(" ", "\u00a0")
+    native.tree.text = "Test " + source
+    assert kde_replace(native, source, target) == editable.SpanResult("done", True)
+    assert native.tree.text == "Test " + target
+
+
+def test_plain_field_refuses_unexplained_text_append(plain_native):
+    native = plain_native
+    read = native.tree.text_range
+    appended = []
+
+    def foreign_append(node, start, end):
+        text = read(node, start, end)
+        if not native.tree.writes and not appended:
+            native.tree.append("X")
+            appended.append(True)
+        return text
+
+    native.tree.text_range = foreign_append
+    result = editable.try_replace_kde(native.focus, SOURCE, TARGET,
+                                      native.commit, native.stopped)
+    assert result == editable.SpanResult("aborted")
+    assert native.tree.writes == []
+
+
+@pytest.mark.parametrize("change", [
+    lambda n: setattr(n.tree, "kind", "password"),
+    lambda n: setattr(n.tree, "focused", False),
+    lambda n: setattr(n, "frozen", n.focus._replace(password=True)),
+    lambda n: setattr(n, "frozen", n.focus._replace(generation=1)),
+])
+def test_plain_field_invalid_metadata_never_reads_or_writes(plain_native, change):
+    native = plain_native
+    change(native)
+    result = editable.try_replace_kde(native.focus, SOURCE, TARGET,
+                                      native.commit, native.stopped)
+    assert result is None or result == editable.SpanResult("aborted")
+    assert native.tree.reads == native.tree.writes == []
+
+
+def test_plain_field_input_before_anchor_still_aborts(plain_native):
+    native = plain_native
+
+    def press_before_reservation():
+        native.tree.append("X")
+        native.physical[0] += 1
+        native.stopped.aborted = True
+
+    native.stopped.on_prepare = press_before_reservation
+    result = editable.try_replace_kde(native.focus, SOURCE, TARGET,
+                                      native.commit, native.stopped)
+    assert result == editable.SpanResult("aborted")
+    assert native.tree.reads == native.tree.writes == []
+
+
+def test_plain_field_shell_owner_must_match(plain_native, monkeypatch):
+    native = plain_native
+    context = a11y.ShellContext(("ordinary-editor",), False, True, 0, 0, 9999)
+    native.focus = native.focus._replace(app_ids=context.app_ids)
+    monkeypatch.setattr(a11y, "query_shell_context", lambda: context)
+    monkeypatch.setattr(a11y, "_same_application", lambda first, second: first == second)
+    assert editable.try_replace(native.focus, SOURCE, TARGET,
+                                native.commit, native.stopped) == editable.SpanResult("aborted")
+    assert native.tree.reads == native.tree.writes == []
+
+
+def test_plain_field_without_editable_interface_keeps_original_transport(plain_native):
+    native = plain_native
+    native.tree.interfaces = lambda node: [a11y.TEXT]
+    assert editable.try_replace_kde(native.focus, SOURCE, TARGET,
+                                    native.commit, native.stopped) is None
+    assert native.tree.reads == native.tree.writes == native.committed == []
+
+
+@pytest.fixture
+def chrome_native(plain_native, monkeypatch):
+    n = plain_native
+    n.tree.app = "Google Chrome"
+    n.context = a11y.ShellContext(("google-chrome",), False, True, 0, 0, 1234)
+    n.focus = n.focus._replace(app=n.tree.app, app_ids=n.context.app_ids)
+    n.tree.interfaces = lambda node: [a11y.TEXT]
+    monkeypatch.setattr(a11y, "_same_application", lambda first, second: first == second)
+    n.stopped.defer_layout = lambda: 1
+    n.shell_writes = []
+    n.after_prepare = lambda: None
+    n.accept = True
+
+    def prepare(pid, source, target):
+        assert pid == 1234 and source == SOURCE and target == TARGET
+        n.after_prepare()
+        return 7
+
+    def write(ticket, group):
+        assert ticket == 7 and group == 1
+        if n.accept:
+            n.shell_writes.append((SOURCE, TARGET))
+            n.tree.text = "Test " + TARGET
+            n.tree.position = len(n.tree.text)
+        return n.accept
+
+    n.shell = SimpleNamespace(prepare_replacement=prepare, commit_replacement=write)
+    return n
+
+
+def chrome_replace(n):
+    return editable._replace_shell_with_tree(
+        n.tree, n.focus, SOURCE, TARGET, n.commit, n.stopped, n.shell,
+        context_provider=lambda: n.context, before_write=lambda: True)
+
+
+@pytest.mark.parametrize("role", [61, 79, 85])
+def test_chrome_text_field_without_editable_interface_uses_verified_shell_edit(chrome_native, role):
+    n = chrome_native
+    n.tree.role = lambda node: role
+    assert chrome_replace(n) == editable.SpanResult("done", True)
+    assert n.tree.text == "Test " + TARGET
+    assert n.tree.writes == []
+    assert n.shell_writes == [(SOURCE, TARGET)]
+
+
+@pytest.mark.parametrize("change", ["focus", "keypress", "source", "password", "ticket"])
+def test_chrome_cancels_before_native_write(chrome_native, change):
+    n = chrome_native
+
+    def change_before_commit():
+        if change == "focus":
+            n.tree.focused = False
+        elif change == "keypress":
+            n.physical[0] += 1
+        elif change == "source":
+            n.tree.text = "Test changed"
+        elif change == "password":
+            n.tree.kind = "password"
+        else:
+            n.accept = False
+
+    n.after_prepare = change_before_commit
+    assert chrome_replace(n) == editable.SpanResult("aborted")
+    assert n.shell_writes == n.tree.writes == []
+
+
+@pytest.mark.parametrize("after_selection,expected", [
+    ("cleared", "done"), ("kept", "uncertain"), ("focus_changed", "uncertain"),
+])
+def test_shell_verification_waits_for_firefox_selection(chrome_native, after_selection, expected):
+    n = chrome_native
+    n.context = n.context._replace(app_ids=("firefox",))
+    n.focus = n.focus._replace(app_ids=n.context.app_ids)
+    seen = []
+
+    def selection_count(node):
+        if not n.shell_writes:
+            return 0
+        seen.append(len(n.tree.reads))
+        if after_selection == "focus_changed":
+            n.tree.focused = False
+        return int(len(seen) == 1 or after_selection != "cleared")
+
+    n.tree.selection_count = selection_count
+    assert chrome_replace(n) == editable.SpanResult(expected, True)
+    assert n.shell_writes == [(SOURCE, TARGET)] and not n.tree.writes
+    if expected == "uncertain":
+        assert len(n.tree.reads) == seen[0]
+
+
+def test_text_event_registration_is_limited_to_the_field_provider(event_bus):
+    connection, _calls = event_bus
+    registrations = []
+    connection.call_sync = lambda *args: registrations.append((args[3], args[4]))
+    with editable._text_changes(connection, FIELD):
+        pass
+    assert registrations == [
+        ('RegisterEvent', ('(sass)', ('object:text-changed', [], FIELD[0]))),
+        ('DeregisterEvent', ('(ss)', ('object:text-changed', FIELD[0]))),
+    ]
+
+@pytest.mark.parametrize('node', [None, ('', '/field'), ('org.example.Editor', '/field'),
+                                  (':1.9', '/org/a11y/atspi/null')])
+def test_text_event_registration_cannot_fall_back_to_a_global_scope(event_bus, node):
+    connection, calls = event_bus
+    connection.signal_subscribe = lambda *_args: calls.append('subscribe') or 5
+    with pytest.raises(ValueError), editable._text_changes(connection, node):
+        pytest.fail('Invalid field must not register any events')
+    assert calls == []

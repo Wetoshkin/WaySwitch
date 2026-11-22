@@ -679,7 +679,8 @@ def run_checks() -> list[Check]:
             except PermissionError:
                 denied += 1
                 continue
-            kind = classify(dev.name, set(dev.capabilities().get(ecodes.EV_KEY, [])))
+            kind = classify(dev.name, set(dev.capabilities().get(ecodes.EV_KEY, [])),
+                            vendor=dev.info.vendor, product=dev.info.product)
             if kind == "keyboard":
                 found.append(dev.name)
             dev.close()

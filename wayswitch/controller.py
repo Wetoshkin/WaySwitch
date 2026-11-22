@@ -30,7 +30,7 @@ from wayswitch.actuator import (
 from wayswitch.buffer import InputBuffer, KeyPress
 from wayswitch.config import Config, apps_path
 from wayswitch.detector import SENSITIVITY, Detector
-from wayswitch.editable import _libreoffice_component
+from wayswitch.editable import libreoffice_component
 from wayswitch.gesture import ShiftGesture, TapKeyGesture
 from wayswitch.learning import (
     COUNT_LIMIT,
@@ -134,7 +134,9 @@ class Controller:
                  apps_provider: Callable[[], list[str]] = lambda: [],
                  sleep: Callable[[float], None] = time.sleep,
                  schedule_later: Callable[[float, Callable[[], None]], None] | None = None,
-                 schedule: Callable[[Callable[[], None]], None] = lambda fn: fn()):
+                 schedule: Callable[[Callable[[], None]], None] = lambda fn: fn(),
+                 native_replacer=None, deferred_native_replacer=None,
+                 selection_reader=None):
         """`schedule(fn)` — отложить исполнение вне диспатча источника событий;
         в демоне — GLib.idle_add. Источник evdev в GLib не реентрантен: пока
         выполняется его колбэк, события той же клавиатуры не доставляются,
@@ -148,6 +150,10 @@ class Controller:
         self.detector = detector
         self.backend = backend
         self.typist = typist
+        self.native_replacer = native_replacer
+        self.deferred_native_replacer = deferred_native_replacer
+        self.selection_reader = selection_reader
+        self._uncertain_generation: int | None = None
         self.clock = clock
         self.pump = pump  # прокрутить очередь событий главного цикла (для отмены)
         self.screen_locked = screen_locked
@@ -228,6 +234,7 @@ class Controller:
         self._busy_held: frozenset = frozenset()
         self._busy_reset = False  # клик/пауза/блокировка посреди исправления
         self._pending = 0  # отложенных (запланированных, но ещё не исполненных) фиксов
+        self._deferred_word: tuple[int, Callable[[], None]] | None = None
         self._pending_gesture: str | None = None  # жест, пришедший во время фикса
         self._pending_after: str | None = None  # второй жест той же серии (слово → фраза)
         self._word_gesture: _WordGestureContext | None = None
@@ -238,6 +245,7 @@ class Controller:
         # Время последней правки текста руками и последней ручной смены
         # раскладки: в это окно автоисправление не вмешивается.
         self._last_edit_at: float | None = None
+        self._last_key_press = 0.0
         self._last_external_layout_at: float | None = None
         self._layout_shortcut_partial_at: float | None = None
         self.stats = {"corrections": 0, "manual": 0, "undo": 0}
@@ -515,6 +523,8 @@ class Controller:
                 self.buffer.note_press(code, device_id)
             return
         now = self.clock()
+        if value in (1, 2):
+            self._last_key_press = now
         if (value == 1 and code in kc.COMMAND_MODIFIERS and self.buffer.current_word()
                 and not (self.busy or self.paused or self.locked)):
             self._layout_shortcut_partial_at = now
@@ -859,6 +869,15 @@ class Controller:
         owner = self._focus_owner(snap if snap.age(self.clock()) <= focus.MAX_AGE_SEC
                                   else focus.FocusSnapshot())
         owner_changed = not self._same_focus_owner(old_owner, owner)
+        if (guarded and self.backend.name == "kde" and not self.busy and typing_key
+                and protection is None and old is not None and old[-1] is False
+                and old[2] is not None and old_owner is not None
+                and self.buffer.current_word()
+                and libreoffice_component(focus.FocusSnapshot(
+                    old_owner[1], app_ids=old_owner[3], window=old_owner[4])) == "calc"):
+            # KF6 повторно сообщает потерю/возврат того же поля после первой буквы.
+            self._provisional_binding = True
+            return True
         if not guarded and old is not None and old_owner is not None:
             if (old_owner[2] is None and snap.field is None
                     and old[-1] is not None and protection is not None
@@ -881,7 +900,7 @@ class Controller:
         self._buffer_focus = scope
         old_window, self._buffer_window = self._buffer_window, snap.window
         same_window = old_window == snap.window
-        if (not guarded and old is not None and old[2] is not None
+        if (old is not None and old[2] is not None
                 and old[2] == snap.field and not owner_changed):
             same_window = True  # заголовок документа меняется при наборе
         if old is None or old == scope and same_window and not owner_changed:
@@ -902,7 +921,8 @@ class Controller:
                                 or not guarded and old_field is not None) and same_window)
         same_app = old_app in (None, app) or not guarded and not owner_changed
         calc_rebind = (old_probe is self.probe and old_app == app and same_window
-                       and _libreoffice_component(snap) == "calc")
+                       and not self._provisional_binding
+                       and libreoffice_component(snap) == "calc")
         carry = (old_probe is self.probe and partial_word and app is not None
                  and protection is False and old_protection is not True
                  and same_app and (not owner_changed or calc_rebind)
@@ -1100,9 +1120,9 @@ class Controller:
             log.debug("слово пропущено: %s", blocked)
             self.context.append(None)
             return
-        word = "".join(c for c in self.detector.decode(keys, current).lower()
-                       if c.isalpha() or c in "-'")
-        if word and word in self.detector.exceptions:
+        raw_word = "".join(c for c in self.detector.decode(keys, current)
+                           if c.isalpha() or c in "-'")
+        if raw_word and self.detector.is_excluded(raw_word):
             # Исключение действует на все правила, а не только на смену
             # раскладки: откат «расклад-ка» добавил «раскладка» в исключения.
             self.context.append(None)
@@ -1110,7 +1130,7 @@ class Controller:
         if self.detector.personal_words:
             target = self.detector.hypothesis(keys, other)
             if ((target.lang, target.core.lower()) in self.detector.personal_words
-                    and target.core.lower() in self.detector.exceptions):
+                    and self.detector.is_excluded(target.core)):
                 self.context.append(None)
                 return
         punct = self.detector.punct_fix(keys, current, other) \
@@ -1157,12 +1177,15 @@ class Controller:
         decision = self.detector.decide(
             keys, current, other, self._context_tuple(),
             short_words=self.config.general.short_words_fix,
-            two_capitals=self.config.general.two_capitals_fix and not self.buffer.caps)
+            two_capitals=self.config.general.two_capitals_fix and not self.buffer.caps,
+            typo_fix=self.config.general.typo_fix and not self._secret_focus())
         log.debug("решение: %s (%s)", decision.action, decision.reason)
         if decision.action == "fix":
-            self._schedule_fix(keys, 1, other, decision.target_text + " ", manual=False,
+            target_group = current if decision.same_layout else other
+            self._schedule_fix(keys, 1, target_group, decision.target_text + " ", manual=False,
                                reason=decision.reason, group_before=current,
-                               trigger=(device_id, code), done=self._context_done(other))
+                               switch=not decision.same_layout,
+                               trigger=(device_id, code), done=self._context_done(target_group))
             return
         self.context.append(decision.a.lang if decision.a.in_dict else None)
 
@@ -1391,9 +1414,9 @@ class Controller:
         except ValueError:
             return
         key = lang, word
-        source_key = "".join(c for c in source.lower() if c.isalpha() or c in "-'")
-        if (source.lower() in self.detector.exceptions or source_key in self.detector.exceptions
-                or word in self.detector.exceptions
+        source_key = "".join(c for c in source if c.isalpha() or c in "-'")
+        if (self.detector.is_excluded(source) or self.detector.is_excluded(source_key)
+                or self.detector.is_excluded(word)
                 or self.detector.models[lang].is_word(word)):
             self._manual_learning = ManualLearningEvent(source, target, scope, end, now, key, None)
             return
@@ -1540,11 +1563,16 @@ class Controller:
 
     def _read_bound_selection(self, expected, probe, epoch: int):
         """Ровно одно чтение текущего выделения и проверка его формы."""
+        if self._uncertain_generation is not None:
+            if expected.generation == self._uncertain_generation:
+                return None
+            self._uncertain_generation = None
         valid = self._selection_valid(expected, probe, epoch)
         if not valid():
             return None
         try:
-            selection = focus.read_selection(expected, valid, SELECTION_MAX)
+            reader = self.selection_reader or focus.read_selection
+            selection = reader(expected, valid, SELECTION_MAX)
         except Exception as exc:  # noqa: BLE001 — не показывать текст в журнале
             log.warning("исправить выделенное: чтение не удалось (%s)", type(exc).__name__)
             return None
@@ -1727,7 +1755,8 @@ class Controller:
                              hold=self._wait_shift_released,
                              stop=lambda: self._stop() or not self._selection_valid(
                                  expected, probe, epoch)(),
-                             before_write=before_write)
+                             before_write=before_write,
+                             native_replacer=self.native_replacer)
         except Exception as exc:  # noqa: BLE001 — не выпускать payload провайдера
             result = FAILED
             log.warning("исправить выделенное: ошибка (%s)", type(exc).__name__)
@@ -1877,17 +1906,32 @@ class Controller:
         и что другой фикс не исполняется прямо сейчас — иначе отказываемся.
         """
         snapshot = list(keys)
+        capture_phrase = self.buffer.phrase()
+        capture_epoch, capture_edit = self._context_epoch, self._last_edit_at
         capture_focus = self._buffer_focus
         capture_owner = self._buffer_owner
         secret = secret or capture_focus is None or capture_focus[-1] is not False \
             or self._secret_focus()
         self._pending += 1
 
+        ordered = (self.deferred_native_replacer is not None
+                   and not (manual or whole_phrase or span or caps_off or secret)
+                   and tail > 0)
+        quiet_interval = 0.060
+        wait_until = (self.clock() + 0.45 if ordered and self.schedule_later is not None
+                      and (self._deferred_word is None
+                           or self._deferred_word[0] != capture_epoch) else None)
+
         def run() -> None:
+            rescheduled = False
             self._pending -= 1
             ok = False
             outcome: dict = {}
             try:
+                waiting = self._deferred_word
+                if (not manual and waiting is not None
+                        and waiting[0] == self._context_epoch and waiting[1] is not run):
+                    return
                 if self._focus_waiting:
                     self._focus_wait_boundary = True
                 if self.busy:
@@ -1899,6 +1943,18 @@ class Controller:
                 if not self._sync_focus() or not self._same_buffer_scope(
                         capture_focus, capture_owner):
                     return
+                if wait_until is not None and self.schedule_later is not None:
+                    now = self.clock()
+                    deadline = max(wait_until, self._last_key_press + 0.45)
+                    if now > deadline or self._pending_gesture:
+                        return
+                    quiet_at = self._last_key_press + quiet_interval
+                    if quiet_at > now:
+                        if quiet_at <= deadline:
+                            rescheduled = True
+                            self._pending += 1
+                            self.schedule_later(quiet_at - now, run)
+                        return
                 if whole_phrase:
                     unchanged = self.buffer.phrase() == snapshot
                 elif span:
@@ -1908,20 +1964,62 @@ class Controller:
                     unchanged = self.buffer.phrase()[-len(expected):] == expected
                 else:
                     unchanged = self.buffer.last_word_with_tail() == (snapshot, tail)
+                if ordered:
+                    if (self._context_epoch != capture_epoch
+                            or self._last_edit_at != capture_edit):
+                        return
+                    unchanged = self.buffer.phrase() == capture_phrase
+                fix_keys, fix_tail, fix_text = snapshot, tail, text
+                fix_span, fix_source, deferred_native = span, source_text, ordered
                 if not unchanged:
-                    log.info("исправление %s отменено: буфер изменился", reason)
-                    return
-                ok = self._apply_fix(snapshot, tail, target_group, text, manual=manual,
+                    phrase = self.buffer.phrase()
+                    expected = snapshot + [SPACE] * tail
+                    if (not ordered
+                            or capture_phrase[-len(expected):] != expected
+                            or phrase[:len(capture_phrase)] != capture_phrase
+                            or len(phrase) <= len(capture_phrase)):
+                        log.info("исправление %s отменено: буфер изменился", reason)
+                        return
+                    appended = phrase[len(capture_phrase):]
+                    fix_keys = expected + appended
+                    fix_text = text + self.keymap.decode(appended, target_group)
+                    fix_source = (source_text if source_text is not None
+                                  else self.keymap.decode(snapshot, group_before))
+                    fix_source += " " * tail + self.keymap.decode(appended, group_before)
+                    fix_tail = self.buffer.last_word_with_tail()[1]
+                    if fix_tail:
+                        fix_keys = fix_keys[:-fix_tail]
+                        fix_source = fix_source[:-fix_tail]
+                    fix_span, deferred_native = True, True
+                ok = self._apply_fix(fix_keys, fix_tail, target_group, fix_text, manual=manual,
                                      reason=reason, group_before=group_before,
                                      whole_phrase=whole_phrase, switch=switch, trigger=trigger,
-                                     span=span, caps_off=caps_off, secret=secret, outcome=outcome,
-                                     source_text=source_text)
+                                     span=fix_span, caps_off=caps_off, secret=secret,
+                                     outcome=outcome,
+                                     source_text=fix_source, deferred_native=deferred_native)
+                if (not ok and outcome.get("retry_native") and wait_until is not None
+                        and self.schedule_later is not None
+                        and self.clock() + quiet_interval <= max(
+                            wait_until, self._last_key_press + 0.45)
+                        and self._context_epoch == capture_epoch
+                        and self._last_edit_at == capture_edit
+                        and self.backend.current() == group_before):
+                    rescheduled = True
+                    self._pending += 1
+                    self.schedule_later(quiet_interval, run)
             finally:
-                if done is not None:
-                    done(ok, outcome.get("secret", secret))
-                self._run_pending_gesture()
+                if not rescheduled:
+                    if self._deferred_word == (capture_epoch, run):
+                        self._deferred_word = None
+                    if done is not None:
+                        done(ok, outcome.get("secret", secret))
+                    self._run_pending_gesture()
 
-        self.schedule(run)
+        if wait_until is not None and self.schedule_later is not None:
+            self._deferred_word = (capture_epoch, run)
+            self.schedule_later(quiet_interval, run)
+        else:
+            self.schedule(run)
 
     def _run_pending_gesture(self) -> None:
         """Жест, пришедший во время фикса (или пока фикс ждал idle), — на свежем буфере.
@@ -2081,7 +2179,8 @@ class Controller:
                    whole_phrase: bool = False, switch: bool = True,
                    trigger: tuple[int, int] | None = None, span: bool = False,
                    caps_off: bool = False, secret: bool = False,
-                   outcome: dict | None = None, source_text: str | None = None) -> bool:
+                   outcome: dict | None = None, source_text: str | None = None,
+                   deferred_native: bool = False) -> bool:
         # Бэкенд может ошибаться насчёт текущей раскладки (IBus на GNOME 46+).
         # Проверяем ДО плана: после Backspace-ов откатывать уже нечего.
         if self._groups() is None or self.backend.current() != group_before:
@@ -2098,7 +2197,8 @@ class Controller:
             log.warning("не могу набрать текст в группе %s", target_group)
             return False
         # До границы слова человек продолжает печатать: клавиатурная замена не атомарна.
-        plan.require_verified = self._provisional_binding or reason in {"early", "url-early"}
+        plan.require_verified = (deferred_native and span or self._provisional_binding
+                                 or reason in {"early", "url-early"})
         original = (source_text if source_text is not None
                     else self.keymap.decode(keys, group_before))
         if self.dry_run:
@@ -2106,6 +2206,11 @@ class Controller:
             return False
         plan.source_text = original + " " * tail
         plan.focus = self._live_snapshot() if self.probe is not None else None
+        if self._uncertain_generation is not None:
+            snap_gen = getattr(plan.focus, "generation", None)
+            if snap_gen == self._uncertain_generation:
+                return False
+            self._uncertain_generation = None
         secret = secret or self._secret_focus()
         outcome = {} if outcome is None else outcome
         outcome["secret"] = secret
@@ -2161,7 +2266,9 @@ class Controller:
                                  hold=self._wait_shift_released, outcome=outcome, stop=self._stop,
                                  native_append=self._native_append_count,
                                  native_focus=self._native_focus_snapshot,
-                                 before_write=before_write if whole_phrase else None)
+                                 before_write=before_write if whole_phrase else None,
+                                 native_replacer=(self.deferred_native_replacer if deferred_native
+                                                  else self.native_replacer))
         except Exception as exc:  # noqa: BLE001 — execute сам ловит, это страховка
             log.error("исправление %s: ошибка %s", reason, type(exc).__name__)
             result = "failed"
@@ -2189,6 +2296,7 @@ class Controller:
                 self._clear_context()
             lost = False
         if result == ABORTED and not interrupted:
+            outcome["retry_native"] = deferred_native
             if self._provisional_binding:
                 # Буфер собран при неподтверждённой привязке. Если слово уже
                 # закончилось пробелом (tail), пропускать следующее нельзя:
@@ -2220,6 +2328,8 @@ class Controller:
                 # буфере — нет. Хвост этого слова не трогаем до пробела.
                 self._skip_word = True
         if result != DONE:
+            if result == "uncertain":
+                self._uncertain_generation = getattr(plan.focus, "generation", None)
             log.info("исправление %s: %s", reason, result)
             self.buffer.reset()
             self._clear_context()

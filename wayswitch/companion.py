@@ -35,8 +35,10 @@ class Package:
 
 def compatible(package: str, gui: str) -> bool:
     # No wider protocol compatibility contract exists yet; revisions may differ.
-    match = re.fullmatch(r"(?:\d+:)?(\d+\.\d+\.\d+)(?:[-+_][A-Za-z0-9.+_~^-]+)?", package)
-    return bool(match and match[1] == gui)
+    match = re.fullmatch(
+        r"(?:\d+:)?(\d+\.\d+\.\d+(?:~?(?:a|b|rc)\d+)?)(?:[-+_][A-Za-z0-9.+_~^-]+)?",
+        package)
+    return bool(match and match[1].replace("~", "") == gui)
 
 
 def check(gui: str, *, env=None, os_release=None, run=updater.run_command,

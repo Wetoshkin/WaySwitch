@@ -19,8 +19,11 @@ KEYBOARD_KEYS = {kc.KEY_A, kc.KEY_Z, kc.KEY_SPACE, kc.KEY_ENTER}
 OPEN_DELAY_MS = 300  # udev успевает выставить права
 
 
-def classify(name: str, key_caps: set[int]) -> str | None:
-    if name == UInputTypist.NAME:
+def classify(name: str, key_caps: set[int], *,
+             vendor: int | None = None, product: int | None = None) -> str | None:
+    # Handy republishes uinput devices under a new name, preserving their IDs.
+    if (name.removeprefix("handy-keys passthrough: ") == UInputTypist.NAME
+            or (vendor, product) == (UInputTypist.VENDOR, UInputTypist.PRODUCT)):
         return None
     if KEYBOARD_KEYS <= key_caps:
         return "keyboard"
@@ -113,7 +116,7 @@ class DeviceWatcher:
         except OSError as e:
             log.debug("не открыть %s: %s", path, e)
             return
-        kind = classify(dev.name, caps)
+        kind = classify(dev.name, caps, vendor=dev.info.vendor, product=dev.info.product)
         if kind is None:
             dev.close()
             return
