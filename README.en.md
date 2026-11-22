@@ -44,6 +44,10 @@ locale; correction supports the Russian ↔ English pair.
 </p>
 
 
+> **Version 1.2.4:** fixes a false cancellation of native replacement during
+> continuous typing when the application briefly lags behind keyboard events.
+> Caret, text-length and safety checks remain in place.
+
 > **Upgrading to 1.2.3 on GNOME:** sign out of the graphical session and
 > sign back in after installation. The updated extension uses protocol 5;
 > restarting only the WaySwitch service does not reload GNOME Shell code.
