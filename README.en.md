@@ -59,7 +59,8 @@ locale; correction supports the Russian ↔ English pair.
 - **By the start of a word.** If the first four letters clearly belong to
   the other layout (`ghbd` starts no English word but does start «прив…»),
   the prefix can be corrected before Space using native range replacement
-  in Writer/Calc. Keyboard retyping waits for Space so continued typing
+  in Writer/Calc and ordinary AT-SPI EditableText fields (tested in GTK4).
+  Keyboard retyping waits for Space so continued typing
   cannot mix with a prefix replacement. The same restriction applies to URLs.
 - **Transliteration and numbers in words** for the selected text, on keys of
   your choice, in supported AT-SPI fields.
@@ -78,6 +79,12 @@ locale; correction supports the Russian ↔ English pair.
   a missing space before a capitalised word (`сонатуБаха` → «сонату Баха»).
 - **Exceptions.** Words and programs to leave alone. Recognised password fields
   are skipped when password protection is enabled; it is off for new installations.
+- **Exception masks.** Match a whole word, prefix or substring, optionally
+  case-sensitive. Manual corrections remain available.
+- **Dictionary typos (experimental).** A separate option, off by default,
+  corrects an extra, missing or swapped adjacent letter, such as
+  `компьюттер` → `компьютер`. False replacements are possible; see the
+  configuration section below for its limits.
 
 The following desktop integrations are illustrated with mockups. Full testing
 with a physical keyboard is still needed; see [Status](#status).
@@ -275,7 +282,7 @@ For `C`/`POSIX`, `LANGUAGE` does not enable the Russian catalog. The Plasma
 widget uses KDE's system language. JSON,
 reason values, the version line and exit codes retain their previous contract.
 
-The `[meta]` section with `schema = 3` identifies the `config.toml` format. Files without the marker are treated as legacy: their
+The `[meta]` section with `schema = 4` identifies the `config.toml` format. Files without the marker are treated as legacy: their
 `settle_ms = 30` is migrated to 120. An explicit 30 saved by this version stays
 30. An older WaySwitch version ignores the marker and replaces 30 with 120 again
 when it saves the file. Saving over a file with an unsupported format marker
@@ -292,6 +299,48 @@ Common source words, personal source words, exceptions and technical-token
 protections keep their priority. Without this option the existing short-word
 rules still apply. The tray menu includes a direct **Settings** entry alongside
 **Open WaySwitch**.
+
+**Exception masks:** open **Settings → Exceptions → Exception masks**, choose
+the type and optional case sensitivity, enter a mask and press the row's apply
+button. Changes apply immediately; the trash button removes a rule.
+The UTF-8 file `~/.config/wayswitch/exceptions_masks.txt` uses this format:
+
+```text
+exact	ghbdtn
+prefix	ghb
+contains	bdt
+prefix	API	case
+```
+
+Columns are separated by **tabs**. The optional third column `case` makes the
+rule case-sensitive. `exact` matches the whole word, `prefix` its beginning,
+and `contains` a substring. Without `case`, matching ignores case. Patterns
+are literal strings, without regex or `*`/`?` wildcards: 1–64 characters for
+`exact`, 2–64 for the other types; up to 1000 rules and 64 KiB. Short patterns
+can suppress many corrections. After editing the file manually, reload settings:
+
+```bash
+busctl --user call io.github.Wetoshkin.WaySwitch /io/github/Wetoshkin/WaySwitch io.github.Wetoshkin.WaySwitch.Daemon Reload
+```
+
+Exact exceptions and masks take priority over personal words, layout correction,
+typos and other automatic rules. They neither block manual commands nor disable
+password/terminal protection. Early correction can inspect only the prefix typed
+so far: `contains` cannot predict a substring you have not typed yet. Disable
+early switching or use `exact`/`prefix` when that substring must protect the
+entire word. One invalid line rejects the whole file: reload retains the previous
+rules; startup without a previous set applies no masks. The existing
+`exceptions.txt` needs no migration.
+
+**Dictionary typos:** enable **Settings → Correction → What to correct →
+Fix typos (experimental)** (`general.typo_fix = true`). The word must contain
+at least 5 letters and have exactly one candidate in the base dictionary.
+One insertion, deletion or adjacent transposition is supported; replacing one
+letter with another is not. Ambiguous candidates, technical tokens and protected
+fields are skipped; layout decisions take priority. Personal words do not become
+correction candidates. Case and Russian `ё` are respected. False replacements
+are possible, so this option is off by default and can be disabled without
+restarting the daemon.
 
 ## Updating
 
@@ -318,8 +367,9 @@ Settings and exceptions are preserved. See the [update guide](docs/updates.md).
 
 `wayswitch explain <word>` evaluates only `Detector.decide` for the word you
 pass: the explicit us/ru layouts and an empty context. It reads `sensitivity`,
-and `two_capitals_fix` from `config.toml`, exceptions from `exceptions.txt`,
-and words from `learned_words.txt`.
+`two_capitals_fix`, `short_words_fix` and `typo_fix` from `config.toml`, exceptions
+from `exceptions.txt`, masks from `exceptions_masks.txt`, and words from
+`learned_words.txt`.
 It writes nothing and
 does not contact the service, read focus, send keys, or change the layout.
 Options: `--from en|ru` (default `en` = us),
@@ -447,8 +497,9 @@ X11, Cinnamon and separate RDP sessions are unsupported.
 
 Application checks below refer to GNOME unless stated otherwise.
 KDE checks cover Writer with KF6 and GTK3, and selection in Kate/KWrite
-and Writer. Calc was tested with GTK3 VCL; testing with KF6 was limited by
-a LibreOffice plugin failure.
+and Writer. Calc checks cover GTK3 and KF6 VCL; additional KF6 checks cover
+a short first word, continuous typing and cancellation when leaving the editor
+for Writer.
 
 See [project status](docs/PROGRESS.md) for the live-test matrix and its limits.
 
@@ -456,6 +507,9 @@ Chrome checks cover ordinary fields, editable page elements, passwords and reado
 The original eXpress message editor was tested in an isolated environment
 without sending messages; an authenticated chat has not been tested.
 
+On GNOME 50.1 with extension protocol 5, Firefox 160.0.1 and 161.0b5 passed
+checks for a fast first word, continued typing and cancellation on a field
+change. The page receives a regular key event for each typed character.
 Firefox Flatpak checks on Bazzite cover input, textarea, contenteditable and the
 address bar. Native Telegram 7.4.1 on GNOME 51.1
 passed both directions in an authenticated message composer, without sending
@@ -533,9 +587,10 @@ Invalid old values produce a configuration error and are not silently changed.
 evdev observes keys passively: the original event still goes to the desktop/app.
 External Pause/ScrollLock shortcuts cannot be detected; Ctrl+P is a GUI shortcut.
 
-Saving an older config uses schema 3 and preserves its exact contents in
-`config.toml.before-schema-3`. Existing legacy `.before-schema-2` backups remain.
-To return to 1.2.1, restore the schema-2 backup. New installations have no earlier
+Saving an older config uses schema 4 and preserves its exact contents in
+`config.toml.before-schema-4`. Existing `.before-schema-2` and `.before-schema-3`
+backups remain. To return to 1.2.2, restore the original configuration from
+`.before-schema-4`. New installations have no earlier
 config to back up. The installed release is unchanged until a separate release.
 
 ## Development

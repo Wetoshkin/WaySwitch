@@ -24,6 +24,8 @@ import time
 from collections.abc import Callable
 from typing import NamedTuple, Protocol
 
+from wayswitch.i18n import gettext as _
+
 log = logging.getLogger("wayswitch")
 
 # Биты в маске состояний at-spi.
@@ -96,6 +98,7 @@ class _FocusWatch(NamedTuple):
     query_connection: object
     live: threading.Event
     close: Callable[[], None]
+    set_scope: Callable[[str | None], bool]
 
 
 class Probe(Protocol):
@@ -173,7 +176,7 @@ class AtspiProbe:
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._ok = True
-        self._last_activity = 0.0
+        self._last_activity: float | None = None
 
     # --- публичное ----------------------------------------------------------
 
@@ -223,6 +226,8 @@ class AtspiProbe:
             self._generation += 1
             self._snap = FocusSnapshot(generation=self._generation)
         self._wake.set()
+        if self._watch_real_focus and self._last_activity is not None:
+            self._ensure_thread()
 
     def _drop_watcher(self) -> None:
         watcher, self._watcher = self._watcher, None
@@ -266,6 +271,18 @@ class AtspiProbe:
             with self._lock:
                 generation = self._generation
             result = self._query()
+            if self._watch_real_focus:
+                field = getattr(result, "field", None)
+                scope = field[0] if field is not None else None
+                if self._watcher.set_scope(scope):
+                    with self._lock:
+                        generation = self._generation
+                    started = self._clock()
+                    result = self._query()
+                    field = getattr(result, "field", None)
+                    if (field[0] if field is not None else None) != scope:
+                        self._invalidate()
+                        return
         except Exception:  # noqa: BLE001 — at-spi может отсутствовать целиком
             if self._ok:
                 # Первый сбой после успеха — в журнал с трассировкой, дальше
@@ -538,10 +555,17 @@ def _a11y_connection():
     return _CONN
 
 
-def _new_a11y_connection():
+def _new_a11y_connection(*, enable: bool = False):
     from gi.repository import Gio, GLib
 
     bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+    if enable:
+        # Qt не включает доступность только от подключения клиента к шине AT-SPI.
+        bus.call_sync("org.a11y.Bus", "/org/a11y/bus", "org.freedesktop.DBus.Properties",
+                      "Set", GLib.Variant("(ssv)",
+                                          ("org.a11y.Status", "IsEnabled",
+                                           GLib.Variant("b", True))),
+                      GLib.VariantType("()"), Gio.DBusCallFlags.NONE, 1500, None)
     res = bus.call_sync("org.a11y.Bus", "/org/a11y/bus", "org.a11y.Bus", "GetAddress",
                         None, GLib.VariantType("(s)"), Gio.DBusCallFlags.NONE, 1500, None)
     return Gio.DBusConnection.new_for_address_sync(
@@ -556,7 +580,7 @@ def _watch_focus_events(query_connection, invalidate) -> _FocusWatch:
     from wayswitch.backends.gnome_shell import BUS_NAME, INTERFACE, OBJECT_PATH
 
     # Отдельное имя клиента не даёт старому probe удалить подписку нового при Reload.
-    connection = _new_a11y_connection()
+    connection = _new_a11y_connection(enable=True)
     registry = "org.a11y.atspi.Registry"
     path = "/org/a11y/atspi/registry"
     event = "object:state-changed:focused"
@@ -564,27 +588,79 @@ def _watch_focus_events(query_connection, invalidate) -> _FocusWatch:
     live.set()
     subscriptions = []
     closed_handlers = []
+    scope = None
+    qt_scope = False
+    closed = False
+    scope_lock = threading.RLock()
 
-    def changed(*_args):
-        invalidate()
+    def changed(_connection, sender, _path, interface, _member, *_args):
+        with scope_lock:
+            if not (qt_scope and sender == scope
+                    and interface == "org.a11y.atspi.Event.Object"):
+                invalidate()
+                return
+            try:
+                # Qt включает перехват клавиш: снимаем его до следующего обхода.
+                if not set_scope(None):
+                    invalidate()
+            except Exception:  # noqa: BLE001 — a lost subscription cannot retain focus proof
+                lost()
 
     def lost(*_args):
         live.clear()
         invalidate()
 
     def close():
-        live.clear()
-        for bus, subscription in subscriptions:
-            bus.signal_unsubscribe(subscription)
-        for bus, handler in closed_handlers:
-            bus.disconnect(handler)
-        _close_private_connection(connection)
+        nonlocal closed
+        with scope_lock:
+            if closed:
+                return
+            closed = True
+            live.clear()
+            for bus, subscription in subscriptions:
+                bus.signal_unsubscribe(subscription)
+            for bus, handler in closed_handlers:
+                bus.disconnect(handler)
+            _close_private_connection(connection)
 
     def owner():
         return connection.call_sync(
             "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
             "GetNameOwner", GLib.Variant("(s)", (registry,)), GLib.VariantType("(s)"),
             Gio.DBusCallFlags.NONE, 1500, None).unpack()[0]
+
+    def set_scope(app):
+        nonlocal scope, qt_scope
+        with scope_lock:
+            if closed or not live.is_set():
+                raise RuntimeError("подписка at-spi закрыта")
+            if app == scope:
+                return False
+            if app is not None and (type(app) is not str or not app.startswith(":")):
+                raise ValueError("требуется уникальное имя приложения AT-SPI")
+            invalidate()
+            try:
+                if scope is not None:
+                    connection.call_sync(
+                        registered_owner, path, registry, "DeregisterEvent",
+                        GLib.Variant("(ss)", (event, scope)), GLib.VariantType("()"),
+                        Gio.DBusCallFlags.NONE, 1500, None)
+                if app is not None:
+                    connection.call_sync(
+                        registered_owner, path, registry, "RegisterEvent",
+                        GLib.Variant("(sass)", (event, [], app)), GLib.VariantType("()"),
+                        Gio.DBusCallFlags.NONE, 1500, None)
+                if owner() != registered_owner or not live.is_set():
+                    raise RuntimeError("реестр at-spi сменился во время подписки")
+                toolkit = (_DbusTree(connection)._property(
+                    (app, "/org/a11y/atspi/accessible/root"),
+                    "org.a11y.atspi.Application", "ToolkitName") if app else None)
+                scope = app
+                qt_scope = isinstance(toolkit, str) and toolkit.casefold() == "qt"
+                return True
+            except Exception:
+                close()
+                raise
 
     try:
         closed_handlers.append((connection, connection.connect("closed", lost)))
@@ -607,16 +683,13 @@ def _watch_focus_events(query_connection, invalidate) -> _FocusWatch:
             "StartServiceByName", GLib.Variant("(su)", (registry, 0)), GLib.VariantType("(u)"),
             Gio.DBusCallFlags.NONE, 1500, None)
         registered_owner = owner()
-        connection.call_sync(registered_owner, path, registry, "RegisterEvent",
-                             GLib.Variant("(sass)", (event, [], "")), GLib.VariantType("()"),
-                             Gio.DBusCallFlags.NONE, 1500, None)
         if owner() != registered_owner or not live.is_set():
             raise RuntimeError("реестр at-spi сменился во время подписки")
     except Exception:
         close()
         raise
 
-    return _FocusWatch(query_connection, live, close)
+    return _FocusWatch(query_connection, live, close, set_scope)
 
 
 class _DbusTree:
@@ -626,17 +699,28 @@ class _DbusTree:
         from gi.repository import Gio, GLib
 
         self._conn, self._Gio, self._GLib = conn, Gio, GLib
+        self._before_write: Callable[[], bool] | None = None
 
     def _call(self, node, iface: str, method: str, arg, sig: str):
         GLib, Gio = self._GLib, self._Gio
         try:
+            reply_type = GLib.VariantType(sig)
+            if (iface == "org.a11y.atspi.EditableText"
+                    and method in {"InsertText", "DeleteText"}
+                    and self._before_write is not None and not self._before_write()):
+                return None
+            # После авторизации запрос считается in-flight; lock не держится во время D-Bus.
             return self._conn.call_sync(node[0], node[1], iface, method, arg,
-                                        GLib.VariantType(sig), Gio.DBusCallFlags.NONE, 400,
+                                        reply_type, Gio.DBusCallFlags.NONE, 400,
                                         None).unpack()
         except GLib.Error:
             return None
 
     def children(self, node):
+        # Qt выделяет память для всего GetChildren до применения бюджета обхода.
+        count = self._property(node, ACC, "ChildCount")
+        if type(count) is not int or not 0 <= count <= MAX_NODES:
+            return None
         kids = self._call(node, ACC, "GetChildren", None, "(a(so))")
         return [(n, p) for n, p in kids[0] if n and p
                 and p != "/org/a11y/atspi/null"] if kids else None
@@ -868,22 +952,57 @@ def _selection_ready(expected, valid, limit):
             and expected.protection(now) is False and valid() is True)
 
 
-def _read_selection(tree, expected, valid, limit) -> TextSelection | None:
+def _verify_direct_field(tree, expected: FocusSnapshot, context: ShellContext) -> bool:
+    """Один проход проверки известного поля без повторного полного обхода."""
+    field = expected.field
+    if field is None:
+        return False
+    state = tree.state(field)
+    if (not state or _state_bit(state, DEFUNCT)
+            or not _state_bit(state, FOCUSED)
+            or not _state_bit(state, EDITABLE)):
+        return False
+    role = tree.role(field)
+    if type(role) is not int or role in PROTECTED_ROLES:
+        return False
+    if TEXT not in (tree.interfaces(field) or ()):
+        return False
+    input_type = tree.input_type(field)
+    if input_type is None or input_type == "password":
+        return False
+    if tree.app_of(field) != expected.app:
+        return False
+    if context.pid > 0:
+        pid = tree.pid(field)
+        if type(pid) is not int or not _same_application(pid, context.pid):
+            return False
+    caret = tree.caret(field)
+    return type(caret) is int and caret >= 0
+
+
+def _read_selection(tree, expected, valid, limit, *,
+                    direct: bool = False, context_provider=None) -> TextSelection | None:
     try:
         if not _selection_ready(expected, valid, limit):
             return None
-        context = query_shell_context()
+        get_context = (context_provider if context_provider is not None
+                       else lambda: query_shell_context())
+        context = get_context()
         if (context is None or context.protected()
                 or context.app_ids != expected.app_ids):
             return None
 
         def same_focus():
             if (not _selection_ready(expected, valid, limit)
-                    or query_shell_context() != context):
+                    or get_context() != context):
                 return False
+            if direct:
+                return (_verify_direct_field(tree, expected, context)
+                        and get_context() == context
+                        and _selection_ready(expected, valid, limit))
             snap = find_focus(tree, ROOT, context.pid)
             return (snap.app == expected.app and snap.field == expected.field
-                    and snap.password is False and query_shell_context() == context
+                    and snap.password is False and get_context() == context
                     and _selection_ready(expected, valid, limit))
 
         def metadata():
@@ -955,6 +1074,13 @@ def bridge_available() -> tuple[bool, str]:
         from gi.repository import Gio, GLib
 
         bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        enabled = bus.call_sync(
+            "org.a11y.Bus", "/org/a11y/bus", "org.freedesktop.DBus.Properties", "Get",
+            GLib.Variant("(ss)", ("org.a11y.Status", "IsEnabled")),
+            GLib.VariantType("(v)"), Gio.DBusCallFlags.NONE, 1500, None).unpack()[0]
+        if enabled is not True:
+            return False, _("AT-SPI is disabled (IsEnabled=false); restart WaySwitch "
+                            "to enable application accessibility")
         res = bus.call_sync("org.a11y.Bus", "/org/a11y/bus", "org.a11y.Bus", "GetAddress",
                             None, GLib.VariantType("(s)"), Gio.DBusCallFlags.NONE,
                             1500, None)

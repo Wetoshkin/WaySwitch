@@ -17,11 +17,23 @@ class _GLibError(Exception):
 
 
 class Session:
-    def __init__(self, address_error=None):
+    def __init__(self, address_error=None, enabled=True):
         self.address_error = address_error
         self.closed = 0
+        self.enabled = enabled
+        self.status_writes = []
 
     def call_sync(self, bus, path, iface, method, *_args):
+        if iface == "org.freedesktop.DBus.Properties":
+            assert (bus, path) == ("org.a11y.Bus", "/org/a11y/bus")
+            if method == "Get":
+                assert _args[0] == ("(ss)", ("org.a11y.Status", "IsEnabled"))
+                return SimpleNamespace(unpack=lambda: (self.enabled,))
+            assert method == "Set"
+            assert _args[0] == ("(ssv)", ("org.a11y.Status", "IsEnabled", ("b", True)))
+            self.enabled = True
+            self.status_writes.append(True)
+            return None
         assert (bus, path, iface, method) == (
             "org.a11y.Bus", "/org/a11y/bus", "org.a11y.Bus", "GetAddress")
         if self.address_error is not None:
@@ -142,4 +154,31 @@ def test_failure_before_private_connection_is_assigned_is_preserved(bridge, call
         with pytest.raises(ProviderError, match="session bus failure"):
             call()
     assert bridge.connections == []
+    assert bridge.session.closed == 0
+
+
+def test_observer_connection_enables_runtime_accessibility(bridge):
+    bridge.session.enabled = False
+    connection = PrivateConnection()
+    bridge.connections.append(connection)
+    assert a11y._new_a11y_connection(enable=True) is connection
+    assert bridge.session.status_writes == [True]
+    assert bridge.session.enabled is True
+    assert bridge.session.closed == 0
+
+
+def test_readonly_connection_does_not_enable_runtime_accessibility(bridge):
+    bridge.session.enabled = False
+    bridge.connections.append(PrivateConnection())
+    a11y._new_a11y_connection()
+    assert not bridge.session.status_writes
+    assert bridge.session.enabled is False
+
+
+def test_bridge_reports_disabled_runtime_despite_registered_gtk_app(bridge):
+    bridge.session.enabled = False
+    bridge.connections.append(PrivateConnection(names=("GTK editor",)))
+    ok, detail = a11y.bridge_available()
+    assert not ok and "IsEnabled" in detail
+    assert not bridge.session.status_writes
     assert bridge.session.closed == 0

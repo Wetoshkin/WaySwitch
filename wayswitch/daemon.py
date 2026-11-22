@@ -38,6 +38,14 @@ def _close_probe(probe) -> None:
         pass
 
 
+def _close_worker(worker) -> None:
+    """Ограниченно завершить постоянный AT-SPI worker при выходе."""
+    try:
+        worker.close()
+    except Exception:  # noqa: BLE001 — выход уже идёт, ошибку worker игнорируем
+        pass
+
+
 def _open_uinput() -> UInputTypist:
     waiting = False
     while True:
@@ -87,11 +95,6 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         # Расширения нет: печатаем сканкодами через uinput. Раскладку
         # переключает композитор, паузу после переключения ждёт wait_applied.
         log.info("печать символов: uinput (бэкенд %s)", backend.name)
-        if backend.name == "kde":
-            from wayswitch.editable import try_replace_kde
-
-            # Только KDE: нативный span-протокол для Writer через AT-SPI.
-            typist.replace_span = try_replace_kde
         typist_for_controller = typist
     elif backend.name == "shell":
         from wayswitch.backends.gnome_shell import make_typist
@@ -127,8 +130,19 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     if set(models) != {"ru", "en"}:
         log.warning("не найдена пара русской и английской раскладок; исправления недоступны")
         backend.supports_auto = False
+    try:
+        masks = cfgmod.load_exception_masks()
+    except cfgmod.ConfigError as exc:
+        log.warning("маски исключений не загружены: %s", exc)
+        masks = cfgmod.ExceptionRules()
     detector = Detector(keymap, models, cfgmod.load_exceptions(),
                         SENSITIVITY[config.general.sensitivity])
+    if hasattr(detector, "masks"):
+        detector.masks = masks
+    if hasattr(detector, "_defer_typo_build"):
+        detector._defer_typo_build = True
+    if config.general.typo_fix:
+        threading.Thread(target=detector.ensure_typo_index, daemon=True).start()
 
     ctx = GLib.MainContext.default()
 
@@ -168,6 +182,10 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     # историю окна. Подписка нужна до запуска приложений, в том числе после простоя.
     probe = cfgmod_a11y.make_probe(enabled=True)
     probe.poke()
+    from wayswitch.atspi_worker import AtspiWorker
+
+    worker = AtspiWorker(main_pump=pump, shell_backend=backend if
+                         getattr(backend, "supports_native_replace", False) else None)
 
     last_beep = [0.0]
 
@@ -189,6 +207,7 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
                 target=ensure_and_play, args=(cfgmod.config_dir(),), daemon=True).start()
     cosmic_session = detect_desktop() == COSMIC or backend.name == COSMIC
     native_input_guard = backend.input_locked if backend.name == "umbriel" else None
+    native_replacer = worker.replace_span if backend.name in ("kde", "shell") else None
     controller = Controller(
         config, keymap, detector, backend, typist_for_controller, pump=pump, dry_run=dry_run,
         screen_locked=lambda: guard.input_locked()
@@ -207,6 +226,10 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         # пока его колбэк не вернулся, события той же клавиатуры (отпускание
         # клавиш, прерывающее нажатие) не доставляются. См. Controller.__init__.
         schedule=lambda fn: GLib.idle_add(lambda: (fn(), False)[1]),
+        native_replacer=native_replacer,
+        deferred_native_replacer=(worker.replace_deferred_field if backend.name == "shell"
+                                  else native_replacer),
+        selection_reader=worker.read_selection,
     )
     backend.on_change(controller.on_layout_changed)
 
@@ -223,6 +246,7 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
     if not any(kind == "keyboard" for _, _, kind in watcher.devices()):
         log.error("ни одной клавиатуры не открыто (права на /dev/input?)")
         watcher.stop()
+        _close_worker(worker)
         _close_probe(probe)
         backend.close()
         typist.close()
@@ -244,6 +268,12 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
             controller.reload_config(new_config)
             detector.exceptions.clear()
             detector.exceptions.update(cfgmod.load_exceptions())
+            try:
+                detector.masks = cfgmod.load_exception_masks()
+            except cfgmod.ConfigError as exc:
+                log.warning("маски исключений не перечитаны: %s", exc)
+            if new_config.general.typo_fix and not detector.typo_ready():
+                threading.Thread(target=detector.ensure_typo_index, daemon=True).start()
             log.info("конфиг перечитан")
             if new_config.typing.settle_ms != previous_settle:
                 # Бэкенд получает задержку в конструкторе; остальные настройки
@@ -279,6 +309,7 @@ def run(config_path: Path | None, verbose: bool, dry_run: bool) -> int:
         loop.run()
     finally:
         # close() не ждёт поток: главный цикл не должен блокироваться на опросе.
+        _close_worker(worker)
         _close_probe(probe)
         watcher.stop()
         backend.close()

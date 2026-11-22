@@ -225,6 +225,9 @@ class Preferences:
         for key, title, subtitle in (
                 ("short_words_fix", _("Short words (1–2 letters)"),
                  _("May replace abbreviations. Off by default.")),
+                ("typo_fix", _("Fix typos (experimental)"),
+                 _("Fixes missing, extra or swapped letters in words of 5+ characters; "
+                   "false replacements are possible.")),
                 ("punct_fix", _("Punctuation"), "пирогб → пирог,   домю → дом."),
                 ("particles_fix", _("Joined particles"),
                  "чтото → что-то,   кембы → кем бы"),
@@ -235,10 +238,11 @@ class Preferences:
                 ("early_switch", _("Switch at the start of a word"),
                  _("ghbd → прив in Writer/Calc; when retyping with keys — after Space")),
                 ("skip_password_fields", _("Password and terminal protection"),
-                 _("When enabled, blocks auto-correction in all terminals and may block "
-                   "it in MAX and other apps whose input fields cannot be verified. "
-                   "The manual gesture remains available. Off by default for new "
-                   "installations."))):
+                 _("Important: protection depends on the information each app provides "
+                   "about its input fields. It may block auto-correction even in ordinary "
+                   "text fields; in terminals, auto-correction is always blocked. The "
+                   "manual gesture remains available. If an app does not identify a "
+                   "password field, protection may not recognize it. Off by default."))):
             row = Adw.SwitchRow(title=title, subtitle=subtitle)
             row.connect("notify::active", lambda r, _p, k=key: self._set(
                 "general", k, r.get_active()))
@@ -418,7 +422,7 @@ class Preferences:
     # --- страница «Исключения» --------------------------------------------------
 
     def _page_exceptions(self):
-        from gi.repository import Adw
+        from gi.repository import Adw, Gtk
 
         page = Adw.PreferencesPage(title=_("Exceptions"),
                                    icon_name="action-unavailable-symbolic")
@@ -432,6 +436,20 @@ class Preferences:
         words.add(self.words_box)
         page.add(words)
 
+        masks = Adw.PreferencesGroup(
+            title=_("Exception masks"),
+            description=_("Rules by exact match, prefix or substring (without regex)."))
+        self.masks_box = boxed_list()
+        self.mask_kind_row = Adw.ComboRow(
+            title=_("Mask type"),
+            model=Gtk.StringList.new([_("Exact"), _("Prefix"), _("Contains")]),
+            selected=1)
+        self.mask_case_row = Adw.SwitchRow(title=_("Case-sensitive"))
+        self.entry_mask = Adw.EntryRow(title=_("Add a mask"), show_apply_button=True)
+        self.entry_mask.connect("apply", lambda *_: self._add_mask())
+        masks.add(self.masks_box)
+        page.add(masks)
+
         apps = Adw.PreferencesGroup(title=_("Applications"),
                                     description=_("WaySwitch does not correct anything "
                                                   "in these applications."))
@@ -441,6 +459,7 @@ class Preferences:
         apps.add(self.apps_box)
         page.add(apps)
         self._render_words()
+        self._render_masks()
         self._render_apps()
         return page
 
@@ -480,6 +499,63 @@ class Preferences:
             self.proxy.call("Reload")
 
         self.toast(_("Word “{word}” removed").format(word=word), _("Undo"), undo)
+
+    def _render_masks(self) -> None:
+        from gi.repository import Adw
+
+        for widget in (self.mask_kind_row, self.mask_case_row, self.entry_mask):
+            if widget.get_parent() is not None:
+                self.masks_box.remove(widget)
+        clear_list(self.masks_box)
+        self.masks_box.append(self.mask_kind_row)
+        self.masks_box.append(self.mask_case_row)
+        self.masks_box.append(self.entry_mask)
+        try:
+            rules = cfgmod.load_exception_masks()
+        except cfgmod.ConfigError as exc:
+            self.toast(str(exc))
+            return
+        labels = {"exact": _("Exact"), "prefix": _("Prefix"), "contains": _("Contains")}
+        for mask in rules.rules:
+            subtitle = labels[mask.kind]
+            if mask.case_sensitive:
+                subtitle += f" · {_('Case-sensitive')}"
+            row = Adw.ActionRow(title=mask.pattern, subtitle=subtitle, use_markup=False)
+            row.add_css_class("ws-mono")
+            row.add_suffix(flat_icon_button(
+                "user-trash-symbolic", _("Remove mask"),
+                lambda m=mask: self._remove_mask(m)))
+            self.masks_box.append(row)
+
+    def _add_mask(self) -> None:
+        kind_idx = self.mask_kind_row.get_selected()
+        kind = cfgmod.MASK_KINDS[kind_idx if 0 <= kind_idx < len(cfgmod.MASK_KINDS) else 1]
+        case_sensitive = self.mask_case_row.get_active()
+        pattern = self.entry_mask.get_text().strip()
+        try:
+            mask = cfgmod.validate_exception_mask(kind, pattern, case_sensitive)
+            if (mask.kind == "exact" and not mask.case_sensitive
+                    and mask.pattern in cfgmod.load_exceptions()):
+                self.toast(_("This word is already in exact exceptions"))
+                return
+            cfgmod.add_exception_mask(mask)
+        except cfgmod.ConfigError as exc:
+            self.toast(str(exc))
+            return
+        if mask.kind in ("prefix", "contains") and len(mask.pattern) < 3:
+            self.toast(_("Short mask may disable many corrections"))
+        self.entry_mask.set_text("")
+        self._render_masks()
+        self.proxy.call("Reload")
+
+    def _remove_mask(self, mask: cfgmod.ExceptionMask) -> None:
+        try:
+            cfgmod.remove_exception_mask(mask)
+        except cfgmod.ConfigError as exc:
+            self.toast(str(exc))
+            return
+        self._render_masks()
+        self.proxy.call("Reload")
 
     def _render_apps(self) -> None:
         from gi.repository import Gtk
