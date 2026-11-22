@@ -595,6 +595,8 @@ class UInputTypist:
     """Виртуальная клавиатура через /dev/uinput."""
 
     NAME = "WaySwitch Virtual Keyboard"
+    VENDOR = 0x0FAC
+    PRODUCT = 0x1
 
     def __init__(self):
         from evdev import UInput, ecodes  # импорт здесь: модуль есть только на Linux
@@ -604,7 +606,7 @@ class UInputTypist:
         try:
             # keyd >=2.6 skips its own virtual-device vendor before wildcard match.
             self._ui = UInput({ecodes.EV_KEY: list(range(1, 128))}, name=self.NAME,
-                              vendor=0x0FAC, product=0x1)
+                              vendor=self.VENDOR, product=self.PRODUCT)
         except UInputError as exc:
             # Проверка доступа evdev выбрасывает Exception, а не OSError.
             raise OSError(str(exc)) from exc

@@ -246,7 +246,8 @@ def _devices() -> int:
         except PermissionError:
             print(_("{path:<20} (access denied)").format(path=path))
             continue
-        kind = classify(dev.name, set(dev.capabilities().get(ecodes.EV_KEY, [])))
+        kind = classify(dev.name, set(dev.capabilities().get(ecodes.EV_KEY, [])),
+                        vendor=dev.info.vendor, product=dev.info.product)
         print(f"{path:<20} {dev.name:<45} {kind or ''}")
         dev.close()
     return 0
