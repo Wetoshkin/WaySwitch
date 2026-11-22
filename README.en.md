@@ -43,6 +43,11 @@ locale; correction supports the Russian ↔ English pair.
   <img src=".github/assets/how-en.png" alt="Type руддщ, press Space, get hello" width="100%">
 </p>
 
+
+> **Upgrading to 1.2.3 on GNOME:** sign out of the graphical session and
+> sign back in after installation. The updated extension uses protocol 5;
+> restarting only the WaySwitch service does not reload GNOME Shell code.
+
 ## Features
 
 - **Fix on Space.** `ghbdtn ` becomes `привет `, and the layout switches too.
@@ -560,7 +565,7 @@ to the shortcut counter. LibreOffice and some Flatpak applications still have
 known limitations: [LibreOffice and selection](https://github.com/Wetoshkin/WaySwitch/issues/18),
 [Firefox, Telegram and ONLYOFFICE on Bazzite](https://github.com/Wetoshkin/WaySwitch/issues/19).
 
-## Prepared selection actions (not released)
+## Selection actions and the pause key
 
 `wayswitch change-case` cycles a confirmed selection through lower case, upper
 case and word capitals. It uses default Unicode casing, preserves combining
@@ -596,7 +601,7 @@ Saving an older config uses schema 4 and preserves its exact contents in
 `config.toml.before-schema-4`. Existing `.before-schema-2` and `.before-schema-3`
 backups remain. To return to 1.2.2, restore the original configuration from
 `.before-schema-4`. New installations have no earlier
-config to back up. The installed release is unchanged until a separate release.
+config to back up. Upgrade using the package or installer for the selected published release.
 
 ## Development
 

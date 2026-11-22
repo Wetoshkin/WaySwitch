@@ -21,6 +21,7 @@ jobs:
           node --input-type=module --check < extension/wayswitch@wetoshkin.github.io/extension.js
           node tests/test_extension_focus.cjs
           node tests/test_extension_typing.cjs
+          node tests/test_extension_replacement.cjs
       - name: Версии совпадают с тегом
         # Тег обязан совпадать с версией в pyproject.toml и PKGBUILD
         # (v2.0.0a2 ↔ 2.0.0a2), иначе пакеты получат чужой номер версии.
