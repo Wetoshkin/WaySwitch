@@ -229,3 +229,28 @@ def test_terminal_transaction_reports_result_without_fake_rollback(
         assert "failed or was cancelled" in result.stdout
         assert "no rollback is promised" in result.stdout
         assert "doctor-called" not in result.stdout
+
+
+@pytest.mark.parametrize("candidate,gui,want", [
+    ("1:1.2.3~a1", "1.2.3a1", True),
+    ("1:1.2.3~b2-1", "1.2.3b2", True),
+    ("1.2.3~rc1-2", "1.2.3rc1", True),
+    ("1:1.2.3a1-1", "1.2.3a1", True),
+    ("1.2.3a1", "1.2.3a1", True),
+    ("1.2.3~a2", "1.2.3a1", False),
+    ("1.2.3~b1", "1.2.3a1", False),
+    ("1.2.3~rc1", "1.2.3", False),
+    ("1.2.3-1", "1.2.3a1", False),
+    ("1.2.3a1-1", "1.2.3", False),
+])
+def test_prerelease_package_compatibility_is_exact(candidate, gui, want):
+    assert companion.compatible(candidate, gui) is want
+
+
+def test_matching_debian_prerelease_allows_pinned_installation():
+    info = companion.check(
+        "1.2.3a1", env={}, os_release={"ID": "ubuntu"}, atomic=False,
+        which=lambda name: None if name == "wayswitch" else "/usr/bin/" + name,
+        run=lambda argv: subprocess.CompletedProcess(argv, 0, "Candidate: 1:1.2.3~a1-2\n", ""))
+    assert info.automatic
+    assert info.command == "sudo apt-get install -- wayswitch=1:1.2.3~a1-2"

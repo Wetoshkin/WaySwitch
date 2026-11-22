@@ -9,8 +9,10 @@ from __future__ import annotations
 import os
 import tempfile
 import tomllib
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
+from typing import NamedTuple
 
 from wayswitch.i18n import gettext as _
 from wayswitch.keycodes import GESTURE_KEY_NAMES, KEY_NAMES
@@ -38,6 +40,7 @@ class General:
     auto_correct: bool = True
     sensitivity: str = "normal"
     short_words_fix: bool = False
+    typo_fix: bool = False
     phrase_timeout_sec: float = 8.0
     undo_window_sec: float = 5.0
     # Пауза автоисправления после Backspace/стрелок/Delete и после ручной смены
@@ -98,7 +101,7 @@ class Gesture:
 
 OLD_SETTLE_MS = 30  # умолчание до 2.0.0a2
 # Маркер позволяет старым читателям отклонить будущий формат без перезаписи файла.
-CONFIG_SCHEMA = 3
+CONFIG_SCHEMA = 4
 _SCHEMA_SECTION = "meta"
 _SCHEMA_KEY = "schema"
 
@@ -145,6 +148,10 @@ def default_path() -> Path:
 
 def exceptions_path() -> Path:
     return config_dir() / "exceptions.txt"
+
+
+def exceptions_masks_path() -> Path:
+    return config_dir() / "exceptions_masks.txt"
 
 
 def apps_path() -> Path:
@@ -468,3 +475,175 @@ def remove_exception(word: str, path: Path | None = None) -> None:
     words = load_exceptions(path)
     words.discard(word.strip().lower())
     _write_exceptions(words, path)
+
+
+MASK_KINDS = ("exact", "prefix", "contains")
+MAX_MASK_RULES = 1000
+MAX_MASK_BYTES = 64 * 1024
+_MASK_FORBIDDEN_CHARS = frozenset("*?[]()|\\")
+
+
+class ExceptionMask(NamedTuple):
+    kind: str
+    pattern: str
+    case_sensitive: bool = False
+
+
+def validate_exception_mask(kind: str, pattern: str,
+                            case_sensitive: bool = False) -> ExceptionMask:
+    if kind not in MASK_KINDS:
+        raise ConfigError(_("Unknown exception mask type"))
+    if not isinstance(pattern, str) or not pattern or pattern != pattern.strip():
+        raise ConfigError(_("Mask pattern must not be empty or have leading/trailing spaces"))
+    min_len = 1 if kind == "exact" else 2
+    if not min_len <= len(pattern) <= 64:
+        raise ConfigError(_("Invalid exception mask length"))
+    if any(ord(ch) < 32 or ord(ch) == 127 or ch in _MASK_FORBIDDEN_CHARS for ch in pattern):
+        raise ConfigError(_("Mask pattern contains invalid or regex characters"))
+    normalized = pattern if case_sensitive else pattern.lower()
+    return ExceptionMask(kind, normalized, bool(case_sensitive))
+
+
+class ExceptionRules:
+    """Маски исключений exact / prefix / contains с опциональным учётом регистра."""
+
+    def __init__(self, rules: Iterable[ExceptionMask] = ()):
+        dedup: list[ExceptionMask] = []
+        seen: set[ExceptionMask] = set()
+        for rule in rules:
+            if rule not in seen:
+                seen.add(rule)
+                dedup.append(rule)
+        self.rules: tuple[ExceptionMask, ...] = tuple(dedup)
+        self.exact_case = frozenset(
+            r.pattern for r in self.rules if r.kind == "exact" and r.case_sensitive)
+        self.exact = frozenset(
+            r.pattern for r in self.rules if r.kind == "exact" and not r.case_sensitive)
+        self.prefixes_case = tuple(
+            r.pattern for r in self.rules if r.kind == "prefix" and r.case_sensitive)
+        self.prefixes = tuple(
+            r.pattern for r in self.rules if r.kind == "prefix" and not r.case_sensitive)
+        self.contains_case = tuple(
+            r.pattern for r in self.rules if r.kind == "contains" and r.case_sensitive)
+        self.contains = tuple(
+            r.pattern for r in self.rules if r.kind == "contains" and not r.case_sensitive)
+
+    def __bool__(self) -> bool:
+        return bool(self.rules)
+
+    def __eq__(self, other) -> bool:
+        return isinstance(other, ExceptionRules) and self.rules == other.rules
+
+    def reason(self, word: str) -> str | None:
+        if not self.rules or not word:
+            return None
+        low = word.lower()
+        if word in self.exact_case or low in self.exact:
+            return "exact"
+        if (any(word.startswith(p) for p in self.prefixes_case)
+                or any(low.startswith(p) for p in self.prefixes)):
+            return "prefix"
+        if (any(c in word for c in self.contains_case)
+                or any(c in low for c in self.contains)):
+            return "contains"
+        return None
+
+    def matches(self, word: str) -> bool:
+        return self.reason(word) is not None
+
+    def matches_prefix(self, prefix: str, *, conservative_contains: bool = False) -> bool:
+        if not self.rules or not prefix:
+            return False
+        low = prefix.lower()
+        if (any(e.startswith(prefix) for e in self.exact_case)
+                or any(e.startswith(low) for e in self.exact)):
+            return True
+        if (any(p.startswith(prefix) or prefix.startswith(p) for p in self.prefixes_case)
+                or any(p.startswith(low) or low.startswith(p) for p in self.prefixes)):
+            return True
+        if conservative_contains and (self.contains_case or self.contains):
+            return True
+        return (any(c in prefix for c in self.contains_case)
+                or any(c in low for c in self.contains))
+
+
+def load_exception_masks(path: Path | None = None) -> ExceptionRules:
+    """Прочитать exceptions_masks.txt; любая ошибка формата отклоняет весь файл."""
+    path = path or exceptions_masks_path()
+    if not path.exists():
+        return ExceptionRules()
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise ConfigError(_("Could not read exception masks file")) from exc
+    if len(raw) > MAX_MASK_BYTES:
+        raise ConfigError(_("Exception masks file exceeds size limit"))
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ConfigError(_("Exception masks file must be valid UTF-8")) from exc
+    rules: list[ExceptionMask] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        parts = line.rstrip("\r\n").split("\t")
+        if len(parts) not in (2, 3):
+            raise ConfigError(_("Invalid line format in exception masks file"))
+        kind, pattern = parts[0], parts[1]
+        case_sensitive = False
+        if len(parts) == 3:
+            if parts[2] != "case":
+                raise ConfigError(_("Invalid case flag in exception masks file"))
+            case_sensitive = True
+        rules.append(validate_exception_mask(kind, pattern, case_sensitive))
+        if len(rules) > MAX_MASK_RULES:
+            raise ConfigError(_("Too many exception mask rules"))
+    return ExceptionRules(rules)
+
+
+def save_exception_masks(rules: ExceptionRules | Iterable[ExceptionMask],
+                         path: Path | None = None) -> None:
+    path = path or exceptions_masks_path()
+    items = list(rules.rules if isinstance(rules, ExceptionRules) else rules)
+    if len(items) > MAX_MASK_RULES:
+        raise ConfigError(_("Too many exception mask rules"))
+    validated = [validate_exception_mask(r.kind, r.pattern, r.case_sensitive) for r in items]
+    lines = ["# type\tpattern[\tcase]"]
+    for rule in validated:
+        row = f"{rule.kind}\t{rule.pattern}"
+        if rule.case_sensitive:
+            row += "\tcase"
+        lines.append(row)
+    payload = "\n".join(lines) + "\n"
+    raw = payload.encode("utf-8")
+    if len(raw) > MAX_MASK_BYTES:
+        raise ConfigError(_("Exception masks file exceeds size limit"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=".masks-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(tmp_name, path)
+    finally:
+        if os.path.exists(tmp_name):
+            os.unlink(tmp_name)
+
+
+def add_exception_mask(mask: ExceptionMask, path: Path | None = None) -> ExceptionRules:
+    path = path or exceptions_masks_path()
+    validated = validate_exception_mask(mask.kind, mask.pattern, mask.case_sensitive)
+    current = load_exception_masks(path)
+    updated = ExceptionRules((*current.rules, validated))
+    save_exception_masks(updated, path)
+    return updated
+
+
+def remove_exception_mask(mask: ExceptionMask, path: Path | None = None) -> ExceptionRules:
+    path = path or exceptions_masks_path()
+    current = load_exception_masks(path)
+    updated = ExceptionRules(r for r in current.rules if r != mask)
+    save_exception_masks(updated, path)
+    return updated

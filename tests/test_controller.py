@@ -484,10 +484,10 @@ def test_early_url_trigger(env):
     probe = LateFieldProbe(env["clock"])
     probe.confirmed = True
     env["ctrl"].set_probe(probe)
-    env["ctrl"].typist = env["typist"] = NativeTypist()
+    env["ctrl"].native_replacer = RecordingReplacer()
     env["backend"].current_index = RU
     type_text(env, "реезыЖ..")
-    assert env["typist"].native == [("реезыЖ..", "https://")]
+    assert env["ctrl"].native_replacer.native == [("реезыЖ..", "https://")]
     assert not env["typist"].taps()
     assert env["backend"].current() == US
 
@@ -846,9 +846,9 @@ def start_held_early_url_fix(env):
     ctrl = env["ctrl"]
     probe = LateFieldProbe(env["clock"])
     probe.confirmed = True
-    native = NativeTypist()
+    native = RecordingReplacer()
     ctrl.set_probe(probe)
-    ctrl.typist = env["typist"] = native
+    ctrl.native_replacer = native
     env["backend"].current_index = RU
     queue = deferred(env)
     for ch in "реезыЖ..":
@@ -954,13 +954,14 @@ def test_scheduled_early_url_and_manual_fixes_are_deferred_too(env):
     probe = LateFieldProbe(env["clock"])
     probe.confirmed = True
     env["ctrl"].set_probe(probe)
-    env["ctrl"].typist = env["typist"] = NativeTypist()
+    env["ctrl"].native_replacer = RecordingReplacer()
     queue = deferred(env)
     env["backend"].current_index = RU
     type_text(env, "реезыЖ..")
-    assert env["typist"].native == [] and len(queue) == 1
+    assert env["ctrl"].native_replacer.native == [] and len(queue) == 1
     drain(queue)
-    assert env["typist"].native == [("реезыЖ..", "https://")]
+    assert env["ctrl"].native_replacer.native == [("реезыЖ..", "https://")]
+    env["ctrl"].native_replacer = None
     env["ctrl"].typist = env["typist"] = RecordingTypist()
     env["backend"].current_index = US
     env["ctrl"].buffer.reset()
@@ -1605,12 +1606,11 @@ class AppearingProbe(SafeProbe):
         pass
 
 
-class NativeTypist(RecordingTypist):
+class RecordingReplacer:
     def __init__(self):
-        super().__init__()
         self.native = []
 
-    def replace_span(self, focus, source, target, begin, stop):
+    def __call__(self, focus, source, target, begin, stop):
         if not begin():
             return None
         from wayswitch.editable import SpanResult
@@ -1625,14 +1625,14 @@ def test_third_shift_after_second_tap_uses_screen_source_for_native_span(env):
     источник, а не декодирование всей фразы в одной группе."""
     probe = LateFieldProbe(env["clock"])
     probe.confirmed = True
-    native = NativeTypist()
+    replacer = RecordingReplacer()
     ctrl = env["ctrl"]
     ctrl.set_probe(probe)
-    ctrl.typist = env["typist"] = native
+    ctrl.native_replacer = replacer
     ctrl.config.general.auto_correct = False
     type_text(env, "ghbdtn vbh")
     double_shift(env, times=3)
-    assert native.native[-1] == ("ghbdtn мир", "привет мир")
+    assert replacer.native[-1] == ("ghbdtn мир", "привет мир")
     assert env["backend"].current() == RU
     assert env["km"].decode(ctrl.buffer.phrase(), RU) == "привет мир"
 
@@ -1640,15 +1640,15 @@ def test_third_shift_after_second_tap_uses_screen_source_for_native_span(env):
 def test_direct_typing_keeps_buffer_and_uses_verified_span(env):
     require_focus_guard(env)
     probe = AppearingProbe(env["clock"])
-    native = NativeTypist()
+    replacer = RecordingReplacer()
     ctrl = env["ctrl"]
     ctrl.set_probe(probe)
-    ctrl.typist = env["typist"] = native
+    ctrl.native_replacer = replacer
     type_text(env, "g")  # поле ещё не подтверждено
     probe.visible = True
     type_text(env, "hbdtn ")
-    assert native.native == [("ghbdtn ", "привет ")]
-    assert native.taps() == []
+    assert replacer.native == [("ghbdtn ", "привет ")]
+    assert env["typist"].taps() == []
     assert env["corrected"] == [("ghbdtn", "привет", False)]
 
 
@@ -1683,15 +1683,15 @@ class TwoFieldsProbe(SafeProbe):
 
 def test_recreated_field_keeps_buffer_and_uses_verified_span(env):
     probe = TwoFieldsProbe(env["clock"])
-    native = NativeTypist()
+    native = RecordingReplacer()
     ctrl = env["ctrl"]
     ctrl.set_probe(probe)
-    ctrl.typist = env["typist"] = native
+    ctrl.native_replacer = native
     type_text(env, "g")  # поле A
     probe.second = True  # редактор пересоздан: field B
     type_text(env, "hbdtn ")
     assert native.native == [("ghbdtn ", "привет ")]
-    assert native.taps() == []
+    assert env["typist"].taps() == []
     assert env["corrected"] == [("ghbdtn", "привет", False)]
 
 
@@ -1708,14 +1708,14 @@ def test_recreated_field_with_shell_identity_uses_verified_span(env, guarded, ap
     if guarded:
         require_focus_guard(env)
     probe = IdentifiedProbe(env["clock"])
-    native = NativeTypist()
+    native = RecordingReplacer()
     env["ctrl"].set_probe(probe)
-    env["ctrl"].typist = env["typist"] = native
+    env["ctrl"].native_replacer = native
     type_text(env, "g")
     probe.second = True
     type_text(env, "hbdtn ")
     assert native.native == [("ghbdtn ", "привет ")]
-    assert native.taps() == []
+    assert env["typist"].taps() == []
     assert env["corrected"] == [("ghbdtn", "привет", False)]
 
 
@@ -1756,10 +1756,10 @@ class GenerationProbe(SafeProbe):
 def test_generation_bump_during_typing_keeps_buffer_and_uses_verified_span(env):
     require_focus_guard(env)
     probe = GenerationProbe(env["clock"])
-    native = NativeTypist()
+    native = RecordingReplacer()
     ctrl = env["ctrl"]
     ctrl.set_probe(probe)
-    ctrl.typist = env["typist"] = native
+    ctrl.native_replacer = native
     type_text(env, "g")
     probe.bump()
     type_text(env, "hbdtn")
@@ -1767,7 +1767,7 @@ def test_generation_bump_during_typing_keeps_buffer_and_uses_verified_span(env):
     probe.bump()
     type_text(env, " ")
     assert native.native == [("ghbdtn ", "привет ")]
-    assert native.taps() == []
+    assert env["typist"].taps() == []
     assert env["corrected"] == [("ghbdtn", "привет", False)]
 
 
@@ -1814,10 +1814,10 @@ class LateFieldProbe(SafeProbe):
 def test_late_field_is_bound_before_verified_span(env):
     require_focus_guard(env)
     probe = LateFieldProbe(env["clock"])
-    native = NativeTypist()
+    native = RecordingReplacer()
     ctrl = env["ctrl"]
     ctrl.set_probe(probe)
-    ctrl.typist = env["typist"] = native
+    ctrl.native_replacer = native
     ctrl.pump = probe.show
     type_text(env, "g")
     probe.bump()
@@ -1856,7 +1856,7 @@ def test_aborted_provisional_buffer_cannot_be_retyped(env, action):
 def test_verified_focus_wait_honors_cancellation(env, event):
     require_focus_guard(env)
     probe = LateFieldProbe(env["clock"])
-    native = NativeTypist()
+    native = RecordingReplacer()
     ctrl = env["ctrl"]
     ctrl.set_probe(probe)
     ctrl.typist = native
@@ -1876,7 +1876,7 @@ def test_verified_focus_wait_honors_cancellation(env, event):
     probe.bump()
     type_text(env, "hbdtn ")
     assert not native.native
-    assert not native.taps()
+    assert not env["typist"].taps()
     assert not env["corrected"]
 
 
@@ -1889,7 +1889,7 @@ def test_partial_word_never_crosses_writer_windows(env):
                 window=("B" if self.second else "A") + " — LibreOffice Writer")
 
     probe = WindowsProbe(env["clock"])
-    native = NativeTypist()
+    native = RecordingReplacer()
     env["ctrl"].set_probe(probe)
     env["ctrl"].typist = native
     type_text(env, "g")
@@ -1924,7 +1924,7 @@ def test_phrase_expiring_during_layout_ack_never_writes_text(env, native):
         probe = LateFieldProbe(env["clock"])
         probe.confirmed = True
         ctrl.set_probe(probe)
-        ctrl.typist = env["typist"] = NativeTypist()
+        ctrl.native_replacer = RecordingReplacer()
     type_text(env, "ghbdtn vbh")
     applied = env["backend"].wait_applied
 
@@ -2010,6 +2010,46 @@ class FieldProbe(SafeProbe):
 
     def bump(self):
         self.generation += 1
+
+
+@pytest.mark.parametrize("change", ["same", "field", "app", "password", "click"])
+@pytest.mark.parametrize("during_wake", [False, True])
+def test_calc_focus_refresh_after_first_key_keeps_only_same_field(env, change, during_wake):
+    from wayswitch.editable import SpanResult
+
+    ctrl = env["ctrl"]
+    ctrl.config.general.skip_password_fields = True
+    env["backend"].name = "kde"
+    probe = FieldProbe(env["clock"], app="soffice.bin", app_ids=(),
+                       window="doc — LibreOffice Calc")
+    ctrl.set_probe(probe)
+    writes = []
+
+    def native(_focus, source, target, commit, _stop):
+        assert commit() is True
+        writes.append((source, target))
+        return SpanResult("done", True)
+
+    ctrl.native_replacer = native
+    code, _ = env["km"].key_for("g", US)
+    ctrl.on_key(code, 1, 1)
+    probe.visible = False
+    probe.bump()
+    ctrl.on_key(code, 0, 1)
+    probe.visible = not during_wake
+    ctrl.pump = lambda: setattr(probe, "visible", True)
+    if change == "field":
+        probe.field = (":1.1", "/other")
+    elif change == "app":
+        probe.app = "other"
+    elif change == "password":
+        snapshot = probe.snapshot
+        probe.snapshot = lambda: snapshot()._replace(password=True)
+    elif change == "click":
+        ctrl.on_click()
+    type_text(env, "hbdtn ")
+    assert writes == ([("ghbdtn ", "привет ")] if change == "same" else [])
+    assert env["typist"].taps() == []
 
 
 def test_unprotected_generation_only_same_field_uses_keyboard(env):
@@ -2117,10 +2157,10 @@ def test_unprotected_late_field_uses_keyboard_span(env):
 
 def test_confirmed_app_ids_change_without_field_does_not_write(env):
     probe = FieldProbe(env["clock"], field=None, app_ids=("editor",))
-    native = NativeTypist()
+    native = RecordingReplacer()
     ctrl = env["ctrl"]
     ctrl.set_probe(probe)
-    ctrl.typist = env["typist"] = native
+    ctrl.native_replacer = native
     type_text(env, "ghbdtn")
     # Поле появилось одновременно со сменой приложения: старый префикс нельзя
     # перепечатывать в новом владельце.
@@ -2134,10 +2174,10 @@ def test_confirmed_app_ids_change_without_field_does_not_write(env):
 
 def test_confirmed_other_field_does_not_write_old_word(env):
     probe = FieldProbe(env["clock"])
-    native = NativeTypist()
+    native = RecordingReplacer()
     ctrl = env["ctrl"]
     ctrl.set_probe(probe)
-    ctrl.typist = env["typist"] = native
+    ctrl.native_replacer = native
     type_text(env, "ghbdtn")
     probe.field = (":1.1", "/other")
     probe.bump()
@@ -2174,6 +2214,145 @@ def test_layout_switch_with_held_modifier_allows_fresh_word(env):
     type_text(env, "ghbdtn ")
     assert ctrl.stats["corrections"] == 1
     assert env["corrected"] == [("ghbdtn", "привет", False)]
+
+
+@pytest.mark.parametrize(("suffix", "converted"), [
+    ("vb", "ми"), ("Vb", "Ми"), ("vbh ", "мир "), ("vbh  ", "мир  "), (" ", " "),
+    ("ghbdtn ", "привет "),
+])
+def test_ordered_native_keeps_first_decision_when_next_word_already_started(env, suffix, converted):
+    ctrl = env["ctrl"]
+    ctrl.set_probe(FieldProbe(env["clock"]))
+    native = RecordingReplacer()
+    ctrl.deferred_native_replacer = native
+    ctrl.native_replacer = native
+    queue = deferred(env)
+    source = "ghbdtn " + suffix
+    target = "привет " + converted
+    type_text(env, source)
+    drain(queue)
+    assert native.native == [(source, target)]
+    assert env["typist"].taps() == []
+    assert env["km"].decode(ctrl.buffer.phrase(), RU) == target
+    assert ctrl.stats["corrections"] == 1
+    assert ctrl.manual_word()
+    drain(queue)
+    assert native.native[-1] == (target, source)
+    assert ctrl.stats["undo"] == 1
+
+
+def test_deferred_first_word_precedes_later_word_decision(env):
+    ctrl = env["ctrl"]
+    ctrl.set_probe(FieldProbe(env["clock"]))
+    native = RecordingReplacer()
+    ctrl.deferred_native_replacer = native
+    queue = deferred(env)
+    timers = []
+    ctrl.schedule_later = lambda delay, run: timers.append((delay, run))
+
+    type_text(env, "ghbdtn ")
+    assert len(timers) == 1
+    type_text(env, "vbh ")
+    drain(queue)
+    assert native.native == []
+    delay, finish = timers.pop()
+    env["clock"].now += delay
+    finish()
+    assert native.native == [("ghbdtn vbh ", "привет мир ")]
+    assert env["typist"].taps() == []
+
+
+def test_deferred_first_word_retries_when_client_text_is_not_ready(env):
+    from wayswitch.editable import SpanResult
+
+    ctrl = env["ctrl"]
+    ctrl.set_probe(FieldProbe(env["clock"]))
+    accepted = RecordingReplacer()
+    attempts = []
+
+    def native(*args):
+        attempts.append(True)
+        return SpanResult("aborted") if len(attempts) == 1 else accepted(*args)
+
+    ctrl.deferred_native_replacer = native
+    deferred(env)
+    timers = []
+    ctrl.schedule_later = lambda delay, run: timers.append((delay, run))
+    type_text(env, "ghbdtn vbh")
+    delay, run = timers.pop(0)
+    env["clock"].now += delay
+    run()
+    assert len(timers) == 1
+    delay, run = timers.pop(0)
+    env["clock"].now += delay
+    run()
+    assert accepted.native == [("ghbdtn vbh", "привет мир")]
+    assert env["typist"].taps() == []
+
+
+def test_first_word_is_retained_during_longer_continuous_typing(env):
+    ctrl = env["ctrl"]
+    ctrl.set_probe(FieldProbe(env["clock"]))
+    native = RecordingReplacer()
+    ctrl.deferred_native_replacer = native
+    deferred(env)
+    timers = []
+    ctrl.schedule_later = lambda delay, run: timers.append((delay, run))
+    type_text(env, "ghbdtn ")
+    _, run = timers.pop(0)
+    env["clock"].now += 0.6
+    type_text(env, "vbh")
+    run()
+    assert len(timers) == 1
+    delay, run = timers.pop(0)
+    env["clock"].now += delay
+    run()
+    assert native.native == [("ghbdtn vbh", "привет мир")]
+
+
+def test_focus_change_without_space_does_not_finish_word(env):
+    ctrl = env["ctrl"]
+    probe = FieldProbe(env["clock"])
+    ctrl.set_probe(probe)
+    native = RecordingReplacer()
+    ctrl.native_replacer = ctrl.deferred_native_replacer = native
+    queue = deferred(env)
+    type_text(env, "ghbdtn")
+    probe.field = (":1.1", "/other")
+    probe.bump()
+    tap(env, kc.KEY_TAB)
+    type_text(env, " ")
+    drain(queue)
+    assert native.native == []
+    assert env["typist"].events == []
+    assert ctrl.stats["corrections"] == 0
+
+@pytest.mark.parametrize("change", ["click", "backspace", "unsupported"])
+def test_ordered_native_never_falls_back_after_deferred_span_changes(env, change):
+    ctrl = env["ctrl"]
+    ctrl.set_probe(FieldProbe(env["clock"]))
+    native = RecordingReplacer()
+    ctrl.deferred_native_replacer = native
+    ctrl.native_replacer = native
+    queue = deferred(env)
+    type_text(env, "ghbdtn ")
+    if change == "click":
+        ctrl.on_click()
+        type_text(env, "ghbdtn v")
+    else:
+        type_text(env, "v")
+        if change == "backspace":
+            tap(env, kc.KEY_BACKSPACE)
+            type_text(env, "v")
+        else:
+            class Unsupported:
+                def __call__(self, *_args):
+                    return None
+
+            ctrl.deferred_native_replacer = Unsupported()
+    queue.pop(0)()
+    assert env["typist"].events == []
+    assert ctrl.stats["corrections"] == 0
 
 
 @pytest.mark.parametrize("modifier", [kc.KEY_LEFTMETA, kc.KEY_LEFTCTRL, kc.KEY_LEFTALT])

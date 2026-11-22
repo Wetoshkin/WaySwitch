@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import gzip
 import math
+import threading
 from bisect import bisect_left
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ from importlib import resources
 from pathlib import Path
 
 from wayswitch import ngram
+from wayswitch.config import ExceptionRules
 from wayswitch.keymap import CYRILLIC, LATIN, Keymap
 
 LANG_OF_ALPHABET = {"ru": "ru", "latin": "en"}
@@ -122,11 +124,17 @@ SENSITIVITY = {
 
 
 class LanguageModel:
-    def __init__(self, lang: str, words: Iterable[str], top: Iterable[str], model: dict):
+    def __init__(self, lang: str, words: Iterable[str], top: Iterable[str], model: dict,
+                 frequencies: dict[str, float] | None = None):
         self.lang = lang
         self.words = frozenset(words)
         self.top = frozenset(top)
         self.model = model
+        self._frequencies: dict[str, float] = {}
+        for word, count in (frequencies or {}).items():
+            key = self._lookup_key(word)
+            self._frequencies[key] = self._frequencies.get(key, 0) + count
+        self._total_frequency = sum(self._frequencies.values())
         # Для ru — отдельный индекс поиска с «ё» → «е»; сам words остаётся
         # исходным, поэтому top, окончания и вывод не меняются.
         self._folded_words = (frozenset(w.replace("ё", "е") for w in self.words)
@@ -143,16 +151,21 @@ class LanguageModel:
         # Вес слова — log(1 + частота): частые важнее, но не подавляют остальные.
         weighted = [(w, math.log1p(c)) for w, c in ordered]
         return cls(lang, (w for w, _ in ordered), (w for w, _ in ordered[:top_n]),
-                   ngram.train(weighted, alphabet))
+                   ngram.train(weighted, alphabet), dict(rows))
 
     @classmethod
     def load(cls, lang: str, data_dir: Path | None = None, top_n: int = 300) -> LanguageModel:
         base = data_dir or Path(str(resources.files("wayswitch") / "data"))
         words = []
+        frequencies = {}
         with gzip.open(base / f"{lang}.words.gz", "rt", encoding="utf-8") as f:
             for line in f:
-                words.append(line.split("\t", 1)[0])
-        return cls(lang, words, words[:top_n], ngram.load(base / f"{lang}.ngrams.json.gz"))
+                fields = line.rstrip().split("\t", 1)
+                words.append(fields[0])
+                if len(fields) == 2:
+                    frequencies[fields[0]] = float(fields[1])
+        return cls(lang, words, words[:top_n], ngram.load(base / f"{lang}.ngrams.json.gz"),
+                   frequencies)
 
     def _lookup_key(self, text: str) -> str:
         """Ключ поиска: в ru «ё» и «е» равнозначны, в en — только регистр."""
@@ -226,11 +239,16 @@ class LanguageModel:
                 return True
         return False
 
+    def frequency(self, word: str) -> float:
+        return (self._frequencies.get(self._lookup_key(word), 0) / self._total_frequency
+                if self._total_frequency else 0)
+
     def score(self, text: str) -> float:
         return ngram.score(self.model, text)
 
     def with_extra_words(self, words: Iterable[str]) -> LanguageModel:
-        result = LanguageModel(self.lang, self.words | frozenset(words), self.top, self.model)
+        result = LanguageModel(self.lang, self.words | frozenset(words), self.top, self.model,
+                               self._frequencies)
         result._contractions = self._contractions
         return result
 
@@ -254,6 +272,84 @@ class Decision:
     reason: str
     a: Hypothesis
     b: Hypothesis
+    same_layout: bool = False
+
+
+MAX_TYPO_KEYS = 2_000_000
+
+
+def _is_one_deletion(shorter: str, longer: str) -> bool:
+    if len(shorter) + 1 != len(longer):
+        return False
+    i = 0
+    while i < len(shorter) and shorter[i] == longer[i]:
+        i += 1
+    return shorter[i:] == longer[i + 1:]
+
+
+def allowed_edit(a: str, b: str) -> bool:
+    """Допустимая правка v1: 1 вставка, 1 удаление или 1 соседняя перестановка (без замен)."""
+    la, lb = len(a), len(b)
+    if la + 1 == lb:
+        return _is_one_deletion(a, b)
+    if la == lb + 1:
+        return _is_one_deletion(b, a)
+    if la == lb and la >= 2:
+        for i in range(la - 1):
+            if a[i] != b[i]:
+                return (a[i] == b[i + 1] and a[i + 1] == b[i]
+                        and a[i + 2:] == b[i + 2:])
+    return False
+
+
+class TypoIndex:
+    """Локальный индекс одного удаления для слов длиной >= 5."""
+
+    def __init__(self, words: Iterable[str]):
+        base_words = frozenset(
+            w for w in words if len(w) >= 5 and w.isalpha() and w.islower()
+        )
+        self.words = base_words
+        buckets: dict[str, list[str]] = {}
+        for word in base_words:
+            for i in range(len(word)):
+                key = word[:i] + word[i + 1:]
+                bucket = buckets.get(key)
+                if bucket is None:
+                    if len(buckets) >= MAX_TYPO_KEYS:
+                        raise MemoryError("typo index key limit exceeded")
+                    buckets[key] = [word]
+                else:
+                    bucket.append(word)
+        self._deletions: dict[str, tuple[str, ...]] = {
+            k: tuple(v) for k, v in buckets.items()
+        }
+
+    def lookup(self, word: str) -> str | None:
+        if not word or len(word) < 5 or not word.isalpha():
+            return None
+        low = word.lower()
+        if low in self.words:
+            return None
+        candidates: set[str] = set()
+        for cand in self._deletions.get(low, ()):
+            if allowed_edit(low, cand):
+                candidates.add(cand)
+        for i in range(len(low)):
+            key = low[:i] + low[i + 1:]
+            if key in self.words and allowed_edit(low, key):
+                candidates.add(key)
+            for cand in self._deletions.get(key, ()):
+                if allowed_edit(low, cand):
+                    candidates.add(cand)
+        if len(candidates) != 1:
+            return None
+        cand = next(iter(candidates))
+        if word.isupper():
+            return cand.upper()
+        if word[0].isupper() and word[1:].islower():
+            return cand[0].upper() + cand[1:]
+        return cand
 
 
 def _split_tail(text: str, letters: set[str]) -> tuple[str, str]:
@@ -284,13 +380,62 @@ def _mixed_alphabets(core: str) -> bool:
 class Detector:
     def __init__(self, keymap: Keymap, models: dict[str, LanguageModel],
                  exceptions: set[str] | None = None,
-                 sensitivity: Sensitivity = SENSITIVITY["normal"]):
+                 sensitivity: Sensitivity = SENSITIVITY["normal"],
+                 exception_masks: ExceptionRules | None = None,
+                 defer_typo_build: bool = False):
         self.keymap = keymap
         self.models = models
         self.exceptions = exceptions if exceptions is not None else set()
+        self.masks = exception_masks if exception_masks is not None else ExceptionRules()
         self.sensitivity = sensitivity
         self.personal_words: frozenset[tuple[str, str]] = frozenset()
         self._base_models: dict[str, LanguageModel] | None = None
+        self._typo_indices: dict[str, TypoIndex] = {}
+        self._typo_lock = threading.Lock()
+        self._typo_failed = False
+        self._defer_typo_build = defer_typo_build
+
+    def ensure_typo_index(self) -> bool:
+        """Построить индекс опечаток по базовым словарям (вне hot path)."""
+        if self._typo_failed:
+            return False
+        with self._typo_lock:
+            if self._typo_failed:
+                return False
+            base = self._base_models if self._base_models is not None else self.models
+            if set(self._typo_indices) == set(base):
+                return True
+            try:
+                built = {lang: TypoIndex(model.words) for lang, model in base.items()}
+            except MemoryError:
+                self._typo_failed = True
+                self._typo_indices = {}
+                return False
+            self._typo_indices = built
+            return True
+
+    def typo_ready(self) -> bool:
+        base = self._base_models if self._base_models is not None else self.models
+        return bool(self._typo_indices) and set(self._typo_indices) == set(base)
+
+    def typo_candidate(self, core: str, lang: str) -> str | None:
+        idx = self._typo_indices.get(lang)
+        if idx is None:
+            return None
+        return idx.lookup(core)
+
+    def is_excluded(self, word: str) -> bool:
+        """Слово запрещено точным исключением или маской."""
+        if not word:
+            return False
+        return word.lower() in self.exceptions or self.masks.matches(word)
+
+    def exclusion_reason(self, word: str) -> str | None:
+        if not word:
+            return None
+        if word.lower() in self.exceptions:
+            return "exact"
+        return self.masks.reason(word)
 
     def set_personal_words(self, words) -> None:
         if self._base_models is None:
@@ -334,6 +479,10 @@ class Detector:
     def early_url_target(self, keys, current_group: int, other_group: int) -> str | None:
         """Слово в другой раскладке — ровно схема URL: исправлять, не дожидаясь пробела."""
         if self.lang_of_group(other_group) != "en":
+            return None
+        source = self.decode(keys, current_group)
+        if (any(e.startswith(source.lower()) for e in self.exceptions)
+                or self.masks.matches_prefix(source)):
             return None
         b = self.decode(keys, other_group)
         return b if b.lower() in URL_SCHEMES else None
@@ -430,9 +579,9 @@ class Detector:
             if any(c.lower() not in LETTERS[lang] for c in text) or not text[1:].islower():
                 return None  # знаки, цифры, «ПРив», аббревиатуры — не трогаем
         start = a.lower()
-        if any(e.startswith(start) for e in self.exceptions):
-            return None  # «ghbdtn» в исключениях — не трогать и его начало
-        if any(lang == oth and word.startswith(b.lower()) and word in self.exceptions
+        if any(e.startswith(start) for e in self.exceptions) or self.masks.matches_prefix(a):
+            return None  # «ghbdtn» в исключениях/масках — не трогать и его начало
+        if any(lang == oth and word.startswith(b.lower()) and self.is_excluded(word)
                for lang, word in self.personal_words):
             return None
         if self.models[cur].has_prefix(start):
@@ -532,7 +681,8 @@ class Detector:
 
     def decide(self, keys, current_group: int, other_group: int,
                context: tuple[str | None, str | None] = (None, None), *,
-               two_capitals: bool = False, short_words: bool = False) -> Decision:
+               two_capitals: bool = False, short_words: bool = False,
+               typo_fix: bool = False) -> Decision:
         a = self.hypothesis(keys, current_group)
         b = self.hypothesis(keys, other_group)
         sens = self.sensitivity
@@ -552,6 +702,8 @@ class Detector:
         bl = b.text.lower()
         if (bl.startswith(TECH_PREFIXES) or "://" in bl) and not a.in_dict \
                 and b.lang == "en":
+            if self.is_excluded(a.text) or self.is_excluded(a.core):
+                return keep("exception")
             return Decision("fix", b.text, 1.0, "url", a, b)
 
         # 3. Стоп-правила по тому, что на экране.
@@ -571,7 +723,7 @@ class Detector:
             return keep("tech")
         if 2 <= len(a.core) < 5 and a.core.isupper():
             return keep("abbrev")
-        if a.core.lower() in self.exceptions:
+        if self.is_excluded(a.core):
             return keep("exception")
         if _is_camel(b.core) and capitals is None:
             return keep("camel")
@@ -583,7 +735,7 @@ class Detector:
         if ":" in a.tail:
             return keep("punctuation")
         if b.valid and (b.lang, b.core.lower()) in self.personal_words:
-            if b.core.lower() in self.exceptions:
+            if self.is_excluded(b.core):
                 return keep("exception")
             return fix("personal", 1.0)
 
@@ -596,6 +748,18 @@ class Detector:
                 and context[-1] in (None, b.lang):
             return fix("dict-short-opt-in", 0.8)
         if a.valid and a.in_dict:
+            source, target = self.models[a.lang], self.models[b.lang]
+            source_frequency = source.frequency(a.core)
+            # Rare corpus entries need a large frequency advantage, not short-word n-grams alone.
+            if (b.valid and b.in_dict and len(b.core) >= max(3, sens.min_length)
+                    and b.core.lower() in target.top and a.core.lower() not in source.top
+                    and 0 < source_frequency <= 0.5 / 1_000_000
+                    and target.frequency(b.core) >= 1000 * source_frequency
+                    and (a.lang, a.core.lower()) not in self.personal_words
+                    and context[-1] in (None, b.lang) and not self.is_excluded(b.core)):
+                a.score, b.score = source.score(a.core), target.score(b.core)
+                if b.score >= sens.floor and b.score >= a.score - 0.5:
+                    return fix("dict-frequency", 0.8)
             return keep("dict-a", 1.0)
         short = len(b.core) < sens.min_length
         if b.valid and b.in_dict and not short:
@@ -608,18 +772,32 @@ class Detector:
                 return fix("dict-short", 0.8)
             return keep("short")
 
+        def keep_or_typo(reason: str, conf: float = 0.0) -> Decision:
+            if not typo_fix:
+                return keep(reason, conf)
+            ready = (self.typo_ready() if self._defer_typo_build
+                     else self.ensure_typo_index())
+            if (ready and a.valid and not a.in_dict and len(a.core) >= 5
+                    and (a.lang, a.core.lower()) not in self.personal_words
+                    and not self.is_excluded(a.core)):
+                fixed = self.typo_candidate(a.core, a.lang)
+                if fixed is not None and fixed != a.core:
+                    return Decision("fix", fixed + a.tail, 0.75, "typo",
+                                    a, b, same_layout=True)
+            return keep(reason, conf)
+
         # 6–7. N-граммы.
         if not b.valid:
-            return keep("b-invalid")
+            return keep_or_typo("b-invalid")
         if len(b.core) <= 3:
             # Три буквы триграммам не по силам: «cfg», «wtf», «xkb» выглядели
             # бы русскими словами. Короткое слово — только по словарю (выше).
-            return keep("short-ngram")
+            return keep_or_typo("short-ngram")
         b.score = self.models[b.lang].score(b.core)
         a.score = self.models[a.lang].score(a.core) if a.valid else None
         margin = sens.margin * (2.0 if context == (a.lang, a.lang) else 1.0)
         if b.score < sens.floor:
-            return keep(f"ngram-floor {b.score:.2f}")
+            return keep_or_typo(f"ngram-floor {b.score:.2f}")
         if a.score is None:
             return fix(f"ngram-only {b.score:.2f}", 0.7)
         delta = b.score - a.score

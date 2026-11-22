@@ -131,6 +131,20 @@ def test_sway_external_change_event():
     assert seen == [(1, True), (0, False)]
 
 
+@pytest.mark.parametrize("names", [(None,), ("English (US)", None), ("",)])
+def test_sway_rejects_missing_layout_labels(names):
+    with pytest.raises(BackendError):
+        make_sway(FakeSway(names=names))
+
+
+def test_sway_ignores_unlabelled_keyboard_before_real_keyboard():
+    unlabelled = {"type": "keyboard", "identifier": "virtual", "xkb_layout_names": [None]}
+    real = {"type": "keyboard", "identifier": "physical",
+            "xkb_layout_names": ["English (US)"]}
+    assert sway.main_keyboard([unlabelled, real]) is real
+    assert sway.main_keyboard([unlabelled, real], "virtual") is None
+
+
 def test_sway_needs_an_actual_layout_list():
     with pytest.raises(BackendError):
         make_sway(FakeSway(names=()))

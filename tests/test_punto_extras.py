@@ -13,7 +13,7 @@ from tests.fakes import (
     make_keymap,
     run_after_key,
 )
-from tests.test_controller import NativeTypist
+from tests.test_controller import RecordingReplacer
 from wayswitch import a11y
 from wayswitch import config as cfgmod
 from wayswitch import keycodes as kc
@@ -49,10 +49,11 @@ def make(real, group, config=None, selection="", monkeypatch=None, native=False)
     km, models = real
     backend = SelBackend(current=group)
     backend.selection = selection
-    typist, corrected = NativeTypist() if native else RecordingTypist(), []
+    typist, corrected = RecordingTypist(), []
+    replacer = RecordingReplacer() if native else None
     ctrl = Controller(config or Config(), km, Detector(km, models), backend, typist,
                       on_corrected=lambda o, f, m: corrected.append((o, f, m)),
-                      probe=SelectionProbe())
+                      probe=SelectionProbe(), native_replacer=replacer)
     ctrl.probe.clock = lambda: ctrl.clock()
     if monkeypatch is not None:
         def read(expected, valid, limit):
@@ -263,7 +264,7 @@ def test_early_switch_on_fourth_letter(real):
     for key in keys_for_text(km, "ет ", RU):
         press(ctrl, key.code)
     assert len(corrected) == 1
-    assert typist.native == [("ghbd", "прив")]
+    assert ctrl.native_replacer.native == [("ghbd", "прив")]
     assert not typist.taps()
 
 

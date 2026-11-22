@@ -59,22 +59,22 @@ def make_transport(kind):
             super().type_text(text)
             field.write(text)
 
-    class Native(Text):
-        def replace_span(self, focus, source, target, commit, stopped):
-            if not commit():
-                return SpanResult(ABORTED)
-            field.selected = True
-            field.write(target)
-            return SpanResult(DONE, True)
+    def replace_span(focus, source, target, commit, stopped):
+        if not commit():
+            return SpanResult(ABORTED)
+        field.selected = True
+        field.write(target)
+        return SpanResult(DONE, True)
 
-    typist = {"keys": Keys, "text": Text, "native": Native}[kind]()
+    typist = Keys() if kind == "keys" else Text()
+    replacer = replace_span if kind == "native" else None
     steps = [SwitchLayout(US)]
     if kind == "native":
         steps.append(Backspace(3))
     steps.append(Type("ab", [(kc.KEY_A, False), (kc.KEY_B, False)]))
     plan = Plan(steps, source_text="old" if kind == "native" else None,
                 focus=FOCUS if kind == "native" else None)
-    return field, backend, typist, plan
+    return field, backend, typist, plan, replacer
 
 
 @pytest.fixture(params=["keys", "text", "native"])
@@ -83,7 +83,7 @@ def transport(request):
 
 
 def test_selection_changed_during_layout_wait_is_not_overwritten(transport):
-    field, backend, typist, plan = transport
+    field, backend, typist, plan, replacer = transport
 
     def wait(index, timeout):
         field.selected = False
@@ -91,25 +91,27 @@ def test_selection_changed_during_layout_wait_is_not_overwritten(transport):
 
     backend.wait_applied = wait
     assert execute(plan, typist, backend, restore_group=RU,
-                   before_write=lambda: field.selected) == ABORTED
+                   before_write=lambda: field.selected,
+                   native_replacer=replacer) == ABORTED
     assert field.text == "old" and backend.current() == RU
 
 
 def test_selection_changed_during_modifier_wait_is_not_overwritten(transport):
-    field, backend, typist, plan = transport
+    field, backend, typist, plan, replacer = transport
 
     def hold():
         field.selected = False
         return True
 
     assert execute(plan, typist, backend, restore_group=RU, hold=hold,
-                   before_write=lambda: field.selected) == ABORTED
+                   before_write=lambda: field.selected,
+                   native_replacer=replacer) == ABORTED
     assert field.text == "old" and backend.current() == RU
 
 
 @pytest.mark.parametrize("raises", [False, True])
 def test_rejected_or_failed_validation_never_changes_text(transport, raises, caplog):
-    field, backend, typist, plan = transport
+    field, backend, typist, plan, replacer = transport
 
     def validate():
         if raises:
@@ -117,27 +119,29 @@ def test_rejected_or_failed_validation_never_changes_text(transport, raises, cap
         return False
 
     assert execute(plan, typist, backend, restore_group=RU,
-                   before_write=validate) == (FAILED if raises else ABORTED)
+                   before_write=validate,
+                   native_replacer=replacer) == (FAILED if raises else ABORTED)
     assert field.text == "old" and backend.current() == RU
     assert "private selected text" not in caplog.text
 
 
 def test_validation_runs_once_even_when_own_write_clears_selection(transport):
-    field, backend, typist, plan = transport
+    field, backend, typist, plan, replacer = transport
     checks = []
 
     def validate():
         checks.append((backend.current(), field.selected))
         return field.selected
 
-    assert execute(plan, typist, backend, before_write=validate) == DONE
+    assert execute(plan, typist, backend, before_write=validate,
+                   native_replacer=replacer) == DONE
     assert field.text == "ab" and checks == [(US, True)]
 
 
 @pytest.mark.parametrize("mode", ["layout", "caps"])
 @pytest.mark.parametrize("probe", [1, 2])
 def test_postvalidation_physical_input_cannot_authorize_first_write(transport, mode, probe):
-    field, backend, typist, plan = transport
+    field, backend, typist, plan, replacer = transport
     if mode == "caps":
         plan.steps[0] = ToggleCaps()
     ready = [False]
@@ -158,7 +162,8 @@ def test_postvalidation_physical_input_cannot_authorize_first_write(transport, m
         return False
 
     result = execute(plan, typist, backend, restore_group=RU,
-                     abort=abort, before_write=validate)
+                     abort=abort, before_write=validate,
+                     native_replacer=replacer)
     allowed = {ABORTED} if probe == 1 else {ABORTED, FAILED}
     assert result in allowed
     assert field.text == "oldx"
@@ -168,7 +173,7 @@ def test_postvalidation_physical_input_cannot_authorize_first_write(transport, m
 
 @pytest.mark.parametrize("raises", [False, True])
 def test_validation_failure_preserves_mode_used_by_physical_input(transport, raises):
-    field, backend, typist, plan = transport
+    field, backend, typist, plan, replacer = transport
     appended = []
 
     def validate():
@@ -180,13 +185,14 @@ def test_validation_failure_preserves_mode_used_by_physical_input(transport, rai
         return False
 
     assert execute(plan, typist, backend, restore_group=RU,
-                   abort=lambda: bool(appended), before_write=validate) == (
+                   abort=lambda: bool(appended), before_write=validate,
+                   native_replacer=replacer) == (
                        FAILED if raises else ABORTED)
     assert field.text == "oldx" and backend.current() == US
 
 
 def test_validation_cannot_bypass_lock_delivered_by_its_callback(transport):
-    field, backend, typist, plan = transport
+    field, backend, typist, plan, replacer = transport
     locked = []
 
     def validate():
@@ -194,7 +200,7 @@ def test_validation_cannot_bypass_lock_delivered_by_its_callback(transport):
         return True
 
     assert execute(plan, typist, backend, stop=lambda: bool(locked),
-                   before_write=validate) == ABORTED
+                   before_write=validate, native_replacer=replacer) == ABORTED
     assert field.text == "old"
 
 
@@ -219,7 +225,7 @@ def test_validation_precedes_first_backspace(kind):
 
 
 def test_native_physical_mode_commit_does_not_skip_validation():
-    field, backend, typist, plan = make_transport("native")
+    field, backend, typist, plan, replacer = make_transport("native")
     appended = []
 
     def wait(index, timeout):
@@ -230,7 +236,8 @@ def test_native_physical_mode_commit_does_not_skip_validation():
 
     backend.wait_applied = wait
     assert execute(plan, typist, backend, restore_group=RU, abort=lambda: bool(appended),
-                   before_write=lambda: field.selected) == ABORTED
+                   before_write=lambda: field.selected,
+                   native_replacer=replacer) == ABORTED
     assert field.text == "oldx" and backend.current() == US
 
 
