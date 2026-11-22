@@ -48,7 +48,7 @@ locale; correction supports the Russian ↔ English pair.
 > continuous typing when the application briefly lags behind keyboard events.
 > Caret, text-length and safety checks remain in place.
 
-> **Upgrading to 1.2.3 on GNOME:** sign out of the graphical session and
+> **Upgrading from 1.2.2 or earlier on GNOME:** sign out of the graphical session and
 > sign back in after installation. The updated extension uses protocol 5;
 > restarting only the WaySwitch service does not reload GNOME Shell code.
 
