@@ -1,7 +1,7 @@
 pkgbase = wayswitch
 	pkgdesc = Fixes words typed in the wrong keyboard layout on Wayland (ru/en)
-	pkgver = 1.2.2
-	pkgrel = 2
+	pkgver = 1.2.3a1
+	pkgrel = 1
 	epoch = 1
 	url = https://github.com/Wetoshkin/WaySwitch
 	install = wayswitch.install
@@ -20,7 +20,7 @@ pkgbase = wayswitch
 	optdepends = ibus: запасной способ переключения раскладки в GNOME
 	optdepends = pipewire: звук при исправлении (pw-play)
 	backup = etc/xdg/autostart/wayswitch-session.desktop
-	source = wayswitch-1.2.2.tar.gz::https://github.com/Wetoshkin/WaySwitch/archive/ccd68cbc9b104d8be7fe9fc9cd39f4b64e20d921.tar.gz
+	source = wayswitch-1.2.3a1.tar.gz::https://github.com/Wetoshkin/WaySwitch/archive/ccd68cbc9b104d8be7fe9fc9cd39f4b64e20d921.tar.gz
 	sha256sums = e2d717c7f98c7f22b8e3bae83c73fe23c1b888605e578ac413ee25cb92c450f3
 
 pkgname = wayswitch
