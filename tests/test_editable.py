@@ -1545,6 +1545,63 @@ def test_plain_field_native_replacement_preserves_append_before_first_insert(pla
     assert native.stopped.fast_switch
 
 
+@pytest.mark.parametrize("entry", ["try_replace", "try_replace_kde"])
+def test_plain_field_waits_for_client_to_apply_observed_key(plain_native, monkeypatch, entry):
+    native = plain_native
+    read = native.tree.text_range
+    pending = []
+
+    def kernel_key_before_client(node, start, end):
+        text = read(node, start, end)
+        if not pending:
+            assert native.stopped.anchor
+            native.physical[0] += 1
+            native.stopped.aborted = True
+            pending.append(True)
+        return text
+
+    def client_catches_up(_delay):
+        assert native.tree.writes == []
+        native.tree.append("X")
+
+    native.tree.text_range = kernel_key_before_client
+    monkeypatch.setattr(editable.time, "sleep", client_catches_up)
+    result = getattr(editable, entry)(native.focus, SOURCE, TARGET,
+                                     native.commit, native.stopped)
+    assert result == editable.SpanResult("done", True)
+    assert native.tree.text == "Test " + TARGET + "X"
+    assert native.tree.position == len(native.tree.text)
+
+
+@pytest.mark.parametrize("lose_focus", [False, True])
+def test_plain_field_client_lag_never_authorizes_unproven_write(
+        plain_native, monkeypatch, lose_focus):
+    native = plain_native
+    read = native.tree.text_range
+    pending, waits = [], []
+
+    def kernel_key_before_client(node, start, end):
+        text = read(node, start, end)
+        if not pending:
+            native.physical[0] += 1
+            native.stopped.aborted = True
+            pending.append(True)
+        return text
+
+    def wait(delay):
+        waits.append(delay)
+        if lose_focus:
+            native.tree.focused = False
+
+    native.tree.text_range = kernel_key_before_client
+    monkeypatch.setattr(editable.time, "sleep", wait)
+    result = editable.try_replace(native.focus, SOURCE, TARGET,
+                                  native.commit, native.stopped)
+    assert result == editable.SpanResult("aborted")
+    assert native.tree.writes == []
+    assert len(waits) <= 3
+
+
 @pytest.mark.parametrize("convert_on_write", [False, True])
 def test_plain_field_accepts_browser_nonbreaking_spaces(plain_native, convert_on_write):
     native = plain_native

@@ -348,9 +348,18 @@ def _replace_checked(tree, focus, source, target, commit, stopped, events, safe,
                 last = _physical_count(stopped)
                 if first == last and first is not None:
                     appended = first - physical_base
-                    return (0 <= appended <= 1024
-                            and current_count == anchor_count + appended
-                            and current_caret == anchor_caret + appended)
+                    if not 0 <= appended <= 1024:
+                        return False
+                    if (current_count == anchor_count + appended
+                            and current_caret == anchor_caret + appended):
+                        return True
+                    if (type(current_count) is not int or type(current_caret) is not int
+                            or not anchor_count <= current_count <= anchor_count + appended
+                            or not anchor_caret <= current_caret <= anchor_caret + appended):
+                        return False
+                    # evdev может опередить обработку той же клавиши приложением.
+                    if _ < 2:
+                        time.sleep(0.01)
             return False
 
         if not append_only():
