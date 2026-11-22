@@ -67,6 +67,11 @@ locale; correction supports the Russian ↔ English pair.
 - **Undo that learns.** The same gesture right after an automatic fix
   restores the word; after two undos it is added to exceptions. The threshold
   is configurable.
+- **Rare dictionary collisions.** A rare source entry may yield to a frequent
+  word in the other layout (`nen` → «тут») when corpus frequency strongly
+  favors it and trigrams do not contradict it. Ordinary source words, source
+  language context, exclusions and personal entries remain protected. Rare
+  names and abbreviations without context can still be ambiguous.
 - **Personal dictionary.** Add, edit or exclude a correct word and its language
   in Preferences; for example, `гигтег` → `ubuntu`. Learning from manual
   corrections is separately opt-in and off by default.

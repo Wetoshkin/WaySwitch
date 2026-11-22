@@ -124,11 +124,17 @@ SENSITIVITY = {
 
 
 class LanguageModel:
-    def __init__(self, lang: str, words: Iterable[str], top: Iterable[str], model: dict):
+    def __init__(self, lang: str, words: Iterable[str], top: Iterable[str], model: dict,
+                 frequencies: dict[str, float] | None = None):
         self.lang = lang
         self.words = frozenset(words)
         self.top = frozenset(top)
         self.model = model
+        self._frequencies: dict[str, float] = {}
+        for word, count in (frequencies or {}).items():
+            key = self._lookup_key(word)
+            self._frequencies[key] = self._frequencies.get(key, 0) + count
+        self._total_frequency = sum(self._frequencies.values())
         # Для ru — отдельный индекс поиска с «ё» → «е»; сам words остаётся
         # исходным, поэтому top, окончания и вывод не меняются.
         self._folded_words = (frozenset(w.replace("ё", "е") for w in self.words)
@@ -145,16 +151,21 @@ class LanguageModel:
         # Вес слова — log(1 + частота): частые важнее, но не подавляют остальные.
         weighted = [(w, math.log1p(c)) for w, c in ordered]
         return cls(lang, (w for w, _ in ordered), (w for w, _ in ordered[:top_n]),
-                   ngram.train(weighted, alphabet))
+                   ngram.train(weighted, alphabet), dict(rows))
 
     @classmethod
     def load(cls, lang: str, data_dir: Path | None = None, top_n: int = 300) -> LanguageModel:
         base = data_dir or Path(str(resources.files("wayswitch") / "data"))
         words = []
+        frequencies = {}
         with gzip.open(base / f"{lang}.words.gz", "rt", encoding="utf-8") as f:
             for line in f:
-                words.append(line.split("\t", 1)[0])
-        return cls(lang, words, words[:top_n], ngram.load(base / f"{lang}.ngrams.json.gz"))
+                fields = line.rstrip().split("\t", 1)
+                words.append(fields[0])
+                if len(fields) == 2:
+                    frequencies[fields[0]] = float(fields[1])
+        return cls(lang, words, words[:top_n], ngram.load(base / f"{lang}.ngrams.json.gz"),
+                   frequencies)
 
     def _lookup_key(self, text: str) -> str:
         """Ключ поиска: в ru «ё» и «е» равнозначны, в en — только регистр."""
@@ -228,11 +239,16 @@ class LanguageModel:
                 return True
         return False
 
+    def frequency(self, word: str) -> float:
+        return (self._frequencies.get(self._lookup_key(word), 0) / self._total_frequency
+                if self._total_frequency else 0)
+
     def score(self, text: str) -> float:
         return ngram.score(self.model, text)
 
     def with_extra_words(self, words: Iterable[str]) -> LanguageModel:
-        result = LanguageModel(self.lang, self.words | frozenset(words), self.top, self.model)
+        result = LanguageModel(self.lang, self.words | frozenset(words), self.top, self.model,
+                               self._frequencies)
         result._contractions = self._contractions
         return result
 
@@ -732,6 +748,18 @@ class Detector:
                 and context[-1] in (None, b.lang):
             return fix("dict-short-opt-in", 0.8)
         if a.valid and a.in_dict:
+            source, target = self.models[a.lang], self.models[b.lang]
+            source_frequency = source.frequency(a.core)
+            # Rare corpus entries need a large frequency advantage, not short-word n-grams alone.
+            if (b.valid and b.in_dict and len(b.core) >= max(3, sens.min_length)
+                    and b.core.lower() in target.top and a.core.lower() not in source.top
+                    and 0 < source_frequency <= 0.5 / 1_000_000
+                    and target.frequency(b.core) >= 1000 * source_frequency
+                    and (a.lang, a.core.lower()) not in self.personal_words
+                    and context[-1] in (None, b.lang) and not self.is_excluded(b.core)):
+                a.score, b.score = source.score(a.core), target.score(b.core)
+                if b.score >= sens.floor and b.score >= a.score - 0.5:
+                    return fix("dict-frequency", 0.8)
             return keep("dict-a", 1.0)
         short = len(b.core) < sens.min_length
         if b.valid and b.in_dict and not short:
